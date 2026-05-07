@@ -179,6 +179,7 @@ const CONFIG = {
   SUPABASE_URL: 'https://pkrxtphsahzlelczjfwl.supabase.co',          // 例: https://xxxx.supabase.co
   SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBrcnh0cGhzYWh6bGVsY3pqZndsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTA0NzQsImV4cCI6MjA5MzY2NjQ3NH0.JnayWimn16eC8TyXewl1-uk3kwSyGDBhgZJTu05JeEM',
 
+
   ADMIN_PASSWORD:    'admin1234',   // ← 管理画面のパスワード（必ず変更してください）
   CLINIC_NAME:       'MedCheckクリニック',
 };
@@ -302,6 +303,7 @@ const CONFIG = {
 </div>
 
 <script>
+
 // ── INIT ────────────────────────────────────────────
 const isConfigured = CONFIG.SUPABASE_URL !== 'YOUR_SUPABASE_URL';
 let sbClient = null;
@@ -520,32 +522,8 @@ function getDemoData(){
     {id:'5',booking_code:'MC00112237',plan_name:'生活習慣病健診',plan_price:12000,booking_date:fmtDate(-5),booking_time:'11:00',last_name:'高橋',first_name:'健二',last_kana:'タカハシ',first_kana:'ケンジ',birthdate:'1970-09-30',gender:'男性',tel:'090-9999-0000',email:'takahashi@example.com',company:'高橋工業',notes:'',status:'cancelled',created_at:new Date(Date.now()-7*86400000).toISOString()},
   ];
 }
-</script>
 
-<!-- PLAN MODAL -->
-<div class="modal-overlay" id="planModalOverlay" onclick="if(event.target===this)closePlanModal()">
-  <div class="modal">
-    <div class="modal-head">
-      <h3 id="planModalTitle">コースを追加</h3>
-      <button class="modal-close" onclick="closePlanModal()">✕</button>
-    </div>
-    <div class="modal-body">
-      <div class="plan-form">
-        <input type="hidden" id="planId">
-        <div><label>コース名 ※</label><input type="text" id="planName" placeholder="例：基本健診コース"></div>
-        <div><label>料金（円）※</label><input type="number" id="planPrice" placeholder="例：5500"></div>
-        <div><label>説明文 ※</label><textarea id="planDesc" rows="3" placeholder="検査内容の説明"></textarea></div>
-        <div><label>表示順（小さい数字が先）</label><input type="number" id="planOrder" value="1"></div>
-      </div>
-    </div>
-    <div class="modal-actions">
-      <button class="act-btn act-cancel" onclick="closePlanModal()">キャンセル</button>
-      <button class="act-btn act-complete" onclick="savePlan()">保存する</button>
-    </div>
-  </div>
-</div>
 
-<script>
 // ── PLANS MANAGEMENT ─────────────────────────────────
 let allPlans = [];
 
@@ -642,6 +620,32 @@ function switchView(v, el){
   _origSwitchView(v, el);
   if(v==='plans') loadPlans();
 }
+
 </script>
+
+<!-- PLAN MODAL -->
+<div class="modal-overlay" id="planModalOverlay" onclick="if(event.target===this)closePlanModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="planModalTitle">コースを追加</h3>
+      <button class="modal-close" onclick="closePlanModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="plan-form">
+        <input type="hidden" id="planId">
+        <div><label>コース名 ※</label><input type="text" id="planName" placeholder="例：基本健診コース"></div>
+        <div><label>料金（円）※</label><input type="number" id="planPrice" placeholder="例：5500"></div>
+        <div><label>説明文 ※</label><textarea id="planDesc" rows="3" placeholder="検査内容の説明"></textarea></div>
+        <div><label>表示順（小さい数字が先）</label><input type="number" id="planOrder" value="1"></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="act-btn act-cancel" onclick="closePlanModal()">キャンセル</button>
+      <button class="act-btn act-complete" onclick="savePlan()">保存する</button>
+    </div>
+  </div>
+</div>
+
+
 </body>
 </html>

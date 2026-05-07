@@ -176,9 +176,9 @@ tbody td { padding:12px 16px; font-size:13px; color:var(--navy); vertical-align:
 ════════════════════════════════════ -->
 <script>
 const CONFIG = {
-  SUPABASE_URL:      'https://pkrxtphsahzlelczjfwl.supabase.co',
-  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBrcnh0cGhzYWh6bGVsY3pqZndsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTA0NzQsImV4cCI6MjA5MzY2NjQ3NH0.JnayWimn16eC8TyXewl1-uk3kwSyGDBhgZJTu05JeEM',
-  ADMIN_PASSWORD:    'Usagi-501026',   // ← 管理画面のパスワード（必ず変更してください）
+  SUPABASE_URL:      'YOUR_SUPABASE_URL',
+  SUPABASE_ANON_KEY: 'YOUR_SUPABASE_ANON_KEY',
+  ADMIN_PASSWORD:    'admin1234',   // ← 管理画面のパスワード（必ず変更してください）
   CLINIC_NAME:       'MedCheckクリニック',
 };
 </script>
@@ -518,6 +518,128 @@ function getDemoData(){
     {id:'4',booking_code:'MC00112236',plan_name:'定期健康診断（雇入時）',plan_price:8800,booking_date:fmtDate(-2),booking_time:'09:00',last_name:'佐藤',first_name:'美咲',last_kana:'サトウ',first_kana:'ミサキ',birthdate:'1995-02-18',gender:'女性',tel:'090-7777-8888',email:'sato@example.com',company:'',notes:'',status:'completed',created_at:new Date(Date.now()-3*86400000).toISOString()},
     {id:'5',booking_code:'MC00112237',plan_name:'生活習慣病健診',plan_price:12000,booking_date:fmtDate(-5),booking_time:'11:00',last_name:'高橋',first_name:'健二',last_kana:'タカハシ',first_kana:'ケンジ',birthdate:'1970-09-30',gender:'男性',tel:'090-9999-0000',email:'takahashi@example.com',company:'高橋工業',notes:'',status:'cancelled',created_at:new Date(Date.now()-7*86400000).toISOString()},
   ];
+}
+</script>
+
+<!-- PLAN MODAL -->
+<div class="modal-overlay" id="planModalOverlay" onclick="if(event.target===this)closePlanModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="planModalTitle">コースを追加</h3>
+      <button class="modal-close" onclick="closePlanModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="plan-form">
+        <input type="hidden" id="planId">
+        <div><label>コース名 ※</label><input type="text" id="planName" placeholder="例：基本健診コース"></div>
+        <div><label>料金（円）※</label><input type="number" id="planPrice" placeholder="例：5500"></div>
+        <div><label>説明文 ※</label><textarea id="planDesc" rows="3" placeholder="検査内容の説明"></textarea></div>
+        <div><label>表示順（小さい数字が先）</label><input type="number" id="planOrder" value="1"></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="act-btn act-cancel" onclick="closePlanModal()">キャンセル</button>
+      <button class="act-btn act-complete" onclick="savePlan()">保存する</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── PLANS MANAGEMENT ─────────────────────────────────
+let allPlans = [];
+
+async function loadPlans(){
+  const grid = document.getElementById('plansGrid');
+  grid.innerHTML = '<div style="text-align:center;padding:40px;color:var(--gray)"><div class="spinner"></div> 読み込み中...</div>';
+  if(!isConfigured || !supabase){
+    allPlans = getDemoPlans();
+    renderPlans();
+    return;
+  }
+  const {data,error} = await supabase.from('plans').select('*').order('sort_order');
+  if(error){ grid.innerHTML = '<div style="color:var(--error);padding:20px">読み込みエラー: '+error.message+'</div>'; return; }
+  allPlans = data;
+  renderPlans();
+}
+
+function renderPlans(){
+  const grid = document.getElementById('plansGrid');
+  if(allPlans.length===0){ grid.innerHTML='<div style="text-align:center;padding:40px;color:var(--gray)">コースがありません</div>'; return; }
+  grid.innerHTML = allPlans.map(p => `
+    <div class="plan-mgmt-card${p.is_active?'':' inactive'}">
+      <div class="plan-badge ${p.is_active?'active':'inactive'}">${p.is_active?'公開中':'非公開'}</div>
+      <div class="plan-mgmt-name">${p.name}</div>
+      <div class="plan-mgmt-desc">${p.description||''}</div>
+      <div class="plan-mgmt-price">¥${Number(p.price).toLocaleString()}<span style="font-family:'Noto Sans JP',sans-serif;font-size:12px;color:var(--gray)">（税込）</span></div>
+      <div class="plan-mgmt-actions">
+        <button class="btn-edit" onclick="openPlanModal('${p.id}')">✏️ 編集</button>
+        <button class="btn-toggle-plan" onclick="togglePlan('${p.id}',${p.is_active})">${p.is_active?'非公開にする':'公開する'}</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function openPlanModal(id){
+  const p = id ? allPlans.find(x=>x.id===id) : null;
+  document.getElementById('planModalTitle').textContent = p ? 'コースを編集' : 'コースを追加';
+  document.getElementById('planId').value = p ? p.id : '';
+  document.getElementById('planName').value = p ? p.name : '';
+  document.getElementById('planPrice').value = p ? p.price : '';
+  document.getElementById('planDesc').value = p ? (p.description||'') : '';
+  document.getElementById('planOrder').value = p ? p.sort_order : allPlans.length+1;
+  document.getElementById('planModalOverlay').classList.add('show');
+}
+function closePlanModal(){ document.getElementById('planModalOverlay').classList.remove('show'); }
+
+async function savePlan(){
+  const id = document.getElementById('planId').value;
+  const name = document.getElementById('planName').value.trim();
+  const price = parseInt(document.getElementById('planPrice').value);
+  const description = document.getElementById('planDesc').value.trim();
+  const sort_order = parseInt(document.getElementById('planOrder').value)||1;
+  if(!name||!price){ alert('コース名と料金は必須です。'); return; }
+  const payload = {name, price, description, sort_order, is_active:true};
+  if(isConfigured && supabase){
+    if(id){
+      const {error} = await supabase.from('plans').update(payload).eq('id',id);
+      if(error){alert('更新失敗: '+error.message);return;}
+    } else {
+      const {error} = await supabase.from('plans').insert([payload]);
+      if(error){alert('追加失敗: '+error.message);return;}
+    }
+  } else {
+    if(id){ const p=allPlans.find(x=>x.id===id); if(p) Object.assign(p,payload); }
+    else allPlans.push({id:Date.now().toString(),...payload});
+  }
+  closePlanModal();
+  loadPlans();
+}
+
+async function togglePlan(id, current){
+  if(!confirm(current?'このコースを非公開にしますか？':'このコースを公開しますか？')) return;
+  if(isConfigured && supabase){
+    const {error} = await supabase.from('plans').update({is_active:!current}).eq('id',id);
+    if(error){alert('更新失敗: '+error.message);return;}
+  } else {
+    const p=allPlans.find(x=>x.id===id); if(p) p.is_active=!current;
+  }
+  loadPlans();
+}
+
+function getDemoPlans(){
+  return [
+    {id:'1',name:'基本健診コース',price:5500,description:'身長・体重・血圧・尿検査・血液検査（基本項目）',sort_order:1,is_active:true},
+    {id:'2',name:'生活習慣病健診',price:12000,description:'基本項目＋脂質・肝機能・腎機能・血糖・心電図',sort_order:2,is_active:true},
+    {id:'3',name:'定期健康診断（雇入時）',price:8800,description:'労働安全衛生法に基づく雇入時健診 全11項目',sort_order:3,is_active:true},
+    {id:'4',name:'人間ドック（半日）',price:28000,description:'胸部X線・胃部X線・腹部超音波・眼底検査を含む総合コース',sort_order:4,is_active:true},
+  ];
+}
+
+// Hook into switchView
+const _origSwitchView = switchView;
+function switchView(v, el){
+  _origSwitchView(v, el);
+  if(v==='plans') loadPlans();
 }
 </script>
 </body>

@@ -240,6 +240,7 @@ const CONFIG = {
   EMAILJS_PUBLIC_KEY:  'knYZdDUGkVmZhQFPT',
 
 
+
   // 3) クリニック情報
   CLINIC_NAME:    'MedCheckクリニック',
   CLINIC_TEL:     '03-1234-5678',
@@ -459,24 +460,34 @@ document.getElementById('hTel').textContent = CONFIG.CLINIC_TEL;
 document.getElementById('n-tel').textContent = CONFIG.CLINIC_TEL;
 
 // ─── PLANS ──────────────────────────────────────────
-const PLANS = [
-  { name:'基本健診コース',         price:5500,  desc:'身長・体重・血圧・尿検査・血液検査（基本項目）', badge:null },
-  { name:'生活習慣病健診',         price:12000, desc:'基本項目＋脂質・肝機能・腎機能・血糖・心電図',   badge:'人気' },
-  { name:'定期健康診断（雇入時）', price:8800,  desc:'労働安全衛生法に基づく雇入時健診 全11項目',       badge:null },
-  { name:'人間ドック（半日）',     price:28000, desc:'胸部X線・胃部X線・腹部超音波・眼底検査を含む総合コース', badge:null },
+const DEMO_PLANS = [
+  { name:'基本健診コース',         price:5500,  description:'身長・体重・血圧・尿検査・血液検査（基本項目）' },
+  { name:'生活習慣病健診',         price:12000, description:'基本項目＋脂質・肝機能・腎機能・血糖・心電図' },
+  { name:'定期健康診断（雇入時）', price:8800,  description:'労働安全衛生法に基づく雇入時健診 全11項目' },
+  { name:'人間ドック（半日）',     price:28000, description:'胸部X線・胃部X線・腹部超音波・眼底検査を含む総合コース' },
 ];
 
-(function renderPlans(){
+async function loadPlans(){
   const grid = document.getElementById('planGrid');
-  PLANS.forEach(p => {
+  grid.innerHTML = '<div style="text-align:center;padding:30px;color:var(--gray)"><div class="cal-spinner"></div> コース情報を読み込み中...</div>';
+  let plans = DEMO_PLANS;
+  if(isConfigured && sbClient){
+    try {
+      const {data} = await sbClient.from('plans').select('*').eq('is_active',true).order('sort_order');
+      if(data && data.length > 0) plans = data;
+    } catch(e){ console.error(e); }
+  }
+  grid.innerHTML = '';
+  plans.forEach((p,i) => {
     const d = document.createElement('div');
     d.className = 'plan-card';
     d.dataset.name = p.name; d.dataset.price = p.price;
-    d.innerHTML = (p.badge ? `<div class="badge">${p.badge}</div>` : '') +
+    const badge = i===1 ? '<div class="badge">人気</div>' : '';
+    d.innerHTML = badge +
       `<div class="plan-check">✓</div>
        <div class="plan-name">${p.name}</div>
-       <div class="plan-desc">${p.desc}</div>
-       <div class="plan-price">¥${p.price.toLocaleString()} <span>（税込）</span></div>`;
+       <div class="plan-desc">${p.description||''}</div>
+       <div class="plan-price">¥${Number(p.price).toLocaleString()} <span>（税込）</span></div>`;
     d.onclick = () => {
       document.querySelectorAll('.plan-card').forEach(c=>c.classList.remove('selected'));
       d.classList.add('selected');
@@ -485,7 +496,8 @@ const PLANS = [
     };
     grid.appendChild(d);
   });
-})();
+}
+loadPlans();
 
 // ─── STATE ──────────────────────────────────────────
 const today = new Date();

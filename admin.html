@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>管理画面 | MedCheck Admin</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&family=DM+Serif+Display&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root {
+  --navy: #0F2847;
+  --navy2: #162F52;
+  --teal: #0A7B6C;
+  --teal-light: #12A090;
+  --teal-pale: #E6F5F3;
+  --slate: #3D5A73;
+  --mist: #F0F4F8;
+  --white: #FFFFFF;
+  --gray: #8299AB;
+  --border: #D4E4EC;
+  --error: #D94F4F;
+  --warn: #E8891A;
+  --success: #0A7B6C;
+  --sidebar: 240px;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Noto Sans JP',sans-serif; background:var(--mist); color:var(--navy); display:flex; min-height:100vh; }
+
+/* ── LOGIN ── */
+.login-wrap {
+  position:fixed; inset:0; background:linear-gradient(135deg,var(--navy) 0%,#1A3D5C 60%,var(--teal) 100%);
+  display:flex; align-items:center; justify-content:center; z-index:999;
+}
+.login-box {
+  background:white; border-radius:20px; padding:48px 40px; width:360px;
+  box-shadow:0 24px 60px rgba(0,0,0,.25); text-align:center;
+}
+.login-box .logo-icon { width:56px; height:56px; background:var(--teal); border-radius:14px; display:flex; align-items:center; justify-content:center; color:white; font-size:28px; margin:0 auto 16px; }
+.login-box h1 { font-family:'DM Serif Display',serif; font-size:24px; margin-bottom:4px; }
+.login-box p { font-size:12px; color:var(--gray); margin-bottom:28px; }
+.login-field { text-align:left; margin-bottom:16px; }
+.login-field label { display:block; font-size:12px; font-weight:700; color:var(--slate); margin-bottom:6px; }
+.login-field input { width:100%; border:1.5px solid var(--border); border-radius:8px; padding:11px 14px; font-size:14px; font-family:'Noto Sans JP',sans-serif; outline:none; transition:border-color .2s; }
+.login-field input:focus { border-color:var(--teal); }
+.login-btn { width:100%; padding:13px; background:var(--teal); color:white; border:none; border-radius:10px; font-size:14px; font-weight:700; font-family:'Noto Sans JP',sans-serif; cursor:pointer; transition:all .2s; margin-top:8px; }
+.login-btn:hover { background:var(--teal-light); }
+.login-err { color:var(--error); font-size:12px; margin-top:8px; display:none; }
+
+/* ── SIDEBAR ── */
+.sidebar {
+  width:var(--sidebar); background:var(--navy); position:fixed; top:0; left:0; bottom:0;
+  display:flex; flex-direction:column; padding:0;
+}
+.sb-logo { padding:24px 20px; border-bottom:1px solid rgba(255,255,255,.08); }
+.sb-logo .top { display:flex; align-items:center; gap:10px; }
+.sb-logo .icon { width:34px; height:34px; background:var(--teal); border-radius:8px; display:flex; align-items:center; justify-content:center; color:white; font-size:18px; }
+.sb-logo .name { font-family:'DM Serif Display',serif; font-size:18px; color:white; }
+.sb-logo .name span { color:var(--teal-light); }
+.sb-logo .sub { font-size:10px; color:rgba(255,255,255,.4); margin-top:6px; letter-spacing:.08em; text-transform:uppercase; }
+.sb-nav { flex:1; padding:16px 12px; overflow-y:auto; }
+.sb-section { font-size:10px; color:rgba(255,255,255,.3); font-weight:700; letter-spacing:.1em; text-transform:uppercase; padding:8px 8px 4px; }
+.sb-item {
+  display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:8px;
+  color:rgba(255,255,255,.65); font-size:13px; font-weight:500; cursor:pointer;
+  transition:all .15s; margin-bottom:2px;
+}
+.sb-item:hover { background:rgba(255,255,255,.07); color:white; }
+.sb-item.active { background:var(--teal); color:white; }
+.sb-item .icon { font-size:16px; width:22px; text-align:center; }
+.sb-item .badge { margin-left:auto; background:var(--error); color:white; font-size:10px; font-weight:700; padding:2px 6px; border-radius:20px; }
+.sb-footer { padding:16px; border-top:1px solid rgba(255,255,255,.08); }
+.sb-footer button { width:100%; padding:9px; background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.1); border-radius:8px; color:rgba(255,255,255,.6); font-size:12px; font-family:'Noto Sans JP',sans-serif; cursor:pointer; transition:all .2s; }
+.sb-footer button:hover { background:rgba(255,255,255,.12); color:white; }
+
+/* ── MAIN ── */
+.main-wrap { margin-left:var(--sidebar); flex:1; display:flex; flex-direction:column; min-height:100vh; }
+.topbar {
+  background:white; padding:0 32px; height:64px; display:flex; align-items:center;
+  justify-content:space-between; border-bottom:1px solid var(--border);
+  position:sticky; top:0; z-index:10; box-shadow:0 2px 8px rgba(0,0,0,.04);
+}
+.topbar-title { font-size:18px; font-weight:700; color:var(--navy); }
+.topbar-right { display:flex; align-items:center; gap:16px; }
+.topbar-date { font-size:12px; color:var(--gray); }
+.refresh-btn { padding:7px 14px; background:var(--teal-pale); border:1px solid rgba(10,123,108,.3); border-radius:7px; color:var(--teal); font-size:12px; font-weight:700; font-family:'Noto Sans JP',sans-serif; cursor:pointer; transition:all .2s; }
+.refresh-btn:hover { background:var(--teal); color:white; }
+
+.content { padding:28px 32px; flex:1; }
+
+/* ── STATS ── */
+.stats-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:28px; }
+.stat-card { background:white; border:1px solid var(--border); border-radius:14px; padding:20px; box-shadow:0 2px 8px rgba(0,0,0,.04); }
+.stat-label { font-size:11px; color:var(--gray); font-weight:700; letter-spacing:.06em; text-transform:uppercase; margin-bottom:8px; }
+.stat-value { font-family:'DM Serif Display',serif; font-size:32px; color:var(--navy); line-height:1; }
+.stat-sub { font-size:11px; color:var(--gray); margin-top:4px; font-weight:300; }
+.stat-card.teal .stat-value { color:var(--teal); }
+.stat-card.warn .stat-value { color:var(--warn); }
+.stat-card.error .stat-value { color:var(--error); }
+
+/* ── FILTER BAR ── */
+.filter-bar { display:flex; gap:12px; margin-bottom:20px; align-items:center; flex-wrap:wrap; }
+.filter-input { flex:1; min-width:200px; border:1.5px solid var(--border); border-radius:8px; padding:9px 14px; font-size:13px; font-family:'Noto Sans JP',sans-serif; outline:none; transition:border-color .2s; }
+.filter-input:focus { border-color:var(--teal); }
+.filter-select { border:1.5px solid var(--border); border-radius:8px; padding:9px 32px 9px 12px; font-size:13px; font-family:'Noto Sans JP',sans-serif; outline:none; cursor:pointer; background:white url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238299AB' fill='none' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 10px center; appearance:none; color:var(--navy); }
+
+/* ── TABLE ── */
+.table-card { background:white; border:1px solid var(--border); border-radius:14px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,.04); }
+.table-header { padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+.table-header h3 { font-size:14px; font-weight:700; }
+.table-count { font-size:12px; color:var(--gray); }
+table { width:100%; border-collapse:collapse; }
+thead th { padding:10px 16px; text-align:left; font-size:11px; font-weight:700; color:var(--gray); background:var(--mist); letter-spacing:.05em; text-transform:uppercase; border-bottom:1px solid var(--border); }
+tbody tr { border-bottom:1px solid var(--border); transition:background .1s; }
+tbody tr:last-child { border-bottom:none; }
+tbody tr:hover { background:#F8FAFC; }
+tbody td { padding:12px 16px; font-size:13px; color:var(--navy); vertical-align:middle; }
+.td-code { font-family:'DM Serif Display',serif; font-size:14px; color:var(--teal); }
+.td-name { font-weight:700; }
+.td-sub { font-size:11px; color:var(--gray); margin-top:1px; font-weight:300; }
+
+/* ── STATUS BADGE ── */
+.status-badge { display:inline-flex; align-items:center; gap:5px; padding:4px 10px; border-radius:20px; font-size:11px; font-weight:700; }
+.status-badge::before { content:''; width:6px; height:6px; border-radius:50%; }
+.status-confirmed { background:#E6F5F3; color:var(--teal); }
+.status-confirmed::before { background:var(--teal); }
+.status-cancelled { background:#FDEAEA; color:var(--error); }
+.status-cancelled::before { background:var(--error); }
+.status-completed { background:#EEF4FF; color:#4F7CD9; }
+.status-completed::before { background:#4F7CD9; }
+.status-noshow { background:#FFF3E0; color:var(--warn); }
+.status-noshow::before { background:var(--warn); }
+
+/* ── ACTION BTN ── */
+.act-btn { padding:5px 10px; border-radius:6px; font-size:11px; font-weight:700; font-family:'Noto Sans JP',sans-serif; cursor:pointer; border:1.5px solid; transition:all .15s; }
+.act-complete { border-color:var(--teal); color:var(--teal); background:transparent; }
+.act-complete:hover { background:var(--teal); color:white; }
+.act-cancel { border-color:var(--error); color:var(--error); background:transparent; }
+.act-cancel:hover { background:var(--error); color:white; }
+.act-noshow { border-color:var(--warn); color:var(--warn); background:transparent; }
+.act-noshow:hover { background:var(--warn); color:white; }
+
+/* ── DETAIL MODAL ── */
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:500; display:none; align-items:center; justify-content:center; }
+.modal-overlay.show { display:flex; }
+.modal { background:white; border-radius:16px; width:540px; max-width:90vw; max-height:85vh; overflow-y:auto; box-shadow:0 24px 60px rgba(0,0,0,.2); }
+.modal-head { padding:20px 24px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; position:sticky; top:0; background:white; }
+.modal-head h3 { font-size:16px; font-weight:700; }
+.modal-close { width:32px; height:32px; border:1px solid var(--border); border-radius:8px; background:transparent; cursor:pointer; font-size:18px; display:flex; align-items:center; justify-content:center; color:var(--gray); }
+.modal-close:hover { border-color:var(--error); color:var(--error); }
+.modal-body { padding:24px; }
+.detail-row { display:flex; border-bottom:1px solid var(--border); padding:10px 0; }
+.detail-row:last-child { border-bottom:none; }
+.detail-label { width:140px; font-size:12px; font-weight:700; color:var(--gray); flex-shrink:0; padding-top:2px; }
+.detail-value { font-size:14px; color:var(--navy); flex:1; }
+.modal-actions { padding:16px 24px; border-top:1px solid var(--border); display:flex; gap:10px; justify-content:flex-end; }
+
+/* ── EMPTY / LOADING ── */
+.empty-state { text-align:center; padding:60px 20px; color:var(--gray); }
+.empty-state .icon { font-size:40px; margin-bottom:12px; }
+.empty-state p { font-size:14px; }
+.loading-row td { text-align:center; padding:40px; color:var(--gray); }
+.spinner { display:inline-block; width:24px; height:24px; border:3px solid var(--border); border-top-color:var(--teal); border-radius:50%; animation:spin .7s linear infinite; vertical-align:middle; margin-right:8px; }
+@keyframes spin { to{transform:rotate(360deg)} }
+
+/* ── CONFIG NOTICE ── */
+.config-notice { background:#FFF8E1; border:1px solid #FFD54F; border-radius:10px; padding:14px 18px; margin-bottom:20px; font-size:13px; color:#5D4037; }
+.config-notice code { background:#FFE57F; padding:1px 6px; border-radius:4px; font-size:12px; }
+
+.view-hidden { display:none; }
+</style>
+</head>
+<body>
+
+<!-- ════════════════════════════════════
+     ⚙️  設定 — booking.html と同じ値を入れてください
+════════════════════════════════════ -->
+<script>
+const CONFIG = {
+  SUPABASE_URL:      'https://pkrxtphsahzlelczjfwl.supabase.co',
+  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBrcnh0cGhzYWh6bGVsY3pqZndsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTA0NzQsImV4cCI6MjA5MzY2NjQ3NH0.JnayWimn16eC8TyXewl1-uk3kwSyGDBhgZJTu05JeEM',
+  ADMIN_PASSWORD:    'Usagi-501026',   // ← 管理画面のパスワード（必ず変更してください）
+  CLINIC_NAME:       'MedCheckクリニック',
+};
+</script>
+<!-- ════════════════════════════════════ -->
+
+<!-- ── LOGIN ── -->
+<div class="login-wrap" id="loginWrap">
+  <div class="login-box">
+    <div class="logo-icon">✚</div>
+    <h1>Med<span style="color:var(--teal)">Check</span> Admin</h1>
+    <p>管理者パスワードを入力してください</p>
+    <div class="login-field">
+      <label>パスワード</label>
+      <input type="password" id="pwInput" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <button class="login-btn" onclick="doLogin()">ログイン</button>
+    <div class="login-err" id="loginErr">パスワードが違います</div>
+  </div>
+</div>
+
+<!-- ── SIDEBAR ── -->
+<aside class="sidebar">
+  <div class="sb-logo">
+    <div class="top">
+      <div class="icon">✚</div>
+      <div class="name">Med<span>Check</span></div>
+    </div>
+    <div class="sub">Admin Dashboard</div>
+  </div>
+  <nav class="sb-nav">
+    <div class="sb-section">メニュー</div>
+    <div class="sb-item active" onclick="showView('bookings')"><span class="icon">📋</span> 予約一覧 <span class="badge" id="pendingBadge" style="display:none"></span></div>
+    <div class="sb-item" onclick="showView('today')"><span class="icon">📅</span> 本日の予約</div>
+    <div class="sb-item" onclick="showView('stats')"><span class="icon">📊</span> 統計</div>
+  </nav>
+  <div class="sb-footer">
+    <button onclick="doLogout()">ログアウト</button>
+  </div>
+</aside>
+
+<!-- ── MAIN ── -->
+<div class="main-wrap">
+  <div class="topbar">
+    <div class="topbar-title" id="topbarTitle">予約一覧</div>
+    <div class="topbar-right">
+      <div class="topbar-date" id="topbarDate"></div>
+      <button class="refresh-btn" onclick="loadBookings()">↻ 更新</button>
+    </div>
+  </div>
+
+  <div class="content">
+    <div id="configNotice" class="config-notice" style="display:none">
+      ⚠️ <strong>Supabase が未設定です。</strong>
+      <code>admin.html</code> の <code>CONFIG</code> に接続情報を入力してください。デモデータで表示しています。
+    </div>
+
+    <!-- STATS -->
+    <div class="stats-grid" id="statsGrid">
+      <div class="stat-card teal"><div class="stat-label">総予約数</div><div class="stat-value" id="st-total">—</div><div class="stat-sub">累計</div></div>
+      <div class="stat-card"><div class="stat-label">本日の予約</div><div class="stat-value" id="st-today">—</div><div class="stat-sub">件</div></div>
+      <div class="stat-card warn"><div class="stat-label">未受診（今後）</div><div class="stat-value" id="st-pending">—</div><div class="stat-sub">件</div></div>
+      <div class="stat-card error"><div class="stat-label">キャンセル</div><div class="stat-value" id="st-cancel">—</div><div class="stat-sub">件</div></div>
+    </div>
+
+    <!-- FILTER -->
+    <div class="filter-bar">
+      <input type="text" class="filter-input" id="searchInput" placeholder="名前・予約番号・メールで検索..." oninput="applyFilter()">
+      <select class="filter-select" id="statusFilter" onchange="applyFilter()">
+        <option value="">すべてのステータス</option>
+        <option value="confirmed">予約確定</option>
+        <option value="completed">受診済み</option>
+        <option value="cancelled">キャンセル</option>
+        <option value="noshow">無断欠席</option>
+      </select>
+      <select class="filter-select" id="dateFilter" onchange="applyFilter()">
+        <option value="">すべての日付</option>
+        <option value="today">本日</option>
+        <option value="week">今週</option>
+        <option value="month">今月</option>
+      </select>
+    </div>
+
+    <!-- TABLE -->
+    <div class="table-card" id="view-bookings">
+      <div class="table-header">
+        <h3>予約一覧</h3>
+        <div class="table-count" id="tableCount"></div>
+      </div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>予約番号</th>
+              <th>受診者名</th>
+              <th>コース</th>
+              <th>受診日時</th>
+              <th>ステータス</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="bookingsTbody">
+            <tr class="loading-row"><td colspan="6"><div class="spinner"></div>読み込み中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── DETAIL MODAL ── -->
+<div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>予約詳細</h3>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-actions" id="modalActions"></div>
+  </div>
+</div>
+
+<script>
+// ── INIT ────────────────────────────────────────────
+const isConfigured = CONFIG.SUPABASE_URL !== 'YOUR_SUPABASE_URL';
+let supabase = null;
+if(isConfigured) {
+  supabase = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+}
+
+let allBookings = [];
+const TODAY_STR = new Date().toISOString().slice(0,10);
+
+// ── DATE DISPLAY ────────────────────────────────────
+const DAYS=['日','月','火','水','木','金','土'];
+const now = new Date();
+document.getElementById('topbarDate').textContent =
+  `${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日（${DAYS[now.getDay()]}）`;
+
+// ── LOGIN ────────────────────────────────────────────
+function doLogin(){
+  const pw = document.getElementById('pwInput').value;
+  if(pw === CONFIG.ADMIN_PASSWORD){
+    document.getElementById('loginWrap').style.display='none';
+    init();
+  } else {
+    document.getElementById('loginErr').style.display='block';
+  }
+}
+function doLogout(){ location.reload(); }
+
+// ── INIT AFTER LOGIN ─────────────────────────────────
+function init(){
+  if(!isConfigured){
+    document.getElementById('configNotice').style.display='block';
+    allBookings = getDemoData();
+    renderAll();
+  } else {
+    loadBookings();
+  }
+}
+
+// ── LOAD ─────────────────────────────────────────────
+async function loadBookings(){
+  document.getElementById('bookingsTbody').innerHTML='<tr class="loading-row"><td colspan="6"><div class="spinner"></div>読み込み中...</td></tr>';
+  if(!isConfigured){ renderAll(); return; }
+  try {
+    const {data,error} = await supabase.from('bookings').select('*').order('booking_date',{ascending:false}).order('booking_time',{ascending:false});
+    if(error) throw error;
+    allBookings = data;
+    renderAll();
+  } catch(e){
+    console.error(e);
+    document.getElementById('bookingsTbody').innerHTML=`<tr class="loading-row"><td colspan="6" style="color:var(--error)">読み込みエラー: ${e.message}</td></tr>`;
+  }
+}
+
+// ── RENDER ───────────────────────────────────────────
+function renderAll(){
+  updateStats();
+  applyFilter();
+}
+
+function updateStats(){
+  const total = allBookings.length;
+  const todayCount = allBookings.filter(b=>b.booking_date===TODAY_STR).length;
+  const pending = allBookings.filter(b=>b.status==='confirmed'&&b.booking_date>=TODAY_STR).length;
+  const cancelled = allBookings.filter(b=>b.status==='cancelled').length;
+  document.getElementById('st-total').textContent = total;
+  document.getElementById('st-today').textContent = todayCount;
+  document.getElementById('st-pending').textContent = pending;
+  document.getElementById('st-cancel').textContent = cancelled;
+  const badge = document.getElementById('pendingBadge');
+  if(pending>0){badge.textContent=pending;badge.style.display='';}else{badge.style.display='none';}
+}
+
+function applyFilter(){
+  const search = document.getElementById('searchInput').value.toLowerCase();
+  const status = document.getElementById('statusFilter').value;
+  const dateF  = document.getElementById('dateFilter').value;
+  const todayD = new Date(); todayD.setHours(0,0,0,0);
+  const weekEnd = new Date(todayD); weekEnd.setDate(weekEnd.getDate()+7);
+  const monthEnd = new Date(todayD.getFullYear(), todayD.getMonth()+1, 0);
+
+  let filtered = allBookings.filter(b=>{
+    if(search){
+      const fullName=(b.last_name+b.first_name).toLowerCase();
+      const kana=(b.last_kana+b.first_kana).toLowerCase();
+      if(!fullName.includes(search)&&!kana.includes(search)&&!b.booking_code?.toLowerCase().includes(search)&&!b.email?.toLowerCase().includes(search)) return false;
+    }
+    if(status && b.status!==status) return false;
+    if(dateF){
+      const bd=new Date(b.booking_date);
+      if(dateF==='today'&&b.booking_date!==TODAY_STR) return false;
+      if(dateF==='week'&&(bd<todayD||bd>weekEnd)) return false;
+      if(dateF==='month'&&(bd<todayD||bd>monthEnd)) return false;
+    }
+    return true;
+  });
+
+  document.getElementById('tableCount').textContent = `${filtered.length}件`;
+  const tbody = document.getElementById('bookingsTbody');
+  if(filtered.length===0){
+    tbody.innerHTML='<tr class="loading-row"><td colspan="6"><div class="empty-state"><div class="icon">🔍</div><p>条件に一致する予約がありません</p></div></td></tr>';
+    return;
+  }
+
+  const statusMap={confirmed:'予約確定',completed:'受診済み',cancelled:'キャンセル',noshow:'無断欠席'};
+  tbody.innerHTML = filtered.map(b=>`
+    <tr>
+      <td><div class="td-code">${b.booking_code||'—'}</div></td>
+      <td>
+        <div class="td-name">${b.last_name} ${b.first_name}</div>
+        <div class="td-sub">${b.last_kana} ${b.first_kana}</div>
+      </td>
+      <td>
+        <div>${b.plan_name}</div>
+        <div class="td-sub">¥${Number(b.plan_price).toLocaleString()}</div>
+      </td>
+      <td>
+        <div>${formatDate(b.booking_date)}</div>
+        <div class="td-sub">${b.booking_time}</div>
+      </td>
+      <td><span class="status-badge status-${b.status}">${statusMap[b.status]||b.status}</span></td>
+      <td>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="act-btn" onclick="openDetail('${b.id||b.booking_code}')">詳細</button>
+          ${b.status==='confirmed'?`
+            <button class="act-btn act-complete" onclick="updateStatus('${b.id||b.booking_code}','completed')">受診済</button>
+            <button class="act-btn act-cancel" onclick="updateStatus('${b.id||b.booking_code}','cancelled')">取消</button>
+            <button class="act-btn act-noshow" onclick="updateStatus('${b.id||b.booking_code}','noshow')">欠席</button>
+          `:''}
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+// ── STATUS UPDATE ─────────────────────────────────────
+async function updateStatus(id, newStatus){
+  const labels={completed:'受診済みに変更',cancelled:'キャンセル',noshow:'無断欠席に変更'};
+  if(!confirm(`この予約を「${labels[newStatus]}」しますか？`)) return;
+
+  if(isConfigured && supabase){
+    const {error} = await supabase.from('bookings').update({status:newStatus}).eq('id',id);
+    if(error){alert('更新失敗: '+error.message);return;}
+  }
+  // ローカルも更新
+  const b = allBookings.find(x=>x.id===id||x.booking_code===id);
+  if(b) b.status = newStatus;
+  renderAll();
+  closeModal();
+}
+
+// ── DETAIL MODAL ─────────────────────────────────────
+function openDetail(id){
+  const b = allBookings.find(x=>x.id===id||x.booking_code===id);
+  if(!b) return;
+  const statusMap={confirmed:'予約確定',completed:'受診済み',cancelled:'キャンセル',noshow:'無断欠席'};
+  document.getElementById('modalBody').innerHTML=`
+    <div class="detail-row"><div class="detail-label">予約番号</div><div class="detail-value" style="font-family:'DM Serif Display',serif;color:var(--teal);font-size:18px">${b.booking_code||'—'}</div></div>
+    <div class="detail-row"><div class="detail-label">ステータス</div><div class="detail-value"><span class="status-badge status-${b.status}">${statusMap[b.status]||b.status}</span></div></div>
+    <div class="detail-row"><div class="detail-label">受診コース</div><div class="detail-value">${b.plan_name}<br><span style="color:var(--teal);font-weight:700">¥${Number(b.plan_price).toLocaleString()}</span></div></div>
+    <div class="detail-row"><div class="detail-label">受診日時</div><div class="detail-value">${formatDate(b.booking_date)} ${b.booking_time}</div></div>
+    <div class="detail-row"><div class="detail-label">お名前</div><div class="detail-value">${b.last_name} ${b.first_name}<br><span style="color:var(--gray);font-size:12px">${b.last_kana} ${b.first_kana}</span></div></div>
+    <div class="detail-row"><div class="detail-label">生年月日</div><div class="detail-value">${b.birthdate||'—'}</div></div>
+    <div class="detail-row"><div class="detail-label">性別</div><div class="detail-value">${b.gender||'—'}</div></div>
+    <div class="detail-row"><div class="detail-label">電話番号</div><div class="detail-value">${b.tel||'—'}</div></div>
+    <div class="detail-row"><div class="detail-label">メール</div><div class="detail-value">${b.email||'—'}</div></div>
+    ${b.company?`<div class="detail-row"><div class="detail-label">勤務先</div><div class="detail-value">${b.company}</div></div>`:''}
+    ${b.notes?`<div class="detail-row"><div class="detail-label">備考</div><div class="detail-value">${b.notes}</div></div>`:''}
+    <div class="detail-row"><div class="detail-label">予約日時</div><div class="detail-value" style="color:var(--gray);font-size:12px">${b.created_at?new Date(b.created_at).toLocaleString('ja-JP'):'—'}</div></div>
+  `;
+  const actions = document.getElementById('modalActions');
+  actions.innerHTML = b.status==='confirmed' ? `
+    <button class="act-btn act-complete" onclick="updateStatus('${b.id||b.booking_code}','completed')">受診済みにする</button>
+    <button class="act-btn act-noshow" onclick="updateStatus('${b.id||b.booking_code}','noshow')">無断欠席</button>
+    <button class="act-btn act-cancel" onclick="updateStatus('${b.id||b.booking_code}','cancelled')">キャンセル</button>
+  ` : '';
+  document.getElementById('modalOverlay').classList.add('show');
+}
+function closeModal(){ document.getElementById('modalOverlay').classList.remove('show'); }
+
+// ── VIEWS ─────────────────────────────────────────────
+function showView(v){
+  document.querySelectorAll('.sb-item').forEach(el=>el.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+  document.getElementById('topbarTitle').textContent =
+    v==='bookings'?'予約一覧':v==='today'?'本日の予約':'統計';
+  if(v==='today'){
+    document.getElementById('dateFilter').value='today';
+    applyFilter();
+  } else if(v==='bookings'){
+    document.getElementById('dateFilter').value='';
+    document.getElementById('statusFilter').value='';
+    applyFilter();
+  }
+}
+
+// ── HELPERS ──────────────────────────────────────────
+function formatDate(dateStr){
+  if(!dateStr) return '—';
+  const d=new Date(dateStr+'T00:00:00');
+  return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日（${DAYS[d.getDay()]}）`;
+}
+
+// ── DEMO DATA ─────────────────────────────────────────
+function getDemoData(){
+  const today = new Date();
+  function fmtDate(offset){
+    const d=new Date(today); d.setDate(d.getDate()+offset);
+    return d.toISOString().slice(0,10);
+  }
+  return [
+    {id:'1',booking_code:'MC00112233',plan_name:'生活習慣病健診',plan_price:12000,booking_date:fmtDate(0),booking_time:'09:30',last_name:'山田',first_name:'太郎',last_kana:'ヤマダ',first_kana:'タロウ',birthdate:'1985-03-12',gender:'男性',tel:'090-1111-2222',email:'yamada@example.com',company:'株式会社サンプル',notes:'',status:'confirmed',created_at:new Date().toISOString()},
+    {id:'2',booking_code:'MC00112234',plan_name:'人間ドック（半日）',plan_price:28000,booking_date:fmtDate(0),booking_time:'10:30',last_name:'鈴木',first_name:'花子',last_kana:'スズキ',first_kana:'ハナコ',birthdate:'1990-07-22',gender:'女性',tel:'080-3333-4444',email:'suzuki@example.com',company:'',notes:'バリウムアレルギーあり',status:'confirmed',created_at:new Date().toISOString()},
+    {id:'3',booking_code:'MC00112235',plan_name:'基本健診コース',plan_price:5500,booking_date:fmtDate(3),booking_time:'14:00',last_name:'田中',first_name:'一郎',last_kana:'タナカ',first_kana:'イチロウ',birthdate:'1978-11-05',gender:'男性',tel:'070-5555-6666',email:'tanaka@example.com',company:'田中商事',notes:'',status:'confirmed',created_at:new Date(Date.now()-86400000).toISOString()},
+    {id:'4',booking_code:'MC00112236',plan_name:'定期健康診断（雇入時）',plan_price:8800,booking_date:fmtDate(-2),booking_time:'09:00',last_name:'佐藤',first_name:'美咲',last_kana:'サトウ',first_kana:'ミサキ',birthdate:'1995-02-18',gender:'女性',tel:'090-7777-8888',email:'sato@example.com',company:'',notes:'',status:'completed',created_at:new Date(Date.now()-3*86400000).toISOString()},
+    {id:'5',booking_code:'MC00112237',plan_name:'生活習慣病健診',plan_price:12000,booking_date:fmtDate(-5),booking_time:'11:00',last_name:'高橋',first_name:'健二',last_kana:'タカハシ',first_kana:'ケンジ',birthdate:'1970-09-30',gender:'男性',tel:'090-9999-0000',email:'takahashi@example.com',company:'高橋工業',notes:'',status:'cancelled',created_at:new Date(Date.now()-7*86400000).toISOString()},
+  ];
+}
+</script>
+</body>
+</html>

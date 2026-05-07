@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>健康診断 ネット予約 | MedCheck</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet">
+<!-- Supabase -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- EmailJS -->
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+<style>
+:root {
+  --teal: #0A7B6C;
+  --teal-light: #12A090;
+  --teal-pale: #E6F5F3;
+  --navy: #0F2847;
+  --slate: #3D5A73;
+  --mist: #F4F8F9;
+  --white: #FFFFFF;
+  --gray: #8299AB;
+  --border: #D4E4EC;
+  --error: #D94F4F;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Noto Sans JP',sans-serif; background:var(--mist); color:var(--navy); min-height:100vh; }
+
+/* ── HEADER ── */
+header {
+  background:var(--white); border-bottom:1px solid var(--border);
+  padding:0 40px; display:flex; align-items:center; justify-content:space-between;
+  height:68px; position:sticky; top:0; z-index:100;
+  box-shadow:0 2px 16px rgba(10,123,108,0.08);
+}
+.logo { display:flex; align-items:center; gap:10px; }
+.logo-icon { width:38px; height:38px; background:var(--teal); border-radius:10px; display:flex; align-items:center; justify-content:center; color:white; font-size:20px; }
+.logo-text { font-family:'DM Serif Display',serif; font-size:22px; color:var(--navy); }
+.logo-text span { color:var(--teal); }
+.header-info { font-size:12px; color:var(--gray); text-align:right; }
+.header-info strong { display:block; color:var(--navy); font-size:13px; }
+
+/* ── HERO ── */
+.hero {
+  background:linear-gradient(135deg,var(--navy) 0%,#1A3D5C 60%,var(--teal) 100%);
+  padding:60px 40px; text-align:center; position:relative; overflow:hidden;
+}
+.hero::before {
+  content:''; position:absolute; inset:0;
+  background:url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23ffffff' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/svg%3E");
+}
+.hero h1 { font-family:'DM Serif Display',serif; font-size:36px; color:var(--white); margin-bottom:12px; position:relative; }
+.hero p { color:rgba(255,255,255,0.75); font-size:14px; font-weight:300; position:relative; }
+
+/* ── STEPS ── */
+.steps-bar {
+  background:var(--white); padding:20px 40px;
+  display:flex; justify-content:center; border-bottom:1px solid var(--border);
+}
+.step-item { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--gray); }
+.step-item.active { color:var(--teal); font-weight:700; }
+.step-item.done { color:var(--teal); }
+.step-num {
+  width:26px; height:26px; border-radius:50%; border:2px solid var(--border);
+  display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700;
+  background:var(--white); color:var(--gray); transition:all .3s;
+}
+.step-item.active .step-num, .step-item.done .step-num { background:var(--teal); border-color:var(--teal); color:white; }
+.step-arrow { width:32px; height:1px; background:var(--border); margin:0 4px; }
+
+/* ── MAIN ── */
+.main { max-width:760px; margin:0 auto; padding:36px 20px 60px; }
+
+/* ── CARD ── */
+.card {
+  background:var(--white); border-radius:16px; border:1px solid var(--border);
+  overflow:hidden; margin-bottom:20px; box-shadow:0 4px 20px rgba(10,40,71,0.06);
+  animation:slideUp .4s ease both;
+}
+@keyframes slideUp { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
+.card-header {
+  background:var(--teal-pale); padding:18px 28px; border-bottom:1px solid var(--border);
+  display:flex; align-items:center; gap:10px;
+}
+.card-header-icon { width:32px; height:32px; background:var(--teal); border-radius:8px; display:flex; align-items:center; justify-content:center; color:white; font-size:16px; flex-shrink:0; }
+.card-header h2 { font-size:16px; font-weight:700; color:var(--navy); }
+.card-header p { font-size:12px; color:var(--gray); margin-top:2px; font-weight:300; }
+.card-body { padding:28px; }
+
+/* ── PLAN GRID ── */
+.plan-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; }
+.plan-card {
+  border:2px solid var(--border); border-radius:12px; padding:20px; cursor:pointer;
+  transition:all .2s; position:relative; background:var(--white);
+}
+.plan-card:hover { border-color:var(--teal-light); transform:translateY(-2px); }
+.plan-card.selected { border-color:var(--teal); background:var(--teal-pale); }
+.plan-card .badge { position:absolute; top:-1px; right:12px; background:var(--teal); color:white; font-size:10px; font-weight:700; padding:3px 8px; border-radius:0 0 6px 6px; }
+.plan-name { font-size:15px; font-weight:700; color:var(--navy); margin-bottom:6px; }
+.plan-desc { font-size:12px; color:var(--gray); font-weight:300; line-height:1.6; margin-bottom:12px; }
+.plan-price { font-family:'DM Serif Display',serif; font-size:22px; color:var(--teal); }
+.plan-price span { font-family:'Noto Sans JP',sans-serif; font-size:12px; color:var(--gray); font-weight:300; }
+.plan-check { position:absolute; top:12px; left:12px; width:20px; height:20px; border-radius:50%; border:2px solid var(--border); background:white; display:flex; align-items:center; justify-content:center; font-size:11px; color:transparent; transition:all .2s; }
+.plan-card.selected .plan-check { background:var(--teal); border-color:var(--teal); color:white; }
+
+/* ── CALENDAR ── */
+.calendar-nav { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
+.cal-btn { width:34px; height:34px; border:1px solid var(--border); border-radius:8px; background:var(--white); cursor:pointer; display:flex; align-items:center; justify-content:center; color:var(--slate); font-size:16px; transition:all .2s; }
+.cal-btn:hover { border-color:var(--teal); color:var(--teal); }
+.cal-month { font-size:15px; font-weight:700; color:var(--navy); }
+.cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
+.cal-head { text-align:center; font-size:11px; color:var(--gray); font-weight:500; padding:6px 0; }
+.cal-head:first-child { color:#D94F4F; } .cal-head:last-child { color:#4F7CD9; }
+.cal-day { text-align:center; padding:8px 4px; border-radius:8px; font-size:13px; cursor:pointer; transition:all .15s; border:1.5px solid transparent; color:var(--navy); }
+.cal-day:hover:not(.disabled):not(.empty) { background:var(--teal-pale); border-color:var(--teal); }
+.cal-day.selected { background:var(--teal); color:white; border-color:var(--teal); font-weight:700; }
+.cal-day.disabled { color:var(--border); cursor:not-allowed; }
+.cal-day.empty { cursor:default; }
+.cal-day.today { border-color:var(--teal-light); font-weight:700; }
+.avail-dot { width:4px; height:4px; border-radius:50%; background:var(--teal-light); margin:2px auto 0; }
+.cal-day.disabled .avail-dot { display:none; }
+.cal-day.selected .avail-dot { background:rgba(255,255,255,.7); }
+
+/* ── TIME SLOTS ── */
+.time-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:16px; }
+.time-slot { border:1.5px solid var(--border); border-radius:8px; padding:10px 8px; text-align:center; cursor:pointer; font-size:13px; font-weight:500; color:var(--slate); transition:all .15s; background:var(--white); }
+.time-slot:hover:not(.full) { border-color:var(--teal); color:var(--teal); }
+.time-slot.selected { background:var(--teal); border-color:var(--teal); color:white; }
+.time-slot.full { color:var(--border); cursor:not-allowed; font-size:11px; }
+.slot-status { font-size:10px; margin-top:2px; color:var(--gray); }
+.time-slot.selected .slot-status { color:rgba(255,255,255,.8); }
+.time-slot.full .slot-status { color:var(--border); }
+
+/* ── FORM ── */
+.form-row { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px; }
+.form-group label { display:block; font-size:12px; font-weight:700; color:var(--slate); margin-bottom:6px; letter-spacing:.03em; }
+.form-group label .req { color:var(--error); margin-left:3px; }
+.form-control { width:100%; border:1.5px solid var(--border); border-radius:8px; padding:10px 14px; font-size:14px; font-family:'Noto Sans JP',sans-serif; color:var(--navy); background:var(--white); transition:border-color .2s; outline:none; appearance:none; }
+.form-control:focus { border-color:var(--teal); box-shadow:0 0 0 3px rgba(10,123,108,.08); }
+.form-control.error { border-color:var(--error); }
+select.form-control { background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%238299AB' fill='none' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 14px center; padding-right:36px; cursor:pointer; }
+.form-full { grid-column:1/-1; }
+.radio-group { display:flex; gap:12px; }
+.radio-option { flex:1; border:1.5px solid var(--border); border-radius:8px; padding:10px 16px; display:flex; align-items:center; gap:8px; cursor:pointer; transition:all .15s; font-size:14px; color:var(--slate); }
+.radio-option input { accent-color:var(--teal); }
+.radio-option:has(input:checked) { border-color:var(--teal); background:var(--teal-pale); color:var(--navy); }
+
+/* ── CALENDAR AVAILABILITY COLORS ── */
+.cal-day.avail-ok   { background:#E6F5F3; border-color:#0A7B6C; color:#0A7B6C; }
+.cal-day.avail-few  { background:#FFF3E0; border-color:#E8891A; color:#B86A0A; }
+.cal-day.avail-full { background:#F5F5F5; color:#BBBBBB; cursor:not-allowed; }
+.cal-day.avail-ok:hover   { background:#C8EDE7; }
+.cal-day.avail-few:hover  { background:#FFE0B2; }
+.cal-day.avail-full:hover { background:#F5F5F5; }
+.cal-day.selected.avail-ok, .cal-day.selected.avail-few { background:var(--teal); color:white; border-color:var(--teal); }
+.avail-dot.few  { background:#E8891A; }
+.avail-dot.full { display:none; }
+/* legend */
+.cal-legend { display:flex; gap:16px; margin-top:14px; flex-wrap:wrap; }
+.cal-legend-item { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--slate); }
+.cal-legend-dot { width:12px; height:12px; border-radius:3px; border:1.5px solid; }
+/* cal loading */
+.cal-loading { text-align:center; padding:32px; color:var(--gray); font-size:13px; }
+.cal-spinner { display:inline-block; width:18px; height:18px; border:2px solid var(--border); border-top-color:var(--teal); border-radius:50%; animation:spin .7s linear infinite; vertical-align:middle; margin-right:6px; }
+
+/* ── NOTICE ── */
+.notice { background:var(--teal-pale); border:1px solid rgba(10,123,108,.2); border-radius:10px; padding:14px 18px; font-size:12px; color:var(--slate); line-height:1.8; margin-top:16px; }
+.notice strong { color:var(--teal); }
+
+/* ── CONFIRM ── */
+.confirm-table { width:100%; border-collapse:collapse; }
+.confirm-table tr { border-bottom:1px solid var(--border); }
+.confirm-table tr:last-child { border-bottom:none; }
+.confirm-table th { text-align:left; padding:12px 0; font-size:12px; font-weight:700; color:var(--gray); width:160px; vertical-align:top; }
+.confirm-table td { padding:12px 0; font-size:14px; color:var(--navy); font-weight:500; }
+.confirm-plan-badge { display:inline-block; background:var(--teal); color:white; font-size:12px; font-weight:700; padding:3px 10px; border-radius:20px; }
+
+/* ── BUTTONS ── */
+.btn-row { display:flex; gap:12px; margin-top:28px; }
+.btn { flex:1; padding:14px 20px; border-radius:10px; font-size:14px; font-weight:700; font-family:'Noto Sans JP',sans-serif; cursor:pointer; transition:all .2s; border:none; }
+.btn-primary { background:var(--teal); color:white; }
+.btn-primary:hover:not(:disabled) { background:var(--teal-light); transform:translateY(-1px); box-shadow:0 6px 20px rgba(10,123,108,.25); }
+.btn-primary:disabled { background:var(--border); color:var(--gray); cursor:not-allowed; }
+.btn-secondary { background:var(--white); color:var(--slate); border:1.5px solid var(--border); }
+.btn-secondary:hover { border-color:var(--slate); }
+
+/* ── LOADING OVERLAY ── */
+.loading-overlay {
+  display:none; position:fixed; inset:0; background:rgba(15,40,71,.7);
+  z-index:999; align-items:center; justify-content:center; flex-direction:column; gap:16px;
+}
+.loading-overlay.show { display:flex; }
+.spinner { width:48px; height:48px; border:4px solid rgba(255,255,255,.2); border-top-color:white; border-radius:50%; animation:spin .8s linear infinite; }
+@keyframes spin { to{transform:rotate(360deg)} }
+.loading-overlay p { color:white; font-size:14px; font-weight:500; }
+
+/* ── SUCCESS ── */
+.success-screen { text-align:center; padding:60px 28px; }
+.success-icon { width:80px; height:80px; background:var(--teal-pale); border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:36px; margin:0 auto 24px; animation:popIn .5s cubic-bezier(.34,1.56,.64,1) both; }
+@keyframes popIn { from{opacity:0;transform:scale(.5)} to{opacity:1;transform:scale(1)} }
+.success-screen h2 { font-family:'DM Serif Display',serif; font-size:28px; color:var(--navy); margin-bottom:10px; }
+.success-screen p { color:var(--gray); font-size:14px; font-weight:300; line-height:1.8; }
+.booking-id { display:inline-block; margin:20px 0; background:var(--mist); border:1px solid var(--border); border-radius:10px; padding:16px 32px; }
+.booking-id .label { font-size:11px; color:var(--gray); margin-bottom:4px; font-weight:500; letter-spacing:.05em; text-transform:uppercase; }
+.booking-id .code { font-family:'DM Serif Display',serif; font-size:26px; color:var(--teal); letter-spacing:.1em; }
+.success-detail { background:var(--teal-pale); border-radius:10px; padding:16px 20px; text-align:left; margin-top:20px; font-size:13px; color:var(--slate); line-height:2; }
+
+/* ── CONFIG BANNER ── */
+.config-banner {
+  background:#FFF8E1; border:1px solid #FFD54F; border-radius:10px;
+  padding:14px 18px; margin-bottom:20px; font-size:13px; color:#5D4037; display:none;
+}
+.config-banner.show { display:block; }
+.config-banner strong { color:#E65100; }
+
+.page { display:none; }
+.page.active { display:block; }
+
+@media(max-width:600px){
+  header{padding:0 20px;} .hero{padding:40px 20px;} .hero h1{font-size:26px;}
+  .steps-bar{padding:16px 12px;gap:4px;} .step-arrow{width:16px;} .step-item{font-size:11px;gap:5px;}
+  .card-body{padding:20px;} .plan-grid{grid-template-columns:1fr;}
+  .form-row{grid-template-columns:1fr;} .time-grid{grid-template-columns:repeat(3,1fr);}
+  .btn-row{flex-direction:column-reverse;}
+}
+</style>
+</head>
+<body>
+
+<!-- ════════════════════════════════════
+     ⚙️  設定 — ここを書き換えてください
+════════════════════════════════════ -->
+<script>
+const CONFIG = {
+  // 1) Supabase
+  SUPABASE_URL: 'https://pkrxtphsahzlelczjfwl.supabase.co',          // 例: https://xxxx.supabase.co
+  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBrcnh0cGhzYWh6bGVsY3pqZndsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTA0NzQsImV4cCI6MjA5MzY2NjQ3NH0.JnayWimn16eC8TyXewl1-uk3kwSyGDBhgZJTu05JeEM',
+
+ EMAILJS_SERVICE_ID:  'service_jzqhzdi',
+  EMAILJS_TEMPLATE_ID: 'template_mrdwtkk',
+  EMAILJS_PUBLIC_KEY:  'knYZdDUGkVmZhQFPT',
+
+
+  // 3) クリニック情報
+  CLINIC_NAME:    'MedCheckクリニック',
+  CLINIC_TEL:     '03-1234-5678',
+  CLINIC_ADDRESS: '東京都千代田区〇〇1-2-3 3F',
+  CLINIC_ACCESS:  '〇〇駅 徒歩3分',
+};
+</script>
+<!-- ════════════════════════════════════ -->
+
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <p id="loadingMsg">予約を処理中...</p>
+</div>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">✚</div>
+    <div class="logo-text">Med<span>Check</span></div>
+  </div>
+  <div class="header-info">
+    <strong>受付時間 平日 9:00〜17:00</strong>
+    Tel: <span id="hTel"></span>
+  </div>
+</header>
+
+<div class="hero">
+  <h1>健康診断 ネット予約</h1>
+  <p>ご希望のコースと日時を選んで、かんたんに予約できます</p>
+</div>
+
+<div class="steps-bar">
+  <div class="step-item active" id="step1"><div class="step-num">1</div> コース選択</div>
+  <div class="step-arrow"></div>
+  <div class="step-item" id="step2"><div class="step-num">2</div> 日時選択</div>
+  <div class="step-arrow"></div>
+  <div class="step-item" id="step3"><div class="step-num">3</div> 情報入力</div>
+  <div class="step-arrow"></div>
+  <div class="step-item" id="step4"><div class="step-num">4</div> 確認・完了</div>
+</div>
+
+<div class="main">
+  <div class="config-banner" id="configBanner">
+    ⚠️ <strong>設定が未完了です：</strong>
+    booking.html の <code>CONFIG</code> 変数に Supabase・EmailJS の情報を入力してください。
+    現在はデモモード（データは保存されません）で動作しています。
+  </div>
+
+  <!-- PAGE 1 -->
+  <div class="page active" id="page1">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-header-icon">📋</div>
+        <div><h2>検診コースを選択してください</h2><p>ご希望のコースをお選びください</p></div>
+      </div>
+      <div class="card-body">
+        <div class="plan-grid" id="planGrid"></div>
+        <div class="notice">
+          <strong>📌 ご注意：</strong>胃部X線検査・バリウム検査を含むコースは、検査前日21時以降の飲食をお控えください。<br>
+          <strong>📌 女性の方へ：</strong>婦人科オプション（子宮頸部細胞診 ¥3,300）を追加できます。
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="btn1" onclick="goToPage(2)" disabled>日時を選ぶ →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAGE 2 -->
+  <div class="page" id="page2">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-header-icon">📅</div>
+        <div><h2>ご希望の日付を選択してください</h2><p>○印の日程は予約可能です</p></div>
+      </div>
+      <div class="card-body">
+        <div class="calendar-nav">
+          <button class="cal-btn" onclick="prevMonth()">‹</button>
+          <div class="cal-month" id="calMonth"></div>
+          <button class="cal-btn" onclick="nextMonth()">›</button>
+        </div>
+        <div class="cal-grid" id="calGrid"></div>
+        <div class="cal-legend">
+          <div class="cal-legend-item"><div class="cal-legend-dot" style="background:#E6F5F3;border-color:#0A7B6C"></div>空き有り</div>
+          <div class="cal-legend-item"><div class="cal-legend-dot" style="background:#FFF3E0;border-color:#E8891A"></div>残りわずか</div>
+          <div class="cal-legend-item"><div class="cal-legend-dot" style="background:#F5F5F5;border-color:#BBBBBB"></div>満員</div>
+          <div class="cal-legend-item"><div class="cal-legend-dot" style="background:var(--border);border-color:var(--border)"></div>受付なし</div>
+        </div>
+      </div>
+    </div>
+    <div class="card" id="timeCard" style="display:none">
+      <div class="card-header">
+        <div class="card-header-icon">🕐</div>
+        <div><h2>ご希望の時間帯を選択してください</h2><p id="selectedDateLabel"></p></div>
+      </div>
+      <div class="card-body">
+        <div class="time-grid" id="timeGrid"></div>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" onclick="goToPage(1)">← 戻る</button>
+      <button class="btn btn-primary" id="btn2" onclick="goToPage(3)" disabled>情報を入力する →</button>
+    </div>
+  </div>
+
+  <!-- PAGE 3 -->
+  <div class="page" id="page3">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-header-icon">👤</div>
+        <div><h2>受診者情報を入力してください</h2><p>※印は必須項目です</p></div>
+      </div>
+      <div class="card-body">
+        <div class="form-row">
+          <div class="form-group"><label>お名前（姓）<span class="req">※</span></label><input type="text" class="form-control" id="lastName" placeholder="山田"></div>
+          <div class="form-group"><label>お名前（名）<span class="req">※</span></label><input type="text" class="form-control" id="firstName" placeholder="太郎"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>フリガナ（セイ）<span class="req">※</span></label><input type="text" class="form-control" id="lastKana" placeholder="ヤマダ"></div>
+          <div class="form-group"><label>フリガナ（メイ）<span class="req">※</span></label><input type="text" class="form-control" id="firstKana" placeholder="タロウ"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>生年月日<span class="req">※</span></label><input type="date" class="form-control" id="birthdate"></div>
+          <div class="form-group">
+            <label>性別<span class="req">※</span></label>
+            <div class="radio-group">
+              <label class="radio-option"><input type="radio" name="gender" value="男性"> 男性</label>
+              <label class="radio-option"><input type="radio" name="gender" value="女性"> 女性</label>
+            </div>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>電話番号<span class="req">※</span></label><input type="tel" class="form-control" id="tel" placeholder="090-0000-0000"></div>
+          <div class="form-group"><label>メールアドレス<span class="req">※</span></label><input type="email" class="form-control" id="email" placeholder="example@mail.com"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group form-full"><label>勤務先・学校名（任意）</label><input type="text" class="form-control" id="company" placeholder="例：〇〇株式会社"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group form-full"><label>ご要望・アレルギーなど（任意）</label><textarea class="form-control" id="notes" rows="3" placeholder="ご質問やご要望があればご記入ください" style="resize:vertical"></textarea></div>
+        </div>
+        <div class="notice">
+          <strong>🔒 個人情報の取り扱い：</strong>ご入力いただいた情報は予約確認および健診業務にのみ使用します。
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-secondary" onclick="goToPage(2)">← 戻る</button>
+          <button class="btn btn-primary" onclick="goToConfirm()">内容を確認する →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAGE 4 -->
+  <div class="page" id="page4">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-header-icon">✅</div>
+        <div><h2>予約内容をご確認ください</h2><p>以下の内容で予約を確定します</p></div>
+      </div>
+      <div class="card-body">
+        <table class="confirm-table">
+          <tr><th>受診コース</th><td><span class="confirm-plan-badge" id="c-plan"></span></td></tr>
+          <tr><th>受診日時</th><td id="c-datetime"></td></tr>
+          <tr><th>お名前</th><td id="c-name"></td></tr>
+          <tr><th>フリガナ</th><td id="c-kana"></td></tr>
+          <tr><th>生年月日</th><td id="c-birth"></td></tr>
+          <tr><th>性別</th><td id="c-gender"></td></tr>
+          <tr><th>電話番号</th><td id="c-tel"></td></tr>
+          <tr><th>メールアドレス</th><td id="c-email"></td></tr>
+          <tr><th>料金</th><td id="c-price" style="font-family:'DM Serif Display',serif;font-size:20px;color:var(--teal)"></td></tr>
+        </table>
+        <div class="notice" style="margin-top:20px">
+          <strong>📧 確認メール：</strong>予約完了後、ご登録のメールアドレスへ確認メールをお送りします。<br>
+          <strong>⚠️ キャンセル：</strong>受診日の3日前までに <span id="n-tel"></span> へご連絡ください。
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-secondary" onclick="goToPage(3)">← 戻る</button>
+          <button class="btn btn-primary" onclick="submitBooking()">予約を確定する ✓</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAGE 5 -->
+  <div class="page" id="page5">
+    <div class="card">
+      <div class="success-screen">
+        <div class="success-icon">✓</div>
+        <h2>予約が完了しました</h2>
+        <p>ご予約ありがとうございます。</p>
+        <p>確認メールをご登録のアドレスへお送りしました。</p>
+        <div class="booking-id">
+          <div class="label">予約番号</div>
+          <div class="code" id="bookingCode"></div>
+        </div>
+        <div class="success-detail" id="successDetail"></div>
+        <div class="btn-row" style="margin-top:28px">
+          <button class="btn btn-primary" onclick="resetAll()">新しい予約をする</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── INIT ───────────────────────────────────────────
+const isConfigured = CONFIG.SUPABASE_URL !== 'YOUR_SUPABASE_URL';
+
+let sbClient = null;
+if (isConfigured) {
+  sbClient = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+  emailjs.init(CONFIG.EMAILJS_PUBLIC_KEY);
+} else {
+  document.getElementById('configBanner').classList.add('show');
+}
+
+document.getElementById('hTel').textContent = CONFIG.CLINIC_TEL;
+document.getElementById('n-tel').textContent = CONFIG.CLINIC_TEL;
+
+// ─── PLANS ──────────────────────────────────────────
+const PLANS = [
+  { name:'基本健診コース',         price:5500,  desc:'身長・体重・血圧・尿検査・血液検査（基本項目）', badge:null },
+  { name:'生活習慣病健診',         price:12000, desc:'基本項目＋脂質・肝機能・腎機能・血糖・心電図',   badge:'人気' },
+  { name:'定期健康診断（雇入時）', price:8800,  desc:'労働安全衛生法に基づく雇入時健診 全11項目',       badge:null },
+  { name:'人間ドック（半日）',     price:28000, desc:'胸部X線・胃部X線・腹部超音波・眼底検査を含む総合コース', badge:null },
+];
+
+(function renderPlans(){
+  const grid = document.getElementById('planGrid');
+  PLANS.forEach(p => {
+    const d = document.createElement('div');
+    d.className = 'plan-card';
+    d.dataset.name = p.name; d.dataset.price = p.price;
+    d.innerHTML = (p.badge ? `<div class="badge">${p.badge}</div>` : '') +
+      `<div class="plan-check">✓</div>
+       <div class="plan-name">${p.name}</div>
+       <div class="plan-desc">${p.desc}</div>
+       <div class="plan-price">¥${p.price.toLocaleString()} <span>（税込）</span></div>`;
+    d.onclick = () => {
+      document.querySelectorAll('.plan-card').forEach(c=>c.classList.remove('selected'));
+      d.classList.add('selected');
+      state.plan = p.name; state.price = p.price;
+      document.getElementById('btn1').disabled = false;
+    };
+    grid.appendChild(d);
+  });
+})();
+
+// ─── STATE ──────────────────────────────────────────
+const today = new Date();
+let state = {
+  plan:null, price:null,
+  year:today.getFullYear(), month:today.getMonth(),
+  selectedDate:null, selectedTime:null,
+};
+
+// ─── PAGES ──────────────────────────────────────────
+function goToPage(n){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById('page'+n).classList.add('active');
+  updateSteps(n);
+  window.scrollTo({top:0,behavior:'smooth'});
+  if(n===2) renderCalendar();
+}
+function updateSteps(n){
+  for(let i=1;i<=4;i++){
+    const el=document.getElementById('step'+i);
+    el.classList.remove('active','done');
+    if(i<n) el.classList.add('done');
+    else if(i===n) el.classList.add('active');
+  }
+}
+
+// ─── CALENDAR ───────────────────────────────────────
+const DAYS=['日','月','火','水','木','金','土'];
+const MONTHS_JP=['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+const ALL_SLOTS=['09:00','09:30','10:00','10:30','11:00','11:30','13:00','13:30','14:00','14:30','15:00','15:30'];
+const MAX_PER_SLOT = 3; // 1枠の最大受入数
+const TOTAL_SLOTS  = ALL_SLOTS.length; // 12枠/日
+
+// 月ごとの予約データキャッシュ: 'YYYY-MM' -> { 'YYYY-MM-DD': { 'HH:MM': count } }
+let availCache = {};
+
+function dateKey(y,m){ return `${y}-${String(m+1).padStart(2,'0')}`; }
+
+// 指定月の予約数を Supabase から取得してキャッシュ
+async function fetchMonthAvail(y,m){
+  const key = dateKey(y,m);
+  if(availCache[key]) return; // already cached
+  availCache[key] = {}; // mark as loading
+
+  if(!isConfigured || !sbClient){
+    // デモ: ランダムに埋める
+    const daysInMonth = new Date(y,m+1,0).getDate();
+    for(let d=1;d<=daysInMonth;d++){
+      const ds=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      availCache[key][ds]={};
+      ALL_SLOTS.forEach(t=>{
+        availCache[key][ds][t] = Math.floor(Math.random()*4); // 0-3
+      });
+    }
+    return;
+  }
+
+  const from=`${y}-${String(m+1).padStart(2,'0')}-01`;
+  const to  =`${y}-${String(m+1).padStart(2,'0')}-${String(new Date(y,m+1,0).getDate()).padStart(2,'0')}`;
+  try {
+    const {data} = await sbClient
+      .from('bookings')
+      .select('booking_date,booking_time')
+      .gte('booking_date', from)
+      .lte('booking_date', to)
+      .in('status',['confirmed']);
+    (data||[]).forEach(b=>{
+      if(!availCache[key][b.booking_date]) availCache[key][b.booking_date]={};
+      availCache[key][b.booking_date][b.booking_time] = (availCache[key][b.booking_date][b.booking_time]||0)+1;
+    });
+  } catch(e){ console.error(e); }
+}
+
+// 日付の空き状態: 'ok'(空き多) | 'few'(残りわずか) | 'full'(満員) | 'closed'(休診)
+function getDayStatus(y,m,d){
+  const dt=new Date(y,m,d);
+  const dow=dt.getDay();
+  if(dow===0||dow===6) return 'closed';
+  const diff=(dt-today)/86400000;
+  if(diff<2||diff>60) return 'closed';
+  if(d%7===3) return 'closed'; // 定休日
+
+  const key=dateKey(y,m);
+  const ds=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  const dayData=(availCache[key]||{})[ds]||{};
+  const totalBooked = ALL_SLOTS.reduce((sum,t)=>sum+(dayData[t]||0),0);
+  const totalCap = ALL_SLOTS.length * MAX_PER_SLOT;
+  const pct = totalBooked / totalCap;
+  if(pct >= 1)    return 'full';
+  if(pct >= 0.7)  return 'few';
+  return 'ok';
+}
+
+async function renderCalendar(){
+  const y=state.year,m=state.month;
+  document.getElementById('calMonth').textContent=y+'年 '+MONTHS_JP[m];
+  const grid=document.getElementById('calGrid');
+
+  // Show loading
+  grid.innerHTML='<div class="cal-loading" style="grid-column:1/-1"><div class="cal-spinner"></div>空き情報を確認中...</div>';
+
+  await fetchMonthAvail(y,m);
+
+  grid.innerHTML='';
+  DAYS.forEach(d=>{const h=document.createElement('div');h.className='cal-head';h.textContent=d;grid.appendChild(h);});
+  const firstDay=new Date(y,m,1).getDay();
+  const daysInMonth=new Date(y,m+1,0).getDate();
+  for(let i=0;i<firstDay;i++){const e=document.createElement('div');e.className='cal-day empty';grid.appendChild(e);}
+
+  for(let d=1;d<=daysInMonth;d++){
+    const el=document.createElement('div');
+    const status=getDayStatus(y,m,d);
+    const isToday=new Date(y,m,d).toDateString()===today.toDateString();
+    const isSel=state.selectedDate&&state.selectedDate.getFullYear()===y&&state.selectedDate.getMonth()===m&&state.selectedDate.getDate()===d;
+
+    let cls='cal-day';
+    if(status==='closed') cls+=' disabled';
+    else if(status==='full') cls+=' avail-full';
+    else if(status==='few') cls+=' avail-few';
+    else cls+=' avail-ok';
+    if(isToday) cls+=' today';
+    if(isSel) cls+=' selected';
+
+    const dotClass = status==='few'?' few':status==='full'?' full':'';
+    el.className=cls;
+    el.innerHTML=d+(status!=='closed'?`<div class="avail-dot${dotClass}"></div>`:'');
+
+    if(status==='ok'||status==='few'){
+      el.onclick=()=>selectDate(y,m,d);
+    }
+    grid.appendChild(el);
+  }
+}
+
+async function selectDate(y,m,d){
+  state.selectedDate=new Date(y,m,d); state.selectedTime=null;
+  document.getElementById('btn2').disabled=true;
+  renderCalendar();
+  await renderTimes(y,m,d);
+}
+
+async function renderTimes(y,m,d){
+  const card=document.getElementById('timeCard');
+  card.style.display='block';
+  document.getElementById('selectedDateLabel').textContent=`${y}年${m+1}月${d}日（${DAYS[new Date(y,m,d).getDay()]}）`;
+
+  const grid=document.getElementById('timeGrid');
+  grid.innerHTML='<div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--gray)"><div class="cal-spinner" style="width:16px;height:16px;border-width:2px"></div> 読み込み中...</div>';
+
+  await fetchMonthAvail(y,m);
+
+  const key=dateKey(y,m);
+  const ds=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  const dayData=(availCache[key]||{})[ds]||{};
+
+  grid.innerHTML='';
+  ALL_SLOTS.forEach(t=>{
+    const booked=dayData[t]||0;
+    const remaining=MAX_PER_SLOT-booked;
+    const full=remaining<=0;
+    const el=document.createElement('div');
+    el.className='time-slot'+(full?' full':'')+(state.selectedTime===t?' selected':'');
+    const statusLabel=full?'満席':remaining===1?'残り1枠':'空き有';
+    el.innerHTML=t+`<div class="slot-status">${statusLabel}</div>`;
+    if(!full){
+      el.onclick=()=>{
+        state.selectedTime=t;
+        document.querySelectorAll('.time-slot').forEach(e=>e.classList.remove('selected'));
+        el.classList.add('selected');
+        document.getElementById('btn2').disabled=false;
+      };
+    }
+    grid.appendChild(el);
+  });
+  card.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
+async function prevMonth(){
+  state.month--;if(state.month<0){state.month=11;state.year--;}
+  state.selectedDate=null; state.selectedTime=null;
+  document.getElementById('timeCard').style.display='none';
+  await renderCalendar();
+}
+async function nextMonth(){
+  state.month++;if(state.month>11){state.month=0;state.year++;}
+  state.selectedDate=null; state.selectedTime=null;
+  document.getElementById('timeCard').style.display='none';
+  await renderCalendar();
+}
+
+// ─── CONFIRM ────────────────────────────────────────
+function goToConfirm(){
+  const required=['lastName','firstName','lastKana','firstKana','birthdate','tel','email'];
+  let ok=true;
+  required.forEach(id=>{
+    const el=document.getElementById(id);
+    if(!el.value.trim()){el.classList.add('error');ok=false;}
+    else el.classList.remove('error');
+  });
+  const gender=document.querySelector('input[name="gender"]:checked');
+  if(!gender){alert('性別を選択してください。');return;}
+  if(!ok){alert('必須項目をすべてご入力ください。');return;}
+
+  const sd=state.selectedDate;
+  const dateStr=`${sd.getFullYear()}年${sd.getMonth()+1}月${sd.getDate()}日（${DAYS[sd.getDay()]}）`;
+  const bdate=document.getElementById('birthdate').value;
+  const bdFormatted=bdate.replace(/(\d+)-(\d+)-(\d+)/,'$1年$2月$3日');
+
+  document.getElementById('c-plan').textContent=state.plan;
+  document.getElementById('c-datetime').textContent=dateStr+' '+state.selectedTime;
+  document.getElementById('c-name').textContent=document.getElementById('lastName').value+' '+document.getElementById('firstName').value;
+  document.getElementById('c-kana').textContent=document.getElementById('lastKana').value+' '+document.getElementById('firstKana').value;
+  document.getElementById('c-birth').textContent=bdFormatted;
+  document.getElementById('c-gender').textContent=gender.value;
+  document.getElementById('c-tel').textContent=document.getElementById('tel').value;
+  document.getElementById('c-email').textContent=document.getElementById('email').value;
+  document.getElementById('c-price').textContent='¥'+state.price.toLocaleString()+'（税込）';
+  goToPage(4);
+}
+
+// ─── SUBMIT ─────────────────────────────────────────
+async function submitBooking(){
+  showLoading('予約を登録しています...');
+  const sd=state.selectedDate;
+  const bookingDate=`${sd.getFullYear()}-${String(sd.getMonth()+1).padStart(2,'0')}-${String(sd.getDate()).padStart(2,'0')}`;
+  const code='MC'+Date.now().toString().slice(-8);
+
+  const payload={
+    booking_code:  code,
+    plan_name:     state.plan,
+    plan_price:    state.price,
+    booking_date:  bookingDate,
+    booking_time:  state.selectedTime,
+    last_name:     document.getElementById('lastName').value.trim(),
+    first_name:    document.getElementById('firstName').value.trim(),
+    last_kana:     document.getElementById('lastKana').value.trim(),
+    first_kana:    document.getElementById('firstKana').value.trim(),
+    birthdate:     document.getElementById('birthdate').value,
+    gender:        document.querySelector('input[name="gender"]:checked').value,
+    tel:           document.getElementById('tel').value.trim(),
+    email:         document.getElementById('email').value.trim(),
+    company:       document.getElementById('company').value.trim(),
+    notes:         document.getElementById('notes').value.trim(),
+    status:        'confirmed',
+  };
+
+  try {
+    // 1) Supabase 保存
+    if(isConfigured && sbClient){
+      const {error}=await sbClient.from('bookings').insert([payload]);
+      if(error) throw error;
+    }
+
+    // 2) EmailJS 送信
+    if(isConfigured){
+      showLoading('確認メールを送信しています...');
+      await emailjs.send(CONFIG.EMAILJS_SERVICE_ID, CONFIG.EMAILJS_TEMPLATE_ID, {
+        to_email:      payload.email,
+        to_name:       payload.last_name+' '+payload.first_name,
+        booking_code:  code,
+        plan_name:     state.plan,
+        booking_date:  `${sd.getFullYear()}年${sd.getMonth()+1}月${sd.getDate()}日（${DAYS[sd.getDay()]}）`,
+        booking_time:  state.selectedTime,
+        plan_price:    '¥'+state.price.toLocaleString(),
+        clinic_name:   CONFIG.CLINIC_NAME,
+        clinic_tel:    CONFIG.CLINIC_TEL,
+        clinic_address:CONFIG.CLINIC_ADDRESS,
+      });
+    }
+
+    hideLoading();
+    showSuccess(payload, code, sd);
+  } catch(err){
+    hideLoading();
+    console.error(err);
+    alert('エラーが発生しました。\n'+err.message+'\n\n設定を確認してください。');
+  }
+}
+
+function showSuccess(payload, code, sd){
+  document.getElementById('bookingCode').textContent=code;
+  document.getElementById('successDetail').innerHTML=
+    `📋 コース：${payload.plan_name}<br>`+
+    `📅 日時：${sd.getFullYear()}年${sd.getMonth()+1}月${sd.getDate()}日（${DAYS[sd.getDay()]}） ${payload.booking_time}<br>`+
+    `💴 料金：¥${payload.plan_price.toLocaleString()}（当日お支払い）<br>`+
+    `📍 場所：${CONFIG.CLINIC_ADDRESS}<br>`+
+    `🚉 アクセス：${CONFIG.CLINIC_ACCESS}`;
+  goToPage(5);
+  document.querySelectorAll('.step-item').forEach(el=>el.classList.add('done'));
+}
+
+function showLoading(msg){document.getElementById('loadingMsg').textContent=msg;document.getElementById('loadingOverlay').classList.add('show');}
+function hideLoading(){document.getElementById('loadingOverlay').classList.remove('show');}
+
+function resetAll(){
+  state={plan:null,price:null,year:today.getFullYear(),month:today.getMonth(),selectedDate:null,selectedTime:null};
+  availCache={};
+  document.querySelectorAll('.plan-card').forEach(c=>c.classList.remove('selected'));
+  document.getElementById('btn1').disabled=true;
+  document.getElementById('btn2').disabled=true;
+  document.getElementById('timeCard').style.display='none';
+  ['lastName','firstName','lastKana','firstKana','birthdate','tel','email','company','notes'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.value='';
+  });
+  document.querySelectorAll('input[name="gender"]').forEach(r=>r.checked=false);
+  goToPage(1);
+}
+</script>
+</body>
+</html>

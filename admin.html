@@ -176,8 +176,9 @@ tbody td { padding:12px 16px; font-size:13px; color:var(--navy); vertical-align:
 ════════════════════════════════════ -->
 <script>
 const CONFIG = {
-  SUPABASE_URL:      'YOUR_SUPABASE_URL',
-  SUPABASE_ANON_KEY: 'YOUR_SUPABASE_ANON_KEY',
+  SUPABASE_URL: 'https://pkrxtphsahzlelczjfwl.supabase.co',          // 例: https://xxxx.supabase.co
+  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBrcnh0cGhzYWh6bGVsY3pqZndsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTA0NzQsImV4cCI6MjA5MzY2NjQ3NH0.JnayWimn16eC8TyXewl1-uk3kwSyGDBhgZJTu05JeEM',
+
   ADMIN_PASSWORD:    'admin1234',   // ← 管理画面のパスワード（必ず変更してください）
   CLINIC_NAME:       'MedCheckクリニック',
 };
@@ -303,9 +304,9 @@ const CONFIG = {
 <script>
 // ── INIT ────────────────────────────────────────────
 const isConfigured = CONFIG.SUPABASE_URL !== 'YOUR_SUPABASE_URL';
-let supabase = null;
+let sbClient = null;
 if(isConfigured) {
-  supabase = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+  sbClient = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
 }
 
 let allBookings = [];
@@ -345,7 +346,7 @@ async function loadBookings(){
   document.getElementById('bookingsTbody').innerHTML='<tr class="loading-row"><td colspan="6"><div class="spinner"></div>読み込み中...</td></tr>';
   if(!isConfigured){ renderAll(); return; }
   try {
-    const {data,error} = await supabase.from('bookings').select('*').order('booking_date',{ascending:false}).order('booking_time',{ascending:false});
+    const {data,error} = await sbClient.from('bookings').select('*').order('booking_date',{ascending:false}).order('booking_time',{ascending:false});
     if(error) throw error;
     allBookings = data;
     renderAll();
@@ -441,8 +442,8 @@ async function updateStatus(id, newStatus){
   const labels={completed:'受診済みに変更',cancelled:'キャンセル',noshow:'無断欠席に変更'};
   if(!confirm(`この予約を「${labels[newStatus]}」しますか？`)) return;
 
-  if(isConfigured && supabase){
-    const {error} = await supabase.from('bookings').update({status:newStatus}).eq('id',id);
+  if(isConfigured && sbClient){
+    const {error} = await sbClient.from('bookings').update({status:newStatus}).eq('id',id);
     if(error){alert('更新失敗: '+error.message);return;}
   }
   // ローカルも更新
@@ -551,12 +552,12 @@ let allPlans = [];
 async function loadPlans(){
   const grid = document.getElementById('plansGrid');
   grid.innerHTML = '<div style="text-align:center;padding:40px;color:var(--gray)"><div class="spinner"></div> 読み込み中...</div>';
-  if(!isConfigured || !supabase){
+  if(!isConfigured || !sbClient){
     allPlans = getDemoPlans();
     renderPlans();
     return;
   }
-  const {data,error} = await supabase.from('plans').select('*').order('sort_order');
+  const {data,error} = await sbClient.from('plans').select('*').order('sort_order');
   if(error){ grid.innerHTML = '<div style="color:var(--error);padding:20px">読み込みエラー: '+error.message+'</div>'; return; }
   allPlans = data;
   renderPlans();
@@ -599,12 +600,12 @@ async function savePlan(){
   const sort_order = parseInt(document.getElementById('planOrder').value)||1;
   if(!name||!price){ alert('コース名と料金は必須です。'); return; }
   const payload = {name, price, description, sort_order, is_active:true};
-  if(isConfigured && supabase){
+  if(isConfigured && sbClient){
     if(id){
-      const {error} = await supabase.from('plans').update(payload).eq('id',id);
+      const {error} = await sbClient.from('plans').update(payload).eq('id',id);
       if(error){alert('更新失敗: '+error.message);return;}
     } else {
-      const {error} = await supabase.from('plans').insert([payload]);
+      const {error} = await sbClient.from('plans').insert([payload]);
       if(error){alert('追加失敗: '+error.message);return;}
     }
   } else {
@@ -617,8 +618,8 @@ async function savePlan(){
 
 async function togglePlan(id, current){
   if(!confirm(current?'このコースを非公開にしますか？':'このコースを公開しますか？')) return;
-  if(isConfigured && supabase){
-    const {error} = await supabase.from('plans').update({is_active:!current}).eq('id',id);
+  if(isConfigured && sbClient){
+    const {error} = await sbClient.from('plans').update({is_active:!current}).eq('id',id);
     if(error){alert('更新失敗: '+error.message);return;}
   } else {
     const p=allPlans.find(x=>x.id===id); if(p) p.is_active=!current;

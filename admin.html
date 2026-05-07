@@ -176,7 +176,7 @@ tbody td { padding:12px 16px; font-size:13px; color:var(--navy); vertical-align:
 ════════════════════════════════════ -->
 <script>
 const CONFIG = {
- SUPABASE_URL: 'https://pkrxtphsahzlelczjfwl.supabase.co',          // 例: https://xxxx.supabase.co
+SUPABASE_URL: 'https://pkrxtphsahzlelczjfwl.supabase.co',          // 例: https://xxxx.supabase.co
   SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBrcnh0cGhzYWh6bGVsY3pqZndsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTA0NzQsImV4cCI6MjA5MzY2NjQ3NH0.JnayWimn16eC8TyXewl1-uk3kwSyGDBhgZJTu05JeEM',
 
 
@@ -570,7 +570,7 @@ function renderPlans(){
         <button class="btn-toggle-plan" onclick="togglePlan('${p.id}',${p.is_active})">${p.is_active?'非公開にする':'公開する'}</button>
       </div>
     </div>
-  `).join('') + \`
+  `).join('') + `
     <div class="plan-mgmt-card" style="border:2px dashed var(--teal);background:var(--teal-pale)">
       <div class="plan-mgmt-name" style="color:var(--teal)">⚙️ 全体上限設定</div>
       <div class="plan-mgmt-desc">1日のトータル受入上限（全コース合計）</div>
@@ -579,7 +579,7 @@ function renderPlans(){
         <button class="btn-edit" onclick="editTotalCap()">✏️ 変更する</button>
       </div>
     </div>
-  \`;
+  `;
 }
 
 function openPlanModal(id){

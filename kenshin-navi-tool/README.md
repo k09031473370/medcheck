@@ -18,12 +18,35 @@
 
 ```
 C:\kenshin-navi\
-  form_import.ps1        … 本体
+  form_import.ps1        … 本体 (コマンドライン)
+  form_import_gui.ps1    … GUI版 (画面から操作。中身は本体を呼び出すだけ)
   form\
     mapping.csv          … 列番号 ⇔ KOMOKU_CD 対応表 (要・現地で追記)
     value_map.csv        … 値の変換表 (尿定性・聴力など)
   backup\                … 書込前バックアップ (自動生成)
 ```
+
+## GUI版 (form_import_gui.ps1)
+
+コマンドを打たずに画面から操作できます。**Excelファイル(.xlsx)を直接指定可能**
+(PCのExcelを使って自動でCSVに変換するため、手動のCSV保存が不要)。
+
+起動:
+```powershell
+powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\form_import_gui.ps1
+```
+デスクトップにショートカットを作る場合の「リンク先」:
+```
+powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\kenshin-navi\form_import_gui.ps1
+```
+
+画面のボタンは番号順に使います:
+1. **列確認** … CSVの列番号一覧 (mapping.csv の Col 記入用。DB接続なし)
+2. **枠一覧(DB)** … 対象者の T_KENSA (KOMOKU_CD 記入用)
+3. **プレビュー** … 書込内容の確認 (DBは読むだけ)
+4. **書込実行** … 確認ダイアログの後にDB書込
+
+GUI版・コマンド版のどちらを使っても処理は同一です(GUIは form_import.ps1 を呼ぶだけ)。
 
 ## 事務PCへの配置
 

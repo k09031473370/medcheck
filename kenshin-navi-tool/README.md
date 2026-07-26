@@ -138,6 +138,35 @@ powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\form_import.ps1 `
 戻す場合はこのCSVの KEKKA / KEKKA_CD / HANTEI_KIGO を見ながら UPDATE で復元してください
 (健診ナビの画面から手修正でも可)。
 
+## テストで作った不要データの掃除 (db_tool.ps1)
+
+アプリの「検体検査結果取込」を試した際に作った **検査センター「院内」** などを削除する手順です。
+健診ナビのテーブル名は環境ごとに異なるため、まず検索で場所を特定します。
+
+```powershell
+# 1) 「院内」がどのテーブル・列に入っているか探す (DB全体を検索)
+powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\db_tool.ps1 -FindText 院内
+
+# 2) 見つかったテーブルの中身を確認 (例: テーブルが M_CENTER、列が CENTER_NM だった場合)
+powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\db_tool.ps1 -Table M_CENTER
+
+# 3) 削除プレビュー (まだ消えない)
+powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\db_tool.ps1 -Table M_CENTER -Where "CENTER_NM = N'院内'" -Delete
+
+# 4) 実削除 (削除前に backup\ へ自動バックアップ)
+powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\db_tool.ps1 -Table M_CENTER -Where "CENTER_NM = N'院内'" -Delete -Commit
+```
+
+注意:
+- **可能ならまず健診ナビのマスタ保守画面から削除**を試してください(画面から消せればそれが一番安全)。
+- **「江東微研(城南)」「江東微研(城西)」は本物のセンターなので絶対に消さない**こと。
+  自分で作った「院内」など、心当たりのある行だけを対象にしてください。
+- 削除前に、そのセンターのコード(例: 3)が依頼データ等から参照されていないかも
+  `-FindText` やテーブル確認で見ておくと安全です(テスト取込データが残っていれば先にそちらを削除)。
+- DB以外の痕跡: 取込テストで作ったフォルダ/ファイル (`C:\KTB\kekkadata` のテストファイル、
+  `\\KNSV\KenshinNavi\log\検査結果取込\` のログ) は普通にエクスプローラーで削除できます。
+- 迷ったら削除せず、`-FindText` の結果を貼って相談してください。
+
 ## トラブルシューティング
 
 - **接続エラー**: `SQLServerConnect.txt` の形式が解釈できない場合は

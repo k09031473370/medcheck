@@ -27,6 +27,8 @@ param(
     [string]$FindText,            # DB全体からこの文字列を含む行を探す
     [string]$Table,               # 対象テーブル名 (表示/削除)
     [string]$Where,               # 絞り込み条件 (SQLのWHERE句。例: "CENTER_NM = N'院内'")
+    [string]$Sql,                 # 任意のSELECT文を実行 (SELECT以外は拒否)
+    [string]$Database,            # 接続先DBを一時的に変更 (例: -Database master)
     [switch]$Delete,              # 削除モード (Table と Where が必須)
     [switch]$Commit,              # 付けると実削除。付けなければプレビューのみ
     [int]$MaxRows = 30,           # 表示する最大行数
@@ -79,6 +81,14 @@ function Resolve-ConnectionString {
 
 function Open-Db {
     $cs = Resolve-ConnectionString
+    if ($Database) {
+        if ($Database -notmatch '^[A-Za-z0-9_]+$') { throw "データベース名が不正です: $Database" }
+        if ($cs -match '(?i)(initial catalog|database)\s*=') {
+            $cs = $cs -replace '(?i)(initial catalog|database)\s*=\s*[^;]+', ('Initial Catalog=' + $Database)
+        } else {
+            $cs = $cs.TrimEnd(';') + ';Initial Catalog=' + $Database
+        }
+    }
     $masked = $cs -replace '(?i)(password|pwd)\s*=\s*[^;]*', '$1=***'
     Write-Host "[DB] 接続先: $masked" -ForegroundColor DarkGray
     $conn = New-Object System.Data.SqlClient.SqlConnection $cs
@@ -124,16 +134,26 @@ function Backup-Rows($dt, [string]$tag) {
 # メイン
 # ============================================================================
 
-if (-not $FindText -and -not $Table) {
+if (-not $FindText -and -not $Table -and -not $Sql) {
     Write-Host '使い方:'
-    Write-Host '  検索: db_tool.ps1 -FindText 院内'
+    Write-Host '  検索: db_tool.ps1 -FindText 院内 [-Database <DB名>]'
     Write-Host '  表示: db_tool.ps1 -Table <テーブル名> [-Where "<条件>"]'
+    Write-Host '  SQL : db_tool.ps1 -Sql "SELECT ..." (SELECTのみ)'
     Write-Host '  削除: db_tool.ps1 -Table <テーブル名> -Where "<条件>" -Delete [-Commit]'
     return
 }
 
 $conn = Open-Db
 try {
+    # ---- モード0: 任意SELECT ----
+    if ($Sql) {
+        $s = $Sql.Trim()
+        if ($s -notmatch '^(?i)\s*SELECT\b') { throw '-Sql で実行できるのは SELECT 文のみです。' }
+        $dt = Invoke-DbQuery $conn $s $null
+        Show-Table $dt $MaxRows
+        return
+    }
+
     # ---- モード1: 全テーブル文字列検索 ----
     if ($FindText) {
         $needle = $FindText -replace "'", "''"

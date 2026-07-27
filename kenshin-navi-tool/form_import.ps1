@@ -166,7 +166,7 @@ function Load-Mapping {
     $p = Join-Path $MapDir 'mapping.csv'
     if (-not (Test-Path $p)) { throw "対応表が見つかりません: $p" }
     $rows = Import-Csv -Path $p -Encoding UTF8
-    $valid = @('KENNO','KENYMD','VALUE','NYOU','CHORYOKU','SHOKEN','SHOKEN2','SHOKENCD','SHOKENCD2','IGNORE')
+    $valid = @('KENNO','KENYMD','VALUE','NYOU','CHORYOKU','MONSHIN','SHOKEN','SHOKEN2','SHOKENCD','SHOKENCD2','IGNORE')
     foreach ($r in $rows) {
         $k = (Normalize-Text $r.Kind).ToUpper()
         if ($k -ne '' -and $valid -notcontains $k) {
@@ -192,6 +192,21 @@ function Load-ValueMap {
 $AllowedSets = @{
     NYOU     = @('(-)','(+-)','(+)','(2+)','(3+)')
     CHORYOKU = @('所見なし','所見あり')
+}
+
+# 問診の選択肢 (KOMOKU_CD + コード → 表示ラベル)。KEKKA=ラベル / KEKKA_CD=コード で書込
+function Load-MonshinMap {
+    $p = Join-Path $MapDir 'monshin_map.csv'
+    $map = @{}
+    if (-not (Test-Path $p)) { return $map }
+    foreach ($r in (Import-Csv -Path $p -Encoding UTF8)) {
+        $cd = Normalize-Text $r.KOMOKU_CD
+        $code = Normalize-Text $r.CD
+        if ($cd -eq '' -or $code -eq '') { continue }
+        if (-not $map.ContainsKey($cd)) { $map[$cd] = @{} }
+        $map[$cd][$code] = Normalize-Text $r.LABEL
+    }
+    return $map
 }
 
 # 戻り値: @{ Status='OK'|'EMPTY'|'CONVERR'; Value=変換後 }
@@ -505,6 +520,27 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current) {
             }
             $plan += $rep
         }
+        elseif ($kind -eq 'MONSHIN') {
+            # ---- 問診 (コード → ラベル。KEKKA=ラベル / KEKKA_CD=コード) ----
+            $code = Normalize-KenNo (Get-Field $fields $col)
+            if ($code -eq '') { continue }
+            if ($komoku -eq '') { $rep.Status = '項目CD未設定'; $rep.New = $code; $plan += $rep; continue }
+            $mm = $script:MonshinMap
+            if (-not ($mm.ContainsKey($komoku) -and $mm[$komoku].ContainsKey($code))) {
+                $rep.Status = "選択肢未登録(コード$code)"; $rep.New = $code; $plan += $rep; continue
+            }
+            $label = $mm[$komoku][$code]
+            if (-not $current.ContainsKey($komoku)) { $rep.Status = '枠なし'; $rep.New = $label; $plan += $rep; continue }
+            $rep.Now = Normalize-Text ([string]$current[$komoku].KEKKA)
+            $rep.New = $label
+            $rep.KekkaCd = $code
+            $rep.Status = 'OK'
+            $rep.Update = @{
+                Sql = 'UPDATE T_KENSA SET KEKKA = @k, KEKKA_CD = @kc WHERE PK_SEQ = @p AND KOMOKU_CD = @cd'
+                P   = @{ k = $label; kc = $code; cd = $komoku }
+            }
+            $plan += $rep
+        }
         else {
             # ---- 値系 (VALUE / NYOU / CHORYOKU) ----
             $conv = Convert-FormValue $valueMap $kind $raw
@@ -595,6 +631,7 @@ if ($DumpSyoken) {
 
 $mapRows  = Load-Mapping
 $valueMap = Load-ValueMap
+$script:MonshinMap = Load-MonshinMap
 $idCols   = Get-IdColumns $mapRows
 
 # ---- モード: 対象者の T_KENSA 一覧 ----

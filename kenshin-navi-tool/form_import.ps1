@@ -36,6 +36,7 @@ param(
     [switch]$Commit,              # 付けると書込。付けなければプレビューのみ
     [switch]$Force,               # エラー行があってもOK行のみ書込
     [switch]$Inspect,             # CSVの列番号/ヘッダ/値/変換結果を表示(DB接続なし)
+    [switch]$NoHeader,            # 1行目からデータの場合に指定(ヘッダ行なし)
     [switch]$DumpItems,           # 対象者のT_KENSA行を一覧表示
     [string]$DumpSyoken,          # 指定SYOKEN_CDのT_SYOKEN2一覧を表示 (SHIN/GANTEI/ZK011/ZK020/ZK021/ZK030/ZK031/ZK041)
     [string]$KenYmd,              # 受診日 'YYYY/MM/DD'。CSVに日付列が無い場合に指定
@@ -137,8 +138,19 @@ function Read-FormCsv([string]$path, [string]$encName) {
         foreach ($f in $r) { if ((Normalize-Text $f) -ne '') { $isEmpty = $false; break } }
         if (-not $isEmpty) { $out += ,$r }
     }
-    if ($out.Count -lt 2) { throw "CSVにデータ行がありません(1行目ヘッダ+2行目以降データの想定): $path" }
+    $minRows = if ($NoHeader) { 1 } else { 2 }
+    if ($out.Count -lt $minRows) { throw "CSVにデータ行がありません: $path (ヘッダ行が無いフォームの場合は -NoHeader を指定)" }
     return ,$out
+}
+
+# ヘッダ行とデータ行に分離 (-NoHeader 時はダミーヘッダを生成)
+function Split-HeaderData($rows) {
+    if ($NoHeader) {
+        $h = @()
+        for ($i = 1; $i -le $rows[0].Count; $i++) { $h += "列$i" }
+        return @{ Header = $h; Data = $rows }
+    }
+    return @{ Header = $rows[0]; Data = @($rows[1..($rows.Count - 1)]) }
 }
 
 function Get-Field($fields, [int]$col) {
@@ -533,8 +545,8 @@ if ($DumpItems) {
     $ymd = $null
     if ($Csv) {
         $rows = Read-FormCsv $Csv $CsvEncoding
-        $data = $rows[1..($rows.Count - 1)]
-        $sel = Select-TargetRows $data $idCols
+        $hd = Split-HeaderData $rows
+        $sel = Select-TargetRows $hd.Data $idCols
         $ymd = Resolve-RowYmd $sel[0] $idCols
     } else {
         if (-not $KenYmd) { throw '-DumpItems には -KenYmd 2026/07/02 のように受診日も指定してください。' }
@@ -560,8 +572,9 @@ if ($DumpItems) {
 if (-not $Csv) { throw '使い方: form_import.ps1 -Csv <form.csv> [-Only 4001] [-KenYmd 2026/07/02] [-Commit] / -Inspect / -DumpItems / -DumpSyoken <CD>' }
 
 $rows = Read-FormCsv $Csv $CsvEncoding
-$header = $rows[0]
-$data = $rows[1..($rows.Count - 1)]
+$hd = Split-HeaderData $rows
+$header = $hd.Header
+$data = $hd.Data
 
 # ---- モード: CSV列の確認 (DB接続なし) ----
 if ($Inspect) {

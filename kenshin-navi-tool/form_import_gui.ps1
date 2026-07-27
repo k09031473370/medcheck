@@ -123,6 +123,13 @@ $txtYmd.Size = New-Object System.Drawing.Size(110, 24)
 $form.Controls.Add($txtYmd)
 $form.Controls.Add((New-Label '(例 2026/07/02。空なら全員/CSVの日付列)' 368 48 280))
 
+$chkNoHdr = New-Object System.Windows.Forms.CheckBox
+$chkNoHdr.Text = 'ヘッダ行なし'
+$chkNoHdr.Checked = $true
+$chkNoHdr.Location = New-Object System.Drawing.Point(530, 45)
+$chkNoHdr.Size = New-Object System.Drawing.Size(115, 24)
+$form.Controls.Add($chkNoHdr)
+
 $chkUtf8 = New-Object System.Windows.Forms.CheckBox
 $chkUtf8.Text = 'CSVはUTF-8'
 $chkUtf8.Location = New-Object System.Drawing.Point(650, 45)
@@ -237,6 +244,7 @@ function Get-CommonArgs {
     if ($txtOnly.Text.Trim() -ne '') { $a += @('-Only', $txtOnly.Text.Trim()) }
     if ($txtYmd.Text.Trim()  -ne '') { $a += @('-KenYmd', $txtYmd.Text.Trim()) }
     if ($chkUtf8.Checked) { $a += @('-CsvEncoding', 'UTF8') }
+    if ($chkNoHdr.Checked) { $a += '-NoHeader' }
     return ,$a
 }
 

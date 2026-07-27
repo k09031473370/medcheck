@@ -176,6 +176,36 @@ function Load-Mapping {
     return $rows
 }
 
+# コード変換表 (フォームのコード → 健診ナビの結果CD)
+# form\code_map.csv: MapName,FromCode,ToCode,Note
+function Load-CodeMap {
+    $p = Join-Path $MapDir 'code_map.csv'
+    $map = @{}
+    if (-not (Test-Path $p)) { return $map }
+    foreach ($r in (Import-Csv -Path $p -Encoding UTF8)) {
+        $name = (Normalize-Text $r.MapName).ToUpper()
+        $from = Normalize-Text $r.FromCode
+        if ($name -eq '' -or $from -eq '') { continue }
+        if (-not $map.ContainsKey($name)) { $map[$name] = @{} }
+        $map[$name][$from] = Normalize-Text $r.ToCode
+    }
+    return $map
+}
+
+# mapping.csv の CodeMap 列に従ってコードを変換
+# 戻り値: @{ Code=変換後; Status='OK'|'NOMAP'|'DROP' }
+#   DROP = 変換表に「空欄」と定義済み(意図的に取り込まない値)
+function Convert-Code($m, [string]$raw) {
+    $mapName = (Normalize-Text $m.CodeMap).ToUpper()
+    if ($mapName -eq '') { return @{ Code = $raw; Status = 'OK' } }
+    $cm = $script:CodeMap
+    if (-not $cm.ContainsKey($mapName)) { return @{ Code = $raw; Status = 'NOMAP' } }
+    if (-not $cm[$mapName].ContainsKey($raw)) { return @{ Code = $raw; Status = 'NOMAP' } }
+    $to = $cm[$mapName][$raw]
+    if ($to -eq '') { return @{ Code = ''; Status = 'DROP' } }
+    return @{ Code = $to; Status = 'OK' }
+}
+
 function Load-ValueMap {
     $p = Join-Path $MapDir 'value_map.csv'
     $map = @{}
@@ -451,6 +481,14 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current) {
         if ($kind -eq 'SHOKENCD' -or $kind -eq 'SHOKENCD2') {
             # ---- 所見を結果CD(コード)で直接指定する形式 ----
             $shoCode = (Normalize-Text $raw).ToUpper()
+            if ($shoCode -ne '') {
+                $cv = Convert-Code $m $shoCode
+                if ($cv.Status -eq 'DROP') { continue }
+                if ($cv.Status -eq 'NOMAP') {
+                    $rep.Status = "変換表に無いコード($shoCode)"; $rep.New = $shoCode; $plan += $rep; continue
+                }
+                $shoCode = $cv.Code
+            }
             $buiCode = ''
             if ($kind -eq 'SHOKENCD2') {
                 $col2 = 0
@@ -547,9 +585,15 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current) {
         elseif ($kind -eq 'MONSHIN') {
             # ---- 選択式項目 (問診・尿・聴力等): コード → ラベル+判定 ----
             # T_KOMOKU.SYOKEN_CD → T_SYOKEN2 の選択肢リストで解決 (無ければ monshin_map.csv)
-            $code = Normalize-KenNo (Get-Field $fields $col)
-            if ($code -eq '') { continue }
-            if ($komoku -eq '') { $rep.Status = '項目CD未設定'; $rep.New = $code; $plan += $rep; continue }
+            $rawCode = Normalize-KenNo (Get-Field $fields $col)
+            if ($rawCode -eq '') { continue }
+            if ($komoku -eq '') { $rep.Status = '項目CD未設定'; $rep.New = $rawCode; $plan += $rep; continue }
+            $cv = Convert-Code $m $rawCode
+            if ($cv.Status -eq 'DROP') { continue }   # 変換表で「取り込まない」と定義済み
+            if ($cv.Status -eq 'NOMAP') {
+                $rep.Status = "変換表に無いコード($rawCode)"; $rep.New = $rawCode; $plan += $rep; continue
+            }
+            $code = $cv.Code
             $label = $null
             $hanteiK = ''
             $scd = Get-ItemSyokenCd $conn $komoku
@@ -694,6 +738,7 @@ if ($DumpSyoken) {
 $mapRows  = Load-Mapping
 $valueMap = Load-ValueMap
 $script:MonshinMap = Load-MonshinMap
+$script:CodeMap = Load-CodeMap
 $idCols   = Get-IdColumns $mapRows
 
 # ---- モード: 対象者の T_KENSA 一覧 ----

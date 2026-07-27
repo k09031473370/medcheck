@@ -166,7 +166,7 @@ function Load-Mapping {
     $p = Join-Path $MapDir 'mapping.csv'
     if (-not (Test-Path $p)) { throw "対応表が見つかりません: $p" }
     $rows = Import-Csv -Path $p -Encoding UTF8
-    $valid = @('KENNO','KENYMD','VALUE','NYOU','CHORYOKU','SHOKEN','SHOKEN2','IGNORE')
+    $valid = @('KENNO','KENYMD','VALUE','NYOU','CHORYOKU','SHOKEN','SHOKEN2','SHOKENCD','SHOKENCD2','IGNORE')
     foreach ($r in $rows) {
         $k = (Normalize-Text $r.Kind).ToUpper()
         if ($k -ne '' -and $valid -notcontains $k) {
@@ -316,6 +316,16 @@ function Get-SyokenTable($conn, [string]$cd) {
     return $script:SyokenCache[$cd]
 }
 
+# 結果CD(KEKKA_CD)でマスタを引く (SHOKENCD/SHOKENCD2用)
+function Find-SyokenCd($conn, [string]$cd, [string]$code) {
+    $c = (Normalize-Text $code).ToUpper()
+    $dt = Get-SyokenTable $conn $cd
+    foreach ($r in $dt.Rows) {
+        if ((Normalize-Text ([string]$r.KEKKA_CD)).ToUpper() -eq $c) { return $r }
+    }
+    return $null
+}
+
 # 所見文をマスタと突合 (完全一致 → 空白無視一致)
 function Find-Syoken($conn, [string]$cd, [string]$text) {
     $t = Normalize-Text $text
@@ -399,7 +409,55 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current) {
         if ($col -le 0) { $rep.Status = '列未設定'; $plan += $rep; continue }
         $raw = Get-Field $fields $col
 
-        if ($kind -eq 'SHOKEN' -or $kind -eq 'SHOKEN2') {
+        if ($kind -eq 'SHOKENCD' -or $kind -eq 'SHOKENCD2') {
+            # ---- 所見を結果CD(コード)で直接指定する形式 ----
+            $shoCode = (Normalize-Text $raw).ToUpper()
+            $buiCode = ''
+            if ($kind -eq 'SHOKENCD2') {
+                $col2 = 0
+                [void][int]::TryParse((Normalize-Text $m.Col2), [ref]$col2)
+                if ($col2 -gt 0) { $buiCode = (Normalize-Text (Get-Field $fields $col2)).ToUpper() }
+            }
+            if ($shoCode -eq '' -and $buiCode -eq '') { continue }
+            if ($komoku -eq '') { $rep.Status = '項目CD未設定'; $rep.New = ($buiCode + ' ' + $shoCode).Trim(); $plan += $rep; continue }
+
+            if ($kind -eq 'SHOKENCD') {
+                $cd = Normalize-Text $m.SYOKEN_CD
+                $hit = Find-SyokenCd $conn $cd $shoCode
+                if (-not $hit) { $rep.Status = "所見CD未登録(${cd}:${shoCode})"; $rep.New = $shoCode; $plan += $rep; continue }
+                $rep.New = [string]$hit.SYOKEN
+                $rep.KekkaCd = Normalize-Text ([string]$hit.KEKKA_CD)
+                $rep.Hantei  = Normalize-Text ([string]$hit.HANTEI_KIGO)
+            }
+            else {
+                # SYOKEN_CD=部位マスタ / SYOKEN_CD2=所見マスタ (どちらもコード指定)
+                $cdBui = Normalize-Text $m.SYOKEN_CD
+                $cdSho = Normalize-Text $m.SYOKEN_CD2
+                $hitB = $null
+                if ($buiCode -ne '') {
+                    $hitB = Find-SyokenCd $conn $cdBui $buiCode
+                    if (-not $hitB) { $rep.Status = "所見CD未登録(${cdBui}:部位${buiCode})"; $rep.New = $buiCode; $plan += $rep; continue }
+                }
+                if ($shoCode -eq '') { $rep.Status = '所見CDが空(部位のみ)'; $rep.New = $buiCode; $plan += $rep; continue }
+                $hitS = Find-SyokenCd $conn $cdSho $shoCode
+                if (-not $hitS) { $rep.Status = "所見CD未登録(${cdSho}:${shoCode})"; $rep.New = $shoCode; $plan += $rep; continue }
+                $buiStr = ''
+                if ($hitB) { $buiStr = [string]$hitB.SYOKEN }
+                $rep.New = (($buiStr + ' ' + [string]$hitS.SYOKEN).Trim())
+                $rep.KekkaCd = Normalize-Text ([string]$hitS.KEKKA_CD)
+                $rep.Hantei  = Normalize-Text ([string]$hitS.HANTEI_KIGO)
+            }
+
+            if (-not $current.ContainsKey($komoku)) { $rep.Status = '枠なし'; $plan += $rep; continue }
+            $rep.Now = Normalize-Text ([string]$current[$komoku].KEKKA)
+            $rep.Status = 'OK'
+            $rep.Update = @{
+                Sql = 'UPDATE T_KENSA SET KEKKA = @k, KEKKA_CD = @kc, HANTEI_KIGO = @h WHERE PK_SEQ = @p AND KOMOKU_CD = @cd'
+                P   = @{ k = $rep.New; kc = $rep.KekkaCd; h = $rep.Hantei; cd = $komoku }
+            }
+            $plan += $rep
+        }
+        elseif ($kind -eq 'SHOKEN' -or $kind -eq 'SHOKEN2') {
             # ---- 所見系 ----
             $shoText = Normalize-Text $raw
             $buiText = ''
@@ -427,7 +485,7 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current) {
                 $hitB = $null
                 if ($buiText -ne '') {
                     $hitB = Find-Syoken $conn $cdBui $buiText
-                    if (-not $hitB) { $rep.Status = "所見未登録($cdBui:部位)"; $rep.New = $buiText; $plan += $rep; continue }
+                    if (-not $hitB) { $rep.Status = "所見未登録(${cdBui}:部位)"; $rep.New = $buiText; $plan += $rep; continue }
                 }
                 $hitS = Find-Syoken $conn $cdSho $shoText
                 if (-not $hitS) { $rep.Status = "所見未登録($cdSho)"; $rep.New = $shoText; $plan += $rep; continue }

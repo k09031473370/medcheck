@@ -341,6 +341,18 @@ function Find-SyokenCd($conn, [string]$cd, [string]$code) {
     return $null
 }
 
+# 項目マスタ(T_KOMOKU)から選択肢リスト名(SYOKEN_CD)を取得
+$script:ItemSyokenCache = @{}
+function Get-ItemSyokenCd($conn, [string]$komoku) {
+    if (-not $script:ItemSyokenCache.ContainsKey($komoku)) {
+        $dt = Invoke-DbQuery $conn 'SELECT SYOKEN_CD FROM T_KOMOKU WHERE KOMOKU_CD = @cd' @{ cd = $komoku }
+        $v = ''
+        if ($dt.Rows.Count -gt 0) { $v = Normalize-Text ([string]$dt.Rows[0].SYOKEN_CD) }
+        $script:ItemSyokenCache[$komoku] = $v
+    }
+    return $script:ItemSyokenCache[$komoku]
+}
+
 # 所見文をマスタと突合 (完全一致 → 空白無視一致)
 function Find-Syoken($conn, [string]$cd, [string]$text) {
     $t = Normalize-Text $text
@@ -521,23 +533,45 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current) {
             $plan += $rep
         }
         elseif ($kind -eq 'MONSHIN') {
-            # ---- 問診 (コード → ラベル。KEKKA=ラベル / KEKKA_CD=コード) ----
+            # ---- 選択式項目 (問診・尿・聴力等): コード → ラベル+判定 ----
+            # T_KOMOKU.SYOKEN_CD → T_SYOKEN2 の選択肢リストで解決 (無ければ monshin_map.csv)
             $code = Normalize-KenNo (Get-Field $fields $col)
             if ($code -eq '') { continue }
             if ($komoku -eq '') { $rep.Status = '項目CD未設定'; $rep.New = $code; $plan += $rep; continue }
-            $mm = $script:MonshinMap
-            if (-not ($mm.ContainsKey($komoku) -and $mm[$komoku].ContainsKey($code))) {
-                $rep.Status = "選択肢未登録(コード$code)"; $rep.New = $code; $plan += $rep; continue
+            $label = $null
+            $hanteiK = ''
+            $scd = Get-ItemSyokenCd $conn $komoku
+            if ($scd -ne '') {
+                $hit = Find-SyokenCd $conn $scd $code
+                if ($hit) {
+                    $label = [string]$hit.SYOKEN
+                    $hanteiK = Normalize-Text ([string]$hit.HANTEI_KIGO)
+                }
             }
-            $label = $mm[$komoku][$code]
+            if ($null -eq $label) {
+                $mm = $script:MonshinMap
+                if ($mm.ContainsKey($komoku) -and $mm[$komoku].ContainsKey($code)) { $label = $mm[$komoku][$code] }
+            }
+            if ($null -eq $label) {
+                $rep.Status = "選択肢未登録(コード$code" + $(if ($scd) { "/リスト$scd" } else { '' }) + ')'
+                $rep.New = $code; $plan += $rep; continue
+            }
             if (-not $current.ContainsKey($komoku)) { $rep.Status = '枠なし'; $rep.New = $label; $plan += $rep; continue }
             $rep.Now = Normalize-Text ([string]$current[$komoku].KEKKA)
             $rep.New = $label
             $rep.KekkaCd = $code
+            $rep.Hantei = $hanteiK
             $rep.Status = 'OK'
-            $rep.Update = @{
-                Sql = 'UPDATE T_KENSA SET KEKKA = @k, KEKKA_CD = @kc WHERE PK_SEQ = @p AND KOMOKU_CD = @cd'
-                P   = @{ k = $label; kc = $code; cd = $komoku }
+            if ($hanteiK -ne '') {
+                $rep.Update = @{
+                    Sql = 'UPDATE T_KENSA SET KEKKA = @k, KEKKA_CD = @kc, HANTEI_KIGO = @h WHERE PK_SEQ = @p AND KOMOKU_CD = @cd'
+                    P   = @{ k = $label; kc = $code; h = $hanteiK; cd = $komoku }
+                }
+            } else {
+                $rep.Update = @{
+                    Sql = 'UPDATE T_KENSA SET KEKKA = @k, KEKKA_CD = @kc WHERE PK_SEQ = @p AND KOMOKU_CD = @cd'
+                    P   = @{ k = $label; kc = $code; cd = $komoku }
+                }
             }
             $plan += $rep
         }

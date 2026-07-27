@@ -11,16 +11,16 @@
 
 .EXAMPLE
   # 1) 「院内」がどのテーブルに入っているか探す
-  powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\db_tool.ps1 -FindText 院内
+  powershell -ExecutionPolicy Bypass -File C:\Users\User\Documents\excel_tools\db_tool.ps1 -FindText 院内
 
   # 2) 見つかったテーブルの中身を確認 (例: テーブル名 M_CENTER だった場合)
-  powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\db_tool.ps1 -Table M_CENTER
+  powershell -ExecutionPolicy Bypass -File C:\Users\User\Documents\excel_tools\db_tool.ps1 -Table M_CENTER
 
   # 3) 削除プレビュー (まだ消えない。対象行が表示される)
-  powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\db_tool.ps1 -Table M_CENTER -Where "CENTER_NM = N'院内'" -Delete
+  powershell -ExecutionPolicy Bypass -File C:\Users\User\Documents\excel_tools\db_tool.ps1 -Table M_CENTER -Where "CENTER_NM = N'院内'" -Delete
 
   # 4) 問題なければ実削除 (削除前に backup\ へCSV保存される)
-  powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\db_tool.ps1 -Table M_CENTER -Where "CENTER_NM = N'院内'" -Delete -Commit
+  powershell -ExecutionPolicy Bypass -File C:\Users\User\Documents\excel_tools\db_tool.ps1 -Table M_CENTER -Where "CENTER_NM = N'院内'" -Delete -Commit
 #>
 [CmdletBinding()]
 param(

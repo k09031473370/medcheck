@@ -14,13 +14,13 @@
 
 .EXAMPLE
   # 装置コードの一覧と変換表の設定状況を確認 (DB接続なし)
-  powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\ecg_import.ps1 -Csv <ecg.csv> -ListCodes
+  powershell -ExecutionPolicy Bypass -File C:\Users\User\Documents\excel_tools\ecg_import.ps1 -Csv <ecg.csv> -ListCodes
 
   # プレビュー (ID=13 のみ)
-  powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\ecg_import.ps1 -Csv <ecg.csv> -Only 13
+  powershell -ExecutionPolicy Bypass -File C:\Users\User\Documents\excel_tools\ecg_import.ps1 -Csv <ecg.csv> -Only 13
 
   # 全員書込
-  powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\ecg_import.ps1 -Csv <ecg.csv> -Commit
+  powershell -ExecutionPolicy Bypass -File C:\Users\User\Documents\excel_tools\ecg_import.ps1 -Csv <ecg.csv> -Commit
 #>
 [CmdletBinding()]
 param(

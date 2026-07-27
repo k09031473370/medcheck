@@ -7,9 +7,9 @@
   - Excelフォーム(.xlsx)を直接指定可能 (ExcelのCOM機能で一時CSVに自動変換)
   - プレビュー / 書込 / 列確認(-Inspect) / 枠一覧(-DumpItems) / 所見マスタ(-DumpSyoken)
   起動方法: 右クリック→「PowerShellで実行」、または
-    powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\form_import_gui.ps1
+    powershell -ExecutionPolicy Bypass -File C:\Users\User\Documents\excel_tools\form_import_gui.ps1
   ショートカットを作る場合のリンク先:
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\kenshin-navi\form_import_gui.ps1
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\Users\User\Documents\excel_tools\form_import_gui.ps1
 #>
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms

@@ -15,19 +15,19 @@
 
 .EXAMPLE
   # プレビュー(書込なし)
-  powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\form_import.ps1 -Csv C:\...\form.csv -Only 4001 -KenYmd 2026/07/02
+  powershell -ExecutionPolicy Bypass -File C:\Users\User\Documents\excel_tools\form_import.ps1 -Csv C:\...\form.csv -Only 4001 -KenYmd 2026/07/02
 
   # 書込
-  powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\form_import.ps1 -Csv C:\...\form.csv -Only 4001 -KenYmd 2026/07/02 -Commit
+  powershell -ExecutionPolicy Bypass -File C:\Users\User\Documents\excel_tools\form_import.ps1 -Csv C:\...\form.csv -Only 4001 -KenYmd 2026/07/02 -Commit
 
   # CSVの列番号・ヘッダ・値の確認(DB接続なし)
-  powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\form_import.ps1 -Csv C:\...\form.csv -Only 4001 -Inspect
+  powershell -ExecutionPolicy Bypass -File C:\Users\User\Documents\excel_tools\form_import.ps1 -Csv C:\...\form.csv -Only 4001 -Inspect
 
   # 対象者の T_KENSA 行(KOMOKU_CDと現在値)を一覧表示 + CSVダンプ
-  powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\form_import.ps1 -Only 4001 -KenYmd 2026/07/02 -DumpItems
+  powershell -ExecutionPolicy Bypass -File C:\Users\User\Documents\excel_tools\form_import.ps1 -Only 4001 -KenYmd 2026/07/02 -DumpItems
 
   # 所見マスタの一覧 (例: 胸部X線の所見側)
-  powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\form_import.ps1 -DumpSyoken ZK021
+  powershell -ExecutionPolicy Bypass -File C:\Users\User\Documents\excel_tools\form_import.ps1 -DumpSyoken ZK021
 #>
 [CmdletBinding()]
 param(

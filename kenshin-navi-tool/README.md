@@ -17,7 +17,7 @@
 ## ファイル構成
 
 ```
-C:\kenshin-navi\
+C:\Users\User\Documents\excel_tools\
   form_import.ps1        … 本体 (コマンドライン)
   form_import_gui.ps1    … GUI版 (画面から操作。中身は本体を呼び出すだけ)
   ecg_import.ps1         … 心電図結果CSV取込 (検査日,ID,判定記号,所見コード1-5形式)
@@ -50,11 +50,11 @@ C:\kenshin-navi\
 
 起動:
 ```powershell
-powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\form_import_gui.ps1
+powershell -ExecutionPolicy Bypass -File C:\Users\User\Documents\excel_tools\form_import_gui.ps1
 ```
 デスクトップにショートカットを作る場合の「リンク先」:
 ```
-powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\kenshin-navi\form_import_gui.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\Users\User\Documents\excel_tools\form_import_gui.ps1
 ```
 
 画面のボタンは番号順に使います:
@@ -67,7 +67,7 @@ GUI版・コマンド版のどちらを使っても処理は同一です(GUIは 
 
 ## 事務PCへの配置
 
-このフォルダ(`kenshin-navi-tool`)の中身をそのまま `C:\kenshin-navi\` にコピーしてください。
+このフォルダ(`kenshin-navi-tool`)の中身をそのまま `C:\Users\User\Documents\excel_tools\` にコピーしてください。
 CSVはUTF-8(BOM付き)です。**mapping.csv をExcelで編集すると問診の KOMOKU_CD `084001` の
 先頭ゼロが消えることがあるため、メモ帳やVSCodeでの編集を推奨**します。
 
@@ -84,7 +84,7 @@ Excelでフォームを開き「名前を付けて保存」→「CSV (コンマ�
 ### 2. CSVの列番号を確認 (-Inspect / DB接続なし)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\form_import.ps1 -Csv C:\...\form.csv -Inspect
+powershell -ExecutionPolicy Bypass -File C:\Users\User\Documents\excel_tools\form_import.ps1 -Csv C:\...\form.csv -Inspect
 ```
 
 全105列の「列番号・ヘッダ名・1人目の値」が一覧表示されます。
@@ -95,7 +95,7 @@ powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\form_import.ps1 -Csv C:
 ### 3. KOMOKU_CD を確認 (-DumpItems)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\form_import.ps1 -Only 4001 -KenYmd 2026/07/02 -DumpItems
+powershell -ExecutionPolicy Bypass -File C:\Users\User\Documents\excel_tools\form_import.ps1 -Only 4001 -KenYmd 2026/07/02 -DumpItems
 ```
 
 対象者の T_KENSA の全枠(KOMOKU_CD と現在値)が表示され、全列ダンプCSVも `backup\` に保存されます。
@@ -110,19 +110,19 @@ powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\form_import.ps1 -Only 4
 ```powershell
 # 診察:SHIN / 眼底:GANTEI / 心電図:ZK011 / 腹部エコー:ZK041
 # 胸部X線:ZK020(部位)+ZK021(所見) / 胃部X線:ZK030(部位)+ZK031(所見)
-powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\form_import.ps1 -DumpSyoken SHIN
-powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\form_import.ps1 -DumpSyoken ZK021
+powershell -ExecutionPolicy Bypass -File C:\Users\User\Documents\excel_tools\form_import.ps1 -DumpSyoken SHIN
+powershell -ExecutionPolicy Bypass -File C:\Users\User\Documents\excel_tools\form_import.ps1 -DumpSyoken ZK021
 ```
 
 ## 実行手順 (受付番号4001でテスト)
 
 ```powershell
 # 1) プレビュー (書込なし)
-powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\form_import.ps1 `
+powershell -ExecutionPolicy Bypass -File C:\Users\User\Documents\excel_tools\form_import.ps1 `
   -Csv "C:\Users\User\Desktop\form.csv" -Only 4001 -KenYmd 2026/07/02
 
 # 2) 内容を確認して問題なければ書込
-powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\form_import.ps1 `
+powershell -ExecutionPolicy Bypass -File C:\Users\User\Documents\excel_tools\form_import.ps1 `
   -Csv "C:\Users\User\Desktop\form.csv" -Only 4001 -KenYmd 2026/07/02 -Commit
 ```
 
@@ -162,16 +162,16 @@ powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\form_import.ps1 `
 
 ```powershell
 # 1) 「院内」がどのテーブル・列に入っているか探す (DB全体を検索)
-powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\db_tool.ps1 -FindText 院内
+powershell -ExecutionPolicy Bypass -File C:\Users\User\Documents\excel_tools\db_tool.ps1 -FindText 院内
 
 # 2) 見つかったテーブルの中身を確認 (例: テーブルが M_CENTER、列が CENTER_NM だった場合)
-powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\db_tool.ps1 -Table M_CENTER
+powershell -ExecutionPolicy Bypass -File C:\Users\User\Documents\excel_tools\db_tool.ps1 -Table M_CENTER
 
 # 3) 削除プレビュー (まだ消えない)
-powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\db_tool.ps1 -Table M_CENTER -Where "CENTER_NM = N'院内'" -Delete
+powershell -ExecutionPolicy Bypass -File C:\Users\User\Documents\excel_tools\db_tool.ps1 -Table M_CENTER -Where "CENTER_NM = N'院内'" -Delete
 
 # 4) 実削除 (削除前に backup\ へ自動バックアップ)
-powershell -ExecutionPolicy Bypass -File C:\kenshin-navi\db_tool.ps1 -Table M_CENTER -Where "CENTER_NM = N'院内'" -Delete -Commit
+powershell -ExecutionPolicy Bypass -File C:\Users\User\Documents\excel_tools\db_tool.ps1 -Table M_CENTER -Where "CENTER_NM = N'院内'" -Delete -Commit
 ```
 
 注意:

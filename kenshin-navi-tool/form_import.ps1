@@ -305,13 +305,21 @@ function Invoke-DbExec($conn, $tran, [string]$sql, [hashtable]$params) {
 }
 
 function Resolve-PkSeq($conn, [string]$ymd, [string]$kenNo) {
+    # 1) 受付済み: T_KANJA_G (KEN_YMD + KEN_NO)
     $dt = Invoke-DbQuery $conn 'SELECT PK_SEQ FROM T_KANJA_G WHERE KEN_YMD = @ymd AND KEN_NO = @no' @{ ymd = $ymd; no = $kenNo }
     if ($dt.Rows.Count -eq 0 -and $kenNo -match '^\d+$') {
-        # KEN_NO が数値列の場合を考慮して int でも試す
         $dt = Invoke-DbQuery $conn 'SELECT PK_SEQ FROM T_KANJA_G WHERE KEN_YMD = @ymd AND KEN_NO = @no' @{ ymd = $ymd; no = [int]$kenNo }
     }
-    if ($dt.Rows.Count -eq 0) { return $null }
+    if ($dt.Rows.Count -eq 1) { return $dt.Rows[0].PK_SEQ }
     if ($dt.Rows.Count -gt 1) { throw "受診者が複数見つかりました (KEN_YMD=$ymd, KEN_NO=$kenNo)。中止します。" }
+    # 2) 未受付: T_KENSIN (D_KENSIN + UKE_NO_KENSA、予約取消は除外)
+    $dt = Invoke-DbQuery $conn 'SELECT PK_SEQ FROM T_KENSIN WHERE D_KENSIN = @ymd AND UKE_NO_KENSA = @no AND F_TORIKESI = 0' @{ ymd = $ymd; no = $kenNo }
+    if ($dt.Rows.Count -eq 0 -and $kenNo -match '^\d+$') {
+        $dt = Invoke-DbQuery $conn 'SELECT PK_SEQ FROM T_KENSIN WHERE D_KENSIN = @ymd AND UKE_NO_KENSA = @no AND F_TORIKESI = 0' @{ ymd = $ymd; no = [int]$kenNo }
+    }
+    if ($dt.Rows.Count -eq 0) { return $null }
+    if ($dt.Rows.Count -gt 1) { throw "受診者が複数見つかりました (D_KENSIN=$ymd, 受付No=$kenNo)。中止します。" }
+    Write-Host "[情報] 未受付のため T_KENSIN から特定しました (受付No=$kenNo)" -ForegroundColor DarkYellow
     return $dt.Rows[0].PK_SEQ
 }
 
@@ -611,6 +619,18 @@ function Show-Plan($plan, [string]$who) {
         -ForegroundColor $(if ($err.Count -gt 0) { 'Yellow' } else { 'Green' })
 }
 
+# 結果入力画面で編集中(ロック中)かどうか。ロック中の書込は画面側の登録で上書きされる危険がある
+function Test-Locked($conn, $pkSeq) {
+    try {
+        $dt = Invoke-DbQuery $conn 'SELECT PC_NAME, USER_ID, LOCKED_DATE FROM T_MULTI WHERE PK_SEQ = @p' @{ p = $pkSeq }
+        if ($dt.Rows.Count -gt 0) {
+            $r = $dt.Rows[0]
+            return "$($r.PC_NAME) / $($r.USER_ID) / $($r.LOCKED_DATE)"
+        }
+    } catch { }
+    return $null
+}
+
 function Backup-Kensa($conn, $pkSeq) {
     if (-not (Test-Path $BackupDir)) { [void](New-Item -ItemType Directory -Path $BackupDir) }
     $dt = Invoke-DbQuery $conn 'SELECT * FROM T_KENSA WHERE PK_SEQ = @p' @{ p = $pkSeq }
@@ -623,6 +643,10 @@ function Backup-Kensa($conn, $pkSeq) {
 function Commit-Plan($conn, $pkSeq, $plan) {
     $targets = @($plan | Where-Object { $_.Status -eq 'OK' -and $_.Update })
     if ($targets.Count -eq 0) { Write-Host '書込対象がありません。'; return }
+    $lock = Test-Locked $conn $pkSeq
+    if ($lock) {
+        throw "この受診者は健診ナビの結果入力画面で編集中です ($lock)。画面を閉じてから再実行してください。"
+    }
     [void](Backup-Kensa $conn $pkSeq)
     $tran = $conn.BeginTransaction()
     try {

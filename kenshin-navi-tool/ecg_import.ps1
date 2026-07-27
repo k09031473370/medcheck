@@ -227,12 +227,21 @@ function Invoke-DbExec($conn, $tran, [string]$sql, [hashtable]$params) {
 }
 
 function Resolve-PkSeq($conn, [string]$ymd, [string]$kenNo) {
+    # 1) 受付済み: T_KANJA_G (KEN_YMD + KEN_NO)
     $dt = Invoke-DbQuery $conn 'SELECT PK_SEQ FROM T_KANJA_G WHERE KEN_YMD = @ymd AND KEN_NO = @no' @{ ymd = $ymd; no = $kenNo }
     if ($dt.Rows.Count -eq 0 -and $kenNo -match '^\d+$') {
         $dt = Invoke-DbQuery $conn 'SELECT PK_SEQ FROM T_KANJA_G WHERE KEN_YMD = @ymd AND KEN_NO = @no' @{ ymd = $ymd; no = [int]$kenNo }
     }
-    if ($dt.Rows.Count -eq 0) { return $null }
+    if ($dt.Rows.Count -eq 1) { return $dt.Rows[0].PK_SEQ }
     if ($dt.Rows.Count -gt 1) { throw "受診者が複数見つかりました (KEN_YMD=$ymd, KEN_NO=$kenNo)。中止します。" }
+    # 2) 未受付: T_KENSIN (D_KENSIN + UKE_NO_KENSA、予約取消は除外)
+    $dt = Invoke-DbQuery $conn 'SELECT PK_SEQ FROM T_KENSIN WHERE D_KENSIN = @ymd AND UKE_NO_KENSA = @no AND F_TORIKESI = 0' @{ ymd = $ymd; no = $kenNo }
+    if ($dt.Rows.Count -eq 0 -and $kenNo -match '^\d+$') {
+        $dt = Invoke-DbQuery $conn 'SELECT PK_SEQ FROM T_KENSIN WHERE D_KENSIN = @ymd AND UKE_NO_KENSA = @no AND F_TORIKESI = 0' @{ ymd = $ymd; no = [int]$kenNo }
+    }
+    if ($dt.Rows.Count -eq 0) { return $null }
+    if ($dt.Rows.Count -gt 1) { throw "受診者が複数見つかりました (D_KENSIN=$ymd, 受付No=$kenNo)。中止します。" }
+    Write-Host "[情報] 未受付のため T_KENSIN から特定しました (受付No=$kenNo)" -ForegroundColor DarkYellow
     return $dt.Rows[0].PK_SEQ
 }
 
@@ -446,6 +455,14 @@ try {
                 continue
             }
             if ($toWrite.Count -eq 0) { Write-Host '書込対象なし'; continue }
+            $lockDt = Invoke-DbQuery $conn 'SELECT PC_NAME, USER_ID, LOCKED_DATE FROM T_MULTI WHERE PK_SEQ = @p' @{ p = $pk }
+            if ($lockDt.Rows.Count -gt 0) {
+                $lr = $lockDt.Rows[0]
+                Write-Host ("[中止] ID={0} は結果入力画面で編集中です ({1} / {2} / {3})。画面を閉じてから再実行してください。" -f `
+                    $p.Id, $lr.PC_NAME, $lr.USER_ID, $lr.LOCKED_DATE) -ForegroundColor Red
+                $hadError = $true
+                continue
+            }
             if (-not (Test-Path $BackupDir)) { [void](New-Item -ItemType Directory -Path $BackupDir) }
             $full = Invoke-DbQuery $conn 'SELECT * FROM T_KENSA WHERE PK_SEQ = @p' @{ p = $pk }
             $bfile = Join-Path $BackupDir ("T_KENSA_{0}_{1}.csv" -f $pk, (Get-Date -Format 'yyyyMMdd_HHmmss'))

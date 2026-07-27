@@ -18,6 +18,8 @@ NYOU,２＋,(2+)
 NYOU,+++,(3+)
 NYOU,3+,(3+)
 NYOU,３＋,(3+)
+CHORYOKU,1,所見なし
+CHORYOKU,2,所見あり
 CHORYOKU,異常なし,所見なし
 CHORYOKU,異常あり,所見あり
 CHORYOKU,なし,所見なし

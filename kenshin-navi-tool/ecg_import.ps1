@@ -417,9 +417,9 @@ try {
             if (-not $current.ContainsKey($hanteiKomoku)) { $rowErr += "枠なし: KOMOKU_CD=$hanteiKomoku (判定)" }
             else {
                 $toWrite += @{
-                    SlotName = '判定'; Komoku = $hanteiKomoku; Via = '装置判定記号'; IsHantei = $true
-                    Now = Normalize-Text ([string]$current[$hanteiKomoku].KEKKA)
-                    Kekka = $p.Hantei
+                    SlotName = '判定'; Komoku = $hanteiKomoku; Via = '装置判定記号(HANTEI_KIGOのみ更新)'; IsHantei = $true
+                    Now = Normalize-Text ([string]$current[$hanteiKomoku].HANTEI_KIGO)
+                    Kekka = ''
                     KekkaCd = ''
                     Hantei = $p.Hantei
                 }
@@ -456,9 +456,9 @@ try {
                 $done = 0
                 foreach ($w in $toWrite) {
                     if ($w.IsHantei) {
-                        # 判定は KEKKA と HANTEI_KIGO のみ更新 (KEKKA_CD は触らない)
-                        $n = Invoke-DbExec $conn $tran 'UPDATE T_KENSA SET KEKKA = @k, HANTEI_KIGO = @h WHERE PK_SEQ = @p AND KOMOKU_CD = @cd' @{
-                            k = $w.Kekka; h = $w.Hantei; p = $pk; cd = $w.Komoku
+                        # 判定は HANTEI_KIGO のみ更新 (同じ行の所見文 KEKKA を上書きしないため)
+                        $n = Invoke-DbExec $conn $tran 'UPDATE T_KENSA SET HANTEI_KIGO = @h WHERE PK_SEQ = @p AND KOMOKU_CD = @cd' @{
+                            h = $w.Hantei; p = $pk; cd = $w.Komoku
                         }
                     }
                     else {

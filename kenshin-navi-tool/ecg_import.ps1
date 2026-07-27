@@ -147,13 +147,15 @@ function Load-Slots {
     $p = Join-Path $MapDir 'ecg_items.csv'
     if (-not (Test-Path $p)) { throw "所見枠の設定が見つかりません: $p" }
     $slots = @()
+    $hantei = ''
     foreach ($r in (Import-Csv -Path $p -Encoding UTF8)) {
-        $slot = Normalize-Text $r.Slot
+        $slot = (Normalize-Text $r.Slot).ToUpper()
         if ($slot -match '^\d+$') {
             $slots += @{ No = [int]$slot; KomokuCd = (Normalize-Text $r.KOMOKU_CD) }
         }
+        elseif ($slot -eq 'HANTEI') { $hantei = Normalize-Text $r.KOMOKU_CD }
     }
-    return ,($slots | Sort-Object { $_.No })
+    return @{ Slots = @($slots | Sort-Object { $_.No }); Hantei = $hantei }
 }
 
 # ============================================================================
@@ -339,10 +341,14 @@ if ($ListCodes) {
 }
 
 # ---- 通常モード: プレビュー / 書込 ----
-$slots = Load-Slots
-$validSlots = @($slots | Where-Object { $_.KomokuCd -ne '' })
+$slotCfg = Load-Slots
+$validSlots = @($slotCfg.Slots | Where-Object { $_.KomokuCd -ne '' })
+$hanteiKomoku = $slotCfg.Hantei
 if ($validSlots.Count -eq 0) {
     throw 'form\ecg_items.csv の KOMOKU_CD が未設定です。-DumpItems (form_import.ps1) で心電図所見1〜のKOMOKU_CDを確認して記入してください。'
+}
+if ($hanteiKomoku -eq '') {
+    Write-Warning 'ecg_items.csv の HANTEI 行が未設定のため、判定は書き込みません(自動判定に任せます)。'
 }
 
 $conn = Open-Db
@@ -396,7 +402,7 @@ try {
                 if (-not $current.ContainsKey($komoku)) { $rowErr += "枠なし: KOMOKU_CD=$komoku (所見$($slot.No))" }
                 else {
                     $toWrite += @{
-                        Slot = $slot.No; Komoku = $komoku; Via = $via
+                        SlotName = "所見$($slot.No)"; Komoku = $komoku; Via = $via; IsHantei = $false
                         Now = Normalize-Text ([string]$current[$komoku].KEKKA)
                         Kekka = [string]$hit.SYOKEN
                         KekkaCd = Normalize-Text ([string]$hit.KEKKA_CD)
@@ -406,12 +412,26 @@ try {
             }
         }
 
+        # 判定 (装置の判定記号をそのまま書込。ecg_items.csv の HANTEI 行設定時のみ)
+        if ($hanteiKomoku -ne '' -and $p.Hantei -ne '') {
+            if (-not $current.ContainsKey($hanteiKomoku)) { $rowErr += "枠なし: KOMOKU_CD=$hanteiKomoku (判定)" }
+            else {
+                $toWrite += @{
+                    SlotName = '判定'; Komoku = $hanteiKomoku; Via = '装置判定記号'; IsHantei = $true
+                    Now = Normalize-Text ([string]$current[$hanteiKomoku].KEKKA)
+                    Kekka = $p.Hantei
+                    KekkaCd = ''
+                    Hantei = $p.Hantei
+                }
+            }
+        }
+
         Write-Host ''
         Write-Host ("--- ID {0} / 受診日 {1} / PK_SEQ {2} / 装置判定 {3} {4} ---" -f $p.Id, $ymd, $pk, $p.Hantei, $p.HanteiName) -ForegroundColor Cyan
         if ($toWrite.Count -gt 0) {
             $toWrite | ForEach-Object {
                 New-Object PSObject -Property @{
-                    '枠' = "所見$($_.Slot)"; 'KOMOKU_CD' = $_.Komoku; '現在値' = $_.Now
+                    '枠' = $_.SlotName; 'KOMOKU_CD' = $_.Komoku; '現在値' = $_.Now
                     '書込所見' = $_.Kekka; 'KEKKA_CD' = $_.KekkaCd; '判定' = $_.Hantei; '根拠' = $_.Via
                 }
             } | Select-Object 枠, KOMOKU_CD, 現在値, 書込所見, KEKKA_CD, 判定, 根拠 |
@@ -435,8 +455,16 @@ try {
             try {
                 $done = 0
                 foreach ($w in $toWrite) {
-                    $n = Invoke-DbExec $conn $tran 'UPDATE T_KENSA SET KEKKA = @k, KEKKA_CD = @kc, HANTEI_KIGO = @h WHERE PK_SEQ = @p AND KOMOKU_CD = @cd' @{
-                        k = $w.Kekka; kc = $w.KekkaCd; h = $w.Hantei; p = $pk; cd = $w.Komoku
+                    if ($w.IsHantei) {
+                        # 判定は KEKKA と HANTEI_KIGO のみ更新 (KEKKA_CD は触らない)
+                        $n = Invoke-DbExec $conn $tran 'UPDATE T_KENSA SET KEKKA = @k, HANTEI_KIGO = @h WHERE PK_SEQ = @p AND KOMOKU_CD = @cd' @{
+                            k = $w.Kekka; h = $w.Hantei; p = $pk; cd = $w.Komoku
+                        }
+                    }
+                    else {
+                        $n = Invoke-DbExec $conn $tran 'UPDATE T_KENSA SET KEKKA = @k, KEKKA_CD = @kc, HANTEI_KIGO = @h WHERE PK_SEQ = @p AND KOMOKU_CD = @cd' @{
+                            k = $w.Kekka; kc = $w.KekkaCd; h = $w.Hantei; p = $pk; cd = $w.Komoku
+                        }
                     }
                     if ($n -ne 1) { throw ("UPDATE影響行数が {0} (KOMOKU_CD={1})。ロールバックします。" -f $n, $w.Komoku) }
                     $done++

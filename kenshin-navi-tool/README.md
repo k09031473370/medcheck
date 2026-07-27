@@ -39,6 +39,9 @@ C:\kenshin-navi\
    (NONE行=所見なし・判定Aの人に書く「異常なし」のKEKKA_CD)
 4. `form_import.ps1 -Only <受付番号> -KenYmd <受診日> -DumpItems` で心電図所見1〜5の
    KOMOKU_CD を確認し `form\ecg_items.csv` に記入
+5. 判定も取り込む場合は、心電図判定の KOMOKU_CD を `ecg_items.csv` の HANTEI 行に記入
+   (装置の判定記号 A/B/C12 等を KEKKA と HANTEI_KIGO にそのまま書込。KEKKA_CD は触らない。
+   初回は実機で1件手入力→ -DumpItems で判定の格納形式を確認しておくと確実)
 
 ## GUI版 (form_import_gui.ps1)
 

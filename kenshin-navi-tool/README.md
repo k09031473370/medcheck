@@ -20,11 +20,25 @@
 C:\kenshin-navi\
   form_import.ps1        … 本体 (コマンドライン)
   form_import_gui.ps1    … GUI版 (画面から操作。中身は本体を呼び出すだけ)
+  ecg_import.ps1         … 心電図結果CSV取込 (検査日,ID,判定記号,所見コード1-5形式)
+  db_tool.ps1            … DB調査・掃除ツール
+  取込マニュアル.md / .docx … スタッフ向け運用マニュアル
   form\
     mapping.csv          … 列番号 ⇔ KOMOKU_CD 対応表 (要・現地で追記)
     value_map.csv        … 値の変換表 (尿定性・聴力など)
+    ecg_items.csv        … 心電図所見1〜5の KOMOKU_CD (要・現地で追記)
+    ecg_code_map.csv     … 心電計の所見コード → KEKKA_CD 変換表 (要・現地で追記)
   backup\                … 書込前バックアップ (自動生成)
 ```
+
+### 心電図取込 (ecg_import.ps1) の初期設定
+
+1. `ecg_import.ps1 -Csv <ecg.csv> -ListCodes` … CSV内の装置コード一覧と変換表の充足を確認 (DB不要)
+2. `form_import.ps1 -DumpSyoken ZK011` … 健診ナビ側の心電図所見マスタ一覧を表示
+3. 1と2を突き合わせて `form\ecg_code_map.csv` の KEKKA_CD を記入
+   (NONE行=所見なし・判定Aの人に書く「異常なし」のKEKKA_CD)
+4. `form_import.ps1 -Only <受付番号> -KenYmd <受診日> -DumpItems` で心電図所見1〜5の
+   KOMOKU_CD を確認し `form\ecg_items.csv` に記入
 
 ## GUI版 (form_import_gui.ps1)
 

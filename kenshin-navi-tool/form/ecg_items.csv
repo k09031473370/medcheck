@@ -1,0 +1,6 @@
+﻿Slot,KOMOKU_CD,Note
+1,,心電図所見1のKOMOKU_CD (form_import.ps1 -DumpItems で確認して記入)
+2,,心電図所見2
+3,,心電図所見3
+4,,心電図所見4
+5,,心電図所見5 (枠が4つまでしか無い場合は空欄のまま)

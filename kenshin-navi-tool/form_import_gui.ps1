@@ -114,6 +114,8 @@ $form.Controls.Add((New-Label '受付番号:' 12 48 70))
 $txtOnly = New-Object System.Windows.Forms.TextBox
 $txtOnly.Location = New-Object System.Drawing.Point(85, 45)
 $txtOnly.Size = New-Object System.Drawing.Size(90, 24)
+$tip = New-Object System.Windows.Forms.ToolTip
+$tip.SetToolTip($txtOnly, "空欄=ファイル内の全員。複数指定はカンマ区切り (例: 4005,4009)")
 $form.Controls.Add($txtOnly)
 
 $form.Controls.Add((New-Label '受診日:' 195 48 55))
@@ -121,7 +123,7 @@ $txtYmd = New-Object System.Windows.Forms.TextBox
 $txtYmd.Location = New-Object System.Drawing.Point(252, 45)
 $txtYmd.Size = New-Object System.Drawing.Size(110, 24)
 $form.Controls.Add($txtYmd)
-$form.Controls.Add((New-Label '(例 2026/07/02。空なら全員/CSVの日付列)' 368 48 280))
+$form.Controls.Add((New-Label '受付番号は空欄=全員 / 複数はカンマ区切り' 368 48 280))
 
 $chkNoHdr = New-Object System.Windows.Forms.CheckBox
 $chkNoHdr.Text = 'ヘッダ行なし'

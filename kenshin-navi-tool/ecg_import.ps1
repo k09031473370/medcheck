@@ -310,11 +310,13 @@ function Parse-Row($fields) {
     }
 }
 
+$onlyList = @()
+if ($Only) { $onlyList = @($Only -split '[,、]' | ForEach-Object { Normalize-KenNo $_ } | Where-Object { $_ -ne '' }) }
 $persons = @()
 foreach ($f in $data) {
     $p = Parse-Row $f
     if ($p.Id -eq '') { continue }
-    if ($Only -and $p.Id -ne (Normalize-KenNo $Only)) { continue }
+    if ($onlyList.Count -gt 0 -and $onlyList -notcontains $p.Id) { continue }
     $persons += $p
 }
 if ($persons.Count -eq 0) { throw "対象データがありません$(if ($Only) { " (ID=$Only)" })。" }

@@ -396,12 +396,16 @@ function Select-TargetRows($dataRows, $idCols) {
     if ($idCols.KenNo -le 0) {
         throw "mapping.csv の KENNO 行に列番号(Col)が設定されていません。まず -Inspect で受付番号の列番号を確認し、mapping.csv に記入してください。"
     }
-    $want = Normalize-KenNo $Only
+    # カンマ区切りで複数指定可 (例: -Only 4005,4009)
+    $wants = @($Only -split '[,、]' | ForEach-Object { Normalize-KenNo $_ } | Where-Object { $_ -ne '' })
     $sel = @()
     foreach ($r in $dataRows) {
-        if ((Normalize-KenNo (Get-Field $r $idCols.KenNo)) -eq $want) { $sel += ,$r }
+        if ($wants -contains (Normalize-KenNo (Get-Field $r $idCols.KenNo))) { $sel += ,$r }
     }
     if ($sel.Count -eq 0) { throw "受付番号 $Only の行がCSVに見つかりません。" }
+    $found = @($sel | ForEach-Object { Normalize-KenNo (Get-Field $_ $idCols.KenNo) })
+    $missing = @($wants | Where-Object { $found -notcontains $_ })
+    if ($missing.Count -gt 0) { Write-Warning ("CSVに見つからない受付番号: " + ($missing -join ', ')) }
     return ,$sel
 }
 

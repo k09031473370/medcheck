@@ -369,12 +369,25 @@ function Get-SyokenTable($conn, [string]$cd) {
     return $script:SyokenCache[$cd]
 }
 
-# 結果CD(KEKKA_CD)でマスタを引く (SHOKENCD/SHOKENCD2用)
+# 結果CD(KEKKA_CD)でマスタを引く (SHOKENCD/SHOKENCD2/MONSHIN用)
+# DBへ直接問い合わせる (前後空白・ゼロ埋めの差を吸収)
 function Find-SyokenCd($conn, [string]$cd, [string]$code) {
-    $c = (Normalize-Text $code).ToUpper()
-    $dt = Get-SyokenTable $conn $cd
-    foreach ($r in $dt.Rows) {
-        if ((Normalize-Text ([string]$r.KEKKA_CD)).ToUpper() -eq $c) { return $r }
+    $c = Normalize-Text $code
+    if ($cd -eq '' -or $c -eq '') { return $null }
+    # 1) 文字列として一致 (前後空白は無視)
+    $dt = Invoke-DbQuery $conn @'
+SELECT TOP 1 KEKKA_CD, SYOKEN, HANTEI_KIGO FROM T_SYOKEN2
+WHERE LTRIM(RTRIM(SYOKEN_CD)) = @cd AND LTRIM(RTRIM(KEKKA_CD)) = @kc
+'@ @{ cd = $cd; kc = $c }
+    if ($dt.Rows.Count -gt 0) { return $dt.Rows[0] }
+    # 2) 数値として一致 ('1' と '01' / '040' と '40' の差を吸収)
+    if ($c -match '^\d+$') {
+        $dt = Invoke-DbQuery $conn @'
+SELECT TOP 1 KEKKA_CD, SYOKEN, HANTEI_KIGO FROM T_SYOKEN2
+WHERE LTRIM(RTRIM(SYOKEN_CD)) = @cd AND ISNUMERIC(KEKKA_CD) = 1
+  AND CAST(LTRIM(RTRIM(KEKKA_CD)) AS int) = @n
+'@ @{ cd = $cd; n = [int]$c }
+        if ($dt.Rows.Count -gt 0) { return $dt.Rows[0] }
     }
     return $null
 }
@@ -394,7 +407,8 @@ function Get-ItemSyokenCd($conn, [string]$komoku) {
 # 所見文をマスタと突合 (完全一致 → 空白無視一致)
 function Find-Syoken($conn, [string]$cd, [string]$text) {
     $t = Normalize-Text $text
-    $dt = Get-SyokenTable $conn $cd
+    if ($cd -eq '' -or $t -eq '') { return $null }
+    $dt = Invoke-DbQuery $conn 'SELECT KEKKA_CD, SYOKEN, HANTEI_KIGO FROM T_SYOKEN2 WHERE LTRIM(RTRIM(SYOKEN_CD)) = @cd' @{ cd = $cd }
     foreach ($r in $dt.Rows) {
         if ((Normalize-Text ([string]$r.SYOKEN)) -eq $t) { return $r }
     }

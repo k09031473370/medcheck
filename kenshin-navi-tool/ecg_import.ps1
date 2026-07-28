@@ -254,8 +254,20 @@ function Get-Zk011($conn) {
 }
 
 function Find-ByKekkaCd($conn, [string]$kc) {
-    foreach ($r in (Get-Zk011 $conn).Rows) {
-        if ((Normalize-Text ([string]$r.KEKKA_CD)) -eq $kc) { return $r }
+    $c = Normalize-Text $kc
+    if ($c -eq '') { return $null }
+    $dt = Invoke-DbQuery $conn @'
+SELECT TOP 1 KEKKA_CD, SYOKEN, HANTEI_KIGO FROM T_SYOKEN2
+WHERE LTRIM(RTRIM(SYOKEN_CD)) = @cd AND LTRIM(RTRIM(KEKKA_CD)) = @kc
+'@ @{ cd = $SyokenCd; kc = $c }
+    if ($dt.Rows.Count -gt 0) { return $dt.Rows[0] }
+    if ($c -match '^\d+$') {
+        $dt = Invoke-DbQuery $conn @'
+SELECT TOP 1 KEKKA_CD, SYOKEN, HANTEI_KIGO FROM T_SYOKEN2
+WHERE LTRIM(RTRIM(SYOKEN_CD)) = @cd AND ISNUMERIC(KEKKA_CD) = 1
+  AND CAST(LTRIM(RTRIM(KEKKA_CD)) AS int) = @n
+'@ @{ cd = $SyokenCd; n = [int]$c }
+        if ($dt.Rows.Count -gt 0) { return $dt.Rows[0] }
     }
     return $null
 }

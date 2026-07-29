@@ -130,6 +130,7 @@ $cmbMap = New-Object System.Windows.Forms.ComboBox
 $cmbMap.DropDownStyle = 'DropDownList'
 $cmbMap.Location = New-Object System.Drawing.Point(448, 45)
 $cmbMap.Size = New-Object System.Drawing.Size(210, 26)
+[void]$cmbMap.Items.Add((New-Object PSObject -Property @{ Label = '自動判別 (おすすめ)'; File = 'auto' }))
 foreach ($f in (Get-ChildItem (Join-Path $scriptDir 'form') -Filter 'mapping*.csv' -File -ErrorAction SilentlyContinue | Sort-Object Name)) {
     $label = $f.Name
     foreach ($ln in (Get-Content $f.FullName -TotalCount 5 -Encoding UTF8)) {
@@ -143,15 +144,15 @@ if ($cmbMap.Items.Count -gt 0) { $cmbMap.SelectedIndex = 0 }
 $form.Controls.Add($cmbMap)
 
 $chkNoHdr = New-Object System.Windows.Forms.CheckBox
-$chkNoHdr.Text = 'ヘッダ行なし'
-$chkNoHdr.Checked = $true
+$chkNoHdr.Text = '見出し行なし(手動)'
+$chkNoHdr.Checked = $false
 $chkNoHdr.Location = New-Object System.Drawing.Point(668, 45)
-$chkNoHdr.Size = New-Object System.Drawing.Size(115, 24)
+$chkNoHdr.Size = New-Object System.Drawing.Size(140, 24)
 $form.Controls.Add($chkNoHdr)
 
 $chkUtf8 = New-Object System.Windows.Forms.CheckBox
 $chkUtf8.Text = 'CSVはUTF-8'
-$chkUtf8.Location = New-Object System.Drawing.Point(784, 45)
+$chkUtf8.Location = New-Object System.Drawing.Point(812, 45)
 $chkUtf8.Size = New-Object System.Drawing.Size(110, 24)
 $form.Controls.Add($chkUtf8)
 

@@ -1,4 +1,5 @@
 ﻿Col,Col2,Label,Kind,KOMOKU_CD,SYOKEN_CD,SYOKEN_CD2,CodeMap,IfEmpty,ReqCol,Format,Note
+# DETECT=COLS:95-120
 # LABEL=リアンパターン (106列)
 2,,受付番号,KENNO,,,,,,,,テンプレート「受付番号」
 3,,受診日,KENYMD,,,,,,,,テンプレート「受診日付」

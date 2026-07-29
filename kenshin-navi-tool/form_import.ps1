@@ -141,14 +141,23 @@ function Read-FormCsv([string]$path, [string]$encName) {
         foreach ($f in $r) { if ((Normalize-Text $f) -ne '') { $isEmpty = $false; break } }
         if (-not $isEmpty) { $out += ,$r }
     }
-    $minRows = if ($NoHeader) { 1 } else { 2 }
-    if ($out.Count -lt $minRows) { throw "CSVにデータ行がありません: $path (ヘッダ行が無いフォームの場合は -NoHeader を指定)" }
+    if ($out.Count -lt 1) { throw "CSVが空です: $path" }
     return ,$out
 }
 
-# ヘッダ行とデータ行に分離 (-NoHeader 時はダミーヘッダを生成)
-function Split-HeaderData($rows) {
-    if ($NoHeader) {
+# ヘッダ行とデータ行に分離
+#  -NoHeader 指定時は必ず見出し無し。未指定なら 1行目の受付番号列を見て自動判定する
+#  (受付番号列が数字ならデータ行、そうでなければ見出し行)
+function Split-HeaderData($rows, $idCols) {
+    $noHdr = [bool]$NoHeader
+    if (-not $noHdr -and $idCols -and $idCols.KenNo -gt 0) {
+        $v = Normalize-KenNo (Get-Field $rows[0] $idCols.KenNo)
+        if ($v -match '^\d+$') {
+            $noHdr = $true
+            Write-Host '[自動判別] 見出し行なし (1行目からデータ)' -ForegroundColor DarkGray
+        }
+    }
+    if ($noHdr) {
         $h = @()
         for ($i = 1; $i -le $rows[0].Count; $i++) { $h += "列$i" }
         return @{ Header = $h; Data = $rows }
@@ -165,13 +174,58 @@ function Get-Field($fields, [int]$col) {
 # 対応表の読み込み
 # ============================================================================
 
+# CSVの1行目を見て、どの対応表(レイアウト)かを自動で判別する
+#   対応表に書く指示: # DETECT=HEADER:受付NO,Q1   / # DETECT=COLS:40-50
+function Detect-MappingPath {
+    if (-not $Csv -or -not (Test-Path $Csv)) { return $null }
+    $enc = if ($CsvEncoding -eq 'UTF8') { New-Object System.Text.UTF8Encoding($false) } else { [System.Text.Encoding]::GetEncoding(932) }
+    $first = ''
+    try {
+        $sr = New-Object System.IO.StreamReader($Csv, $enc)
+        $first = $sr.ReadLine()
+        $sr.Close()
+    } catch { return $null }
+    if ($null -eq $first) { return $null }
+    if ($first.Length -gt 0 -and $first[0] -eq [char]0xFEFF) { $first = $first.Substring(1) }
+    $colCount = ($first -split ',').Count
+
+    $byHeader = $null; $byCols = $null
+    foreach ($f in (Get-ChildItem -Path $MapDir -Filter 'mapping*.csv' -File -ErrorAction SilentlyContinue | Sort-Object Name)) {
+        foreach ($ln in (Get-Content $f.FullName -TotalCount 8 -Encoding UTF8)) {
+            if ($ln -notmatch '^#\s*DETECT\s*=\s*(.+)$') { continue }
+            $spec = $Matches[1].Trim()
+            if ($spec -match '^(?i)HEADER\s*:\s*(.+)$') {
+                $kws = @($Matches[1] -split '[,|]' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+                $all = $true
+                foreach ($k in $kws) { if ($first -notlike "*$k*") { $all = $false; break } }
+                if ($all -and -not $byHeader) { $byHeader = $f.FullName }
+            }
+            elseif ($spec -match '^(?i)COLS\s*:\s*(\d+)\s*-\s*(\d+)$') {
+                if ($colCount -ge [int]$Matches[1] -and $colCount -le [int]$Matches[2] -and -not $byCols) { $byCols = $f.FullName }
+            }
+        }
+    }
+    if ($byHeader) { return $byHeader }
+    return $byCols
+}
+
 function Load-Mapping {
-    $file = if ($Mapping) { $Mapping } else { 'mapping.csv' }
-    $p = if ([System.IO.Path]::IsPathRooted($file)) { $file } else { Join-Path $MapDir $file }
-    if (-not (Test-Path $p) -and -not $Mapping) {
-        # 既定名が無ければ mapping*.csv の先頭を使う
-        $cand = @(Get-ChildItem -Path $MapDir -Filter 'mapping*.csv' -File -ErrorAction SilentlyContinue | Sort-Object Name)
-        if ($cand.Count -gt 0) { $p = $cand[0].FullName }
+    $p = $null
+    if ($Mapping -and $Mapping -ne 'auto') {
+        $p = if ([System.IO.Path]::IsPathRooted($Mapping)) { $Mapping } else { Join-Path $MapDir $Mapping }
+    }
+    else {
+        $p = Detect-MappingPath
+        if ($p) { Write-Host "[自動判別] $([System.IO.Path]::GetFileName($p))" -ForegroundColor DarkGray }
+        else {
+            $d = Join-Path $MapDir 'mapping.csv'
+            if (Test-Path $d) { $p = $d }
+            else {
+                $cand = @(Get-ChildItem -Path $MapDir -Filter 'mapping*.csv' -File -ErrorAction SilentlyContinue | Sort-Object Name)
+                if ($cand.Count -eq 0) { throw "対応表(mapping*.csv)が $MapDir にありません。" }
+                throw ("レイアウトを自動判別できませんでした。GUIの「レイアウト」で選んでください。候補: " + (($cand | ForEach-Object { $_.Name }) -join ' / '))
+            }
+        }
     }
     if (-not (Test-Path $p)) { throw "対応表が見つかりません: $p" }
     Write-Host "[対応表] $([System.IO.Path]::GetFileName($p))" -ForegroundColor DarkGray
@@ -836,7 +890,7 @@ if ($DumpItems) {
     $ymd = $null
     if ($Csv) {
         $rows = Read-FormCsv $Csv $CsvEncoding
-        $hd = Split-HeaderData $rows
+        $hd = Split-HeaderData $rows $idCols
         $sel = Select-TargetRows $hd.Data $idCols
         $ymd = Resolve-RowYmd $sel[0] $idCols
     } else {
@@ -863,7 +917,7 @@ if ($DumpItems) {
 if (-not $Csv) { throw '使い方: form_import.ps1 -Csv <form.csv> [-Only 4001] [-KenYmd 2026/07/02] [-Commit] / -Inspect / -DumpItems / -DumpSyoken <CD>' }
 
 $rows = Read-FormCsv $Csv $CsvEncoding
-$hd = Split-HeaderData $rows
+$hd = Split-HeaderData $rows $idCols
 $header = $hd.Header
 $data = $hd.Data
 

@@ -1,4 +1,5 @@
 ﻿Col,Col2,Label,Kind,KOMOKU_CD,SYOKEN_CD,SYOKEN_CD2,CodeMap,IfEmpty,ReqCol,Format,Note
+# LABEL=芝浦巡回AIデータ (44列)
 1,,受付番号,KENNO,,,,,,,,受付NO。受診日は列が無いのでGUIの「受診日」欄で指定する
 2,,問診01 服薬歴(血圧),MONSHIN,084001,,,,,,,
 3,,問診02 服薬歴(血糖),MONSHIN,084002,,,,,,,

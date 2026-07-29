@@ -168,6 +168,11 @@ function Get-Field($fields, [int]$col) {
 function Load-Mapping {
     $file = if ($Mapping) { $Mapping } else { 'mapping.csv' }
     $p = if ([System.IO.Path]::IsPathRooted($file)) { $file } else { Join-Path $MapDir $file }
+    if (-not (Test-Path $p) -and -not $Mapping) {
+        # 既定名が無ければ mapping*.csv の先頭を使う
+        $cand = @(Get-ChildItem -Path $MapDir -Filter 'mapping*.csv' -File -ErrorAction SilentlyContinue | Sort-Object Name)
+        if ($cand.Count -gt 0) { $p = $cand[0].FullName }
+    }
     if (-not (Test-Path $p)) { throw "対応表が見つかりません: $p" }
     Write-Host "[対応表] $([System.IO.Path]::GetFileName($p))" -ForegroundColor DarkGray
     $rows = Import-Csv -Path $p -Encoding UTF8

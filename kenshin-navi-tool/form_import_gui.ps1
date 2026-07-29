@@ -123,25 +123,36 @@ $txtYmd = New-Object System.Windows.Forms.TextBox
 $txtYmd.Location = New-Object System.Drawing.Point(252, 45)
 $txtYmd.Size = New-Object System.Drawing.Size(110, 24)
 $form.Controls.Add($txtYmd)
-$form.Controls.Add((New-Label '受付番号は空欄=全員 / 複数はカンマ区切り' 368 48 280))
+
+
+$form.Controls.Add((New-Label 'レイアウト:' 380 48 70))
+$cmbMap = New-Object System.Windows.Forms.ComboBox
+$cmbMap.DropDownStyle = 'DropDownList'
+$cmbMap.Location = New-Object System.Drawing.Point(448, 45)
+$cmbMap.Size = New-Object System.Drawing.Size(150, 26)
+foreach ($f in (Get-ChildItem (Join-Path $scriptDir 'form') -Filter 'mapping*.csv' -File -ErrorAction SilentlyContinue | Sort-Object Name)) {
+    [void]$cmbMap.Items.Add($f.Name)
+}
+if ($cmbMap.Items.Count -gt 0) { $cmbMap.SelectedIndex = 0 }
+$form.Controls.Add($cmbMap)
 
 $chkNoHdr = New-Object System.Windows.Forms.CheckBox
 $chkNoHdr.Text = 'ヘッダ行なし'
 $chkNoHdr.Checked = $true
-$chkNoHdr.Location = New-Object System.Drawing.Point(530, 45)
+$chkNoHdr.Location = New-Object System.Drawing.Point(608, 45)
 $chkNoHdr.Size = New-Object System.Drawing.Size(115, 24)
 $form.Controls.Add($chkNoHdr)
 
 $chkUtf8 = New-Object System.Windows.Forms.CheckBox
 $chkUtf8.Text = 'CSVはUTF-8'
-$chkUtf8.Location = New-Object System.Drawing.Point(650, 45)
+$chkUtf8.Location = New-Object System.Drawing.Point(724, 45)
 $chkUtf8.Size = New-Object System.Drawing.Size(110, 24)
 $form.Controls.Add($chkUtf8)
 
 $chkForce = New-Object System.Windows.Forms.CheckBox
-$chkForce.Text = 'エラー行を飛ばして書込 (-Force)'
-$chkForce.Location = New-Object System.Drawing.Point(760, 45)
-$chkForce.Size = New-Object System.Drawing.Size(190, 24)
+$chkForce.Text = 'エラーを飛ばす'
+$chkForce.Location = New-Object System.Drawing.Point(834, 45)
+$chkForce.Size = New-Object System.Drawing.Size(110, 24)
 $chkForce.Anchor = 'Top,Right'
 $form.Controls.Add($chkForce)
 
@@ -261,6 +272,7 @@ function Get-CommonArgs {
     if ($txtYmd.Text.Trim()  -ne '') { $a += @('-KenYmd', $txtYmd.Text.Trim()) }
     if ($chkUtf8.Checked) { $a += @('-CsvEncoding', 'UTF8') }
     if ($chkNoHdr.Checked) { $a += '-NoHeader' }
+    if ($cmbMap.SelectedItem) { $a += @('-Mapping', [string]$cmbMap.SelectedItem) }
     return ,$a
 }
 

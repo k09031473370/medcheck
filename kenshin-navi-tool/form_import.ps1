@@ -43,6 +43,7 @@ param(
     [string]$DumpSyoken,          # 指定SYOKEN_CDのT_SYOKEN2一覧を表示 (SHIN/GANTEI/ZK011/ZK020/ZK021/ZK030/ZK031/ZK041)
     [string]$KenYmd,              # 受診日 'YYYY/MM/DD'。CSVに日付列が無い場合に指定
     [string]$MapDir,              # 対応表フォルダ (既定: スクリプトと同じ場所の form\)
+    [string]$Mapping,             # 使用する対応表ファイル名 (既定: mapping.csv)
     [string]$ConnFile = '\\KNSV\KenshinNavi\SQLSV\SQLServerConnect.txt',
     [string]$ConnectionString,    # 接続文字列を直接指定する場合
     [ValidateSet('SJIS','UTF8')]
@@ -165,10 +166,12 @@ function Get-Field($fields, [int]$col) {
 # ============================================================================
 
 function Load-Mapping {
-    $p = Join-Path $MapDir 'mapping.csv'
+    $file = if ($Mapping) { $Mapping } else { 'mapping.csv' }
+    $p = if ([System.IO.Path]::IsPathRooted($file)) { $file } else { Join-Path $MapDir $file }
     if (-not (Test-Path $p)) { throw "対応表が見つかりません: $p" }
+    Write-Host "[対応表] $([System.IO.Path]::GetFileName($p))" -ForegroundColor DarkGray
     $rows = Import-Csv -Path $p -Encoding UTF8
-    $valid = @('KENNO','KENYMD','NAMEKANJI','NAMEKANA','VALUE','NYOU','CHORYOKU','MONSHIN','SHOKEN','SHOKEN2','SHOKENCD','SHOKENCD2','IGNORE')
+    $valid = @('KENNO','KENYMD','NAMEKANJI','NAMEKANA','VALUE','NYOU','CHORYOKU','MONSHIN','VISION','SHOKEN','SHOKEN2','SHOKENCD','SHOKENCD2','IGNORE')
     foreach ($r in $rows) {
         $k = (Normalize-Text $r.Kind).ToUpper()
         if ($k -ne '' -and $valid -notcontains $k) {
@@ -620,6 +623,35 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current) {
             }
             $plan += $rep
         }
+        elseif ($kind -eq 'VISION') {
+            # ---- 視力 (種別列で 裸眼/矯正 を振り分け) ----
+            # Col=値の列 / Col2=種別の列 / KOMOKU_CD=裸眼の項目 / SYOKEN_CD=矯正の項目
+            $val = Normalize-Text $raw
+            if ($val -eq '') { continue }
+            $col2 = 0
+            [void][int]::TryParse((Normalize-Text $m.Col2), [ref]$col2)
+            $shubetsu = if ($col2 -gt 0) { Normalize-KenNo (Get-Field $fields $col2) } else { '' }
+            $target = '裸眼'
+            if ($shubetsu -ne '') {
+                if ($script:VisionMap.ContainsKey($shubetsu)) { $target = $script:VisionMap[$shubetsu] }
+                else { $rep.Status = "視力の種別コード($shubetsu)が未設定"; $rep.New = $val; $plan += $rep; continue }
+            }
+            $komoku = if ($target -eq '矯正') { Normalize-Text $m.SYOKEN_CD } else { Normalize-Text $m.KOMOKU_CD }
+            $rep.Label = $label + "($target)"
+            $rep.KomokuCd = $komoku
+            if ($komoku -eq '') { $rep.Status = '項目CD未設定'; $rep.New = $val; $plan += $rep; continue }
+            $fmt = Normalize-Text $m.Format
+            if ($fmt -ne '') { $d = 0.0; if ([double]::TryParse($val, [ref]$d)) { $val = $d.ToString($fmt) } }
+            $rep.New = $val
+            if (-not $current.ContainsKey($komoku)) { $rep.Status = '枠なし'; $plan += $rep; continue }
+            $rep.Now = Normalize-Text ([string]$current[$komoku].KEKKA)
+            $rep.Status = 'OK'
+            $rep.Update = @{
+                Sql = 'UPDATE T_KENSA SET KEKKA = @k WHERE PK_SEQ = @p AND KOMOKU_CD = @cd'
+                P   = @{ k = $val; cd = $komoku }
+            }
+            $plan += $rep
+        }
         elseif ($kind -eq 'MONSHIN') {
             # ---- 選択式項目 (問診・尿・聴力等): コード → ラベル+判定 ----
             # T_KOMOKU.SYOKEN_CD → T_SYOKEN2 の選択肢リストで解決 (無ければ monshin_map.csv)
@@ -783,6 +815,14 @@ $mapRows  = Load-Mapping
 $valueMap = Load-ValueMap
 $script:MonshinMap = Load-MonshinMap
 $script:CodeMap = Load-CodeMap
+$script:VisionMap = @{}
+$vp = Join-Path $MapDir 'vision_map.csv'
+if (Test-Path $vp) {
+    foreach ($r in (Import-Csv -Path $vp -Encoding UTF8)) {
+        $c = Normalize-Text $r.Code
+        if ($c -ne '') { $script:VisionMap[$c] = Normalize-Text $r.Target }
+    }
+}
 $idCols   = Get-IdColumns $mapRows
 
 # ---- モード: 対象者の T_KENSA 一覧 ----

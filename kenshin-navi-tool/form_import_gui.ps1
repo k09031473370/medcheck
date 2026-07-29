@@ -164,7 +164,13 @@ $btnUkeNo.Location = New-Object System.Drawing.Point(12, 118)
 $btnUkeNo.Size = New-Object System.Drawing.Size(226, 30)
 $form.Controls.Add($btnUkeNo)
 
-$form.Controls.Add((New-Label '← 氏名で照合してフォームの受付番号を健診ナビへ設定' 244 124 340))
+$btnYoyaku = New-Object System.Windows.Forms.Button
+$btnYoyaku.Text = '予約取込ファイルを作成'
+$btnYoyaku.Location = New-Object System.Drawing.Point(244, 118)
+$btnYoyaku.Size = New-Object System.Drawing.Size(180, 30)
+$form.Controls.Add($btnYoyaku)
+
+$form.Controls.Add((New-Label '← 受付番号の設定 / 予約取込用のExcelを作成' 430 124 320))
 
 $btnPreview = New-Object System.Windows.Forms.Button
 $btnPreview.Text = '3. プレビュー'
@@ -218,7 +224,7 @@ function Append-Out([string]$text) {
     $txtOut.ScrollToCaret()
 }
 
-$allButtons = @($btnBrowse, $btnInspect, $btnDump, $btnPreview, $btnCommit, $btnSyoken, $btnUkeNo)
+$allButtons = @($btnBrowse, $btnInspect, $btnDump, $btnPreview, $btnCommit, $btnSyoken, $btnUkeNo, $btnYoyaku)
 
 function Invoke-Busy([scriptblock]$work) {
     foreach ($b in $allButtons) { $b.Enabled = $false }
@@ -310,6 +316,30 @@ $btnUkeNo.Add_Click({
             '受付番号の設定', 'YesNo', 'Warning', 'Button2')
         if ($r -ne 'Yes') { Append-Out '[中止] 受付番号の設定をキャンセルしました。'; return }
         Append-Out (Run-Core ($a + '-Commit'))
+    }
+})
+
+$btnYoyaku.Add_Click({
+    Invoke-Busy {
+        $f = $txtFile.Text.Trim().Trim('"')
+        if ($f -eq '') { throw 'フォームのファイルを選択してください。' }
+        $yo = Join-Path $scriptDir 'yoyaku_export.ps1'
+        if (-not (Test-Path $yo)) { throw "yoyaku_export.ps1 が見つかりません: $yo" }
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+        $arg = '-NoProfile -ExecutionPolicy Bypass -File ' + (Quote $yo) + ' -Csv ' + (Quote $f)
+        if ($chkNoHdr.Checked) { $arg += ' -NoHeader' }
+        $psi.Arguments = $arg
+        $psi.UseShellExecute = $false
+        $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true; $psi.CreateNoWindow = $true
+        $enc = [System.Text.Encoding]::GetEncoding(932)
+        $psi.StandardOutputEncoding = $enc; $psi.StandardErrorEncoding = $enc
+        $p = [System.Diagnostics.Process]::Start($psi)
+        $oT = $p.StandardOutput.ReadToEndAsync(); $eT = $p.StandardError.ReadToEndAsync()
+        $p.WaitForExit()
+        $o = $oT.Result
+        if (-not [string]::IsNullOrWhiteSpace($eT.Result)) { $o += "`r`n[エラー出力]`r`n" + $eT.Result }
+        Append-Out $o
     }
 })
 

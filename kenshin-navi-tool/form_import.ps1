@@ -665,6 +665,12 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current) {
             if ($komoku -eq '') { $rep.Status = '項目CD未設定'; $rep.New = (Normalize-Text $raw); $plan += $rep; continue }
             if ($conv.Status -eq 'CONVERR') { $rep.Status = "変換不可($kind)"; $rep.New = $conv.Value; $plan += $rep; continue }
             $rep.New = $conv.Value
+            # 表記を健診ナビに合わせる (Format=0.0 なら 147 → 147.0)
+            $fmt = Normalize-Text $m.Format
+            if ($fmt -ne '') {
+                $d = 0.0
+                if ([double]::TryParse($rep.New, [ref]$d)) { $rep.New = $d.ToString($fmt) }
+            }
             if (-not $current.ContainsKey($komoku)) { $rep.Status = '枠なし'; $plan += $rep; continue }
             $rep.Now = Normalize-Text ([string]$current[$komoku].KEKKA)
             $rep.Status = 'OK'

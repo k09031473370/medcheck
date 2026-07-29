@@ -492,6 +492,19 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current) {
         if ($col -le 0) { $rep.Status = '列未設定'; $plan += $rep; continue }
         $raw = Get-Field $fields $col
 
+        # 所見欄が空でも、検査を実施していれば既定コード(異常なし)を書く
+        # IfEmpty = 書き込む結果CD / ReqCol = 実施を示す列(この列が空なら何もしない)
+        $ifEmpty = Normalize-Text $m.IfEmpty
+        if ($ifEmpty -ne '' -and (Normalize-Text $raw) -eq '') {
+            $reqCol = 0
+            [void][int]::TryParse((Normalize-Text $m.ReqCol), [ref]$reqCol)
+            $done = $true
+            if ($reqCol -gt 0) { $done = (Normalize-Text (Get-Field $fields $reqCol)) -ne '' }
+            if (-not $done) { continue }   # 検査未実施 → 何も書かない
+            $raw = $ifEmpty
+            $rep.Label = $label + '(所見なし)'
+        }
+
         if ($kind -eq 'SHOKENCD' -or $kind -eq 'SHOKENCD2') {
             # ---- 所見を結果CD(コード)で直接指定する形式 ----
             $shoCode = (Normalize-Text $raw).ToUpper()

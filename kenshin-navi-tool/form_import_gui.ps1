@@ -158,6 +158,14 @@ $btnDump.Location = New-Object System.Drawing.Point(128, 80)
 $btnDump.Size = New-Object System.Drawing.Size(110, 32)
 $form.Controls.Add($btnDump)
 
+$btnUkeNo = New-Object System.Windows.Forms.Button
+$btnUkeNo.Text = '受付番号を設定'
+$btnUkeNo.Location = New-Object System.Drawing.Point(12, 118)
+$btnUkeNo.Size = New-Object System.Drawing.Size(226, 30)
+$form.Controls.Add($btnUkeNo)
+
+$form.Controls.Add((New-Label '← 氏名で照合してフォームの受付番号を健診ナビへ設定' 244 124 340))
+
 $btnPreview = New-Object System.Windows.Forms.Button
 $btnPreview.Text = '3. プレビュー'
 $btnPreview.Location = New-Object System.Drawing.Point(244, 80)
@@ -195,8 +203,8 @@ $txtOut.ReadOnly = $true
 $txtOut.ScrollBars = 'Both'
 $txtOut.WordWrap = $false
 $txtOut.Font = New-Object System.Drawing.Font('MS Gothic', 9)
-$txtOut.Location = New-Object System.Drawing.Point(12, 122)
-$txtOut.Size = New-Object System.Drawing.Size(918, 505)
+$txtOut.Location = New-Object System.Drawing.Point(12, 158)
+$txtOut.Size = New-Object System.Drawing.Size(918, 469)
 $txtOut.Anchor = 'Top,Bottom,Left,Right'
 $form.Controls.Add($txtOut)
 
@@ -210,7 +218,7 @@ function Append-Out([string]$text) {
     $txtOut.ScrollToCaret()
 }
 
-$allButtons = @($btnBrowse, $btnInspect, $btnDump, $btnPreview, $btnCommit, $btnSyoken)
+$allButtons = @($btnBrowse, $btnInspect, $btnDump, $btnPreview, $btnCommit, $btnSyoken, $btnUkeNo)
 
 function Invoke-Busy([scriptblock]$work) {
     foreach ($b in $allButtons) { $b.Enabled = $false }
@@ -289,6 +297,19 @@ $btnCommit.Add_Click({
         $a = @('-Csv', $csv, '-Commit') + (Get-CommonArgs)
         if ($chkForce.Checked) { $a += '-Force' }
         Append-Out (Run-Core $a)
+    }
+})
+
+$btnUkeNo.Add_Click({
+    Invoke-Busy {
+        $csv = Resolve-CsvPath
+        $a = @('-Csv', $csv, '-SetUkeNo') + (Get-CommonArgs)
+        Append-Out (Run-Core $a)
+        $r = [System.Windows.Forms.MessageBox]::Show(
+            "上のプレビューを確認しました。`r`n「OK」の人の受付番号を健診ナビへ設定しますか?",
+            '受付番号の設定', 'YesNo', 'Warning', 'Button2')
+        if ($r -ne 'Yes') { Append-Out '[中止] 受付番号の設定をキャンセルしました。'; return }
+        Append-Out (Run-Core ($a + '-Commit'))
     }
 })
 

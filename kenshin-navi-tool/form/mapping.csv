@@ -1,6 +1,8 @@
 ﻿Col,Col2,Label,Kind,KOMOKU_CD,SYOKEN_CD,SYOKEN_CD2,CodeMap,IfEmpty,ReqCol,Format,Note
 2,,受付番号,KENNO,,,,,,,,テンプレート「受付番号」
 3,,受診日,KENYMD,,,,,,,,テンプレート「受診日付」
+7,,氏名(漢字),NAMEKANJI,,,,,,,,受付番号の照合に使用
+8,,氏名(カナ),NAMEKANA,,,,,,,,受付番号の照合に使用(こちらを優先)
 17,,身長,VALUE,001211,,,,,,0.0,
 18,,体重,VALUE,001212,,,,,,0.0,
 19,,体脂肪率,VALUE,001213,,,,,,0.0,運用上は空欄のことが多い

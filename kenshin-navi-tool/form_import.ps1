@@ -37,6 +37,8 @@ param(
     [switch]$Force,               # エラー行があってもOK行のみ書込
     [switch]$Inspect,             # CSVの列番号/ヘッダ/値/変換結果を表示(DB接続なし)
     [switch]$NoHeader,            # 1行目からデータの場合に指定(ヘッダ行なし)
+    [switch]$SetUkeNo,            # 受付番号を健診ナビへ設定 (氏名で照合)
+    [switch]$Overwrite,           # -SetUkeNo で既存の受付番号も上書きする
     [switch]$DumpItems,           # 対象者のT_KENSA行を一覧表示
     [string]$DumpSyoken,          # 指定SYOKEN_CDのT_SYOKEN2一覧を表示 (SHIN/GANTEI/ZK011/ZK020/ZK021/ZK030/ZK031/ZK041)
     [string]$KenYmd,              # 受診日 'YYYY/MM/DD'。CSVに日付列が無い場合に指定
@@ -166,7 +168,7 @@ function Load-Mapping {
     $p = Join-Path $MapDir 'mapping.csv'
     if (-not (Test-Path $p)) { throw "対応表が見つかりません: $p" }
     $rows = Import-Csv -Path $p -Encoding UTF8
-    $valid = @('KENNO','KENYMD','VALUE','NYOU','CHORYOKU','MONSHIN','SHOKEN','SHOKEN2','SHOKENCD','SHOKENCD2','IGNORE')
+    $valid = @('KENNO','KENYMD','NAMEKANJI','NAMEKANA','VALUE','NYOU','CHORYOKU','MONSHIN','SHOKEN','SHOKEN2','SHOKENCD','SHOKENCD2','IGNORE')
     foreach ($r in $rows) {
         $k = (Normalize-Text $r.Kind).ToUpper()
         if ($k -ne '' -and $valid -notcontains $k) {
@@ -424,15 +426,24 @@ function Find-Syoken($conn, [string]$cd, [string]$text) {
 # ============================================================================
 
 function Get-IdColumns($mapRows) {
-    $kenNoCol = 0; $ymdCol = 0
+    $kenNoCol = 0; $ymdCol = 0; $kanjiCol = 0; $kanaCol = 0
     foreach ($m in $mapRows) {
         $kind = (Normalize-Text $m.Kind).ToUpper()
         $c = 0
         [void][int]::TryParse((Normalize-Text $m.Col), [ref]$c)
-        if ($kind -eq 'KENNO')  { $kenNoCol = $c }
-        if ($kind -eq 'KENYMD') { $ymdCol = $c }
+        if ($kind -eq 'KENNO')     { $kenNoCol = $c }
+        if ($kind -eq 'KENYMD')    { $ymdCol = $c }
+        if ($kind -eq 'NAMEKANJI') { $kanjiCol = $c }
+        if ($kind -eq 'NAMEKANA')  { $kanaCol = $c }
     }
-    return @{ KenNo = $kenNoCol; Ymd = $ymdCol }
+    return @{ KenNo = $kenNoCol; Ymd = $ymdCol; Kanji = $kanjiCol; Kana = $kanaCol }
+}
+
+# 氏名の照合用に正規化 (空白・記号を除去)
+function Normalize-Name([string]$s) {
+    $v = Normalize-Text $s
+    $v = $v -replace '[\s　・･,、]', ''
+    return $v
 }
 
 function Select-TargetRows($dataRows, $idCols) {
@@ -846,6 +857,106 @@ if ($Inspect) {
         }
     }
     $items | Select-Object 列, ヘッダ, 値, 変換後, マッピング | Format-Table -AutoSize -Wrap | Out-String -Width 300 | Write-Host
+    return
+}
+
+# ---- モード: 受付番号を健診ナビへ設定 (氏名で照合) ----
+if ($SetUkeNo) {
+    if ($idCols.Kanji -le 0 -and $idCols.Kana -le 0) {
+        throw 'mapping.csv に NAMEKANJI または NAMEKANA の列(氏名)を設定してください。'
+    }
+    if ($idCols.KenNo -le 0) { throw 'mapping.csv の KENNO 行に列番号を設定してください。' }
+    $rowsSel = if ($Only) { Select-TargetRows $data $idCols } else { $data }
+    $conn = Open-Db
+    try {
+        $cache = @{}
+        $plan = @()
+        foreach ($fields in $rowsSel) {
+            $kenNo = Normalize-KenNo (Get-Field $fields $idCols.KenNo)
+            if ($kenNo -eq '') { continue }
+            $ymd = Resolve-RowYmd $fields $idCols
+            if (-not $cache.ContainsKey($ymd)) {
+                $cache[$ymd] = Invoke-DbQuery $conn @'
+SELECT s.PK_SEQ, s.UKE_NO_KENSA, k.KANJI_SIMEI, k.KANA_SIMEI
+FROM T_KENSIN s LEFT JOIN T_KOJIN1 k ON k.KOJIN_ID = s.KOJIN_ID
+WHERE s.D_KENSIN = @ymd AND s.F_TORIKESI = 0
+'@ @{ ymd = $ymd }
+            }
+            $navi = $cache[$ymd].Rows
+            $kanji = Normalize-Name (Get-Field $fields $idCols.Kanji)
+            $kana  = Normalize-Name (Get-Field $fields $idCols.Kana)
+
+            $hits = @()
+            if ($kana -ne '')  { $hits = @($navi | Where-Object { (Normalize-Name ([string]$_.KANA_SIMEI)) -eq $kana }) }
+            if ($hits.Count -eq 0 -and $kanji -ne '') {
+                $hits = @($navi | Where-Object { (Normalize-Name ([string]$_.KANJI_SIMEI)) -eq $kanji })
+            }
+            elseif ($hits.Count -gt 1 -and $kanji -ne '') {
+                $narrow = @($hits | Where-Object { (Normalize-Name ([string]$_.KANJI_SIMEI)) -eq $kanji })
+                if ($narrow.Count -eq 1) { $hits = $narrow }
+            }
+
+            $rep = New-Object PSObject -Property @{
+                受付番号 = $kenNo; 受診日 = $ymd
+                氏名 = (Normalize-Text (Get-Field $fields $idCols.Kanji))
+                現在の番号 = ''; PkSeq = $null; 状態 = ''
+            }
+            if ($hits.Count -eq 0)     { $rep.状態 = '該当者なし'; $plan += $rep; continue }
+            if ($hits.Count -gt 1)     { $rep.状態 = "同名が{0}人いて特定できません" -f $hits.Count; $plan += $rep; continue }
+
+            $hit = $hits[0]
+            $cur = Normalize-KenNo ([string]$hit.UKE_NO_KENSA)
+            $rep.現在の番号 = $cur
+            $rep.PkSeq = $hit.PK_SEQ
+            # その日の他の人に同じ番号が付いていないか
+            $dup = @($navi | Where-Object {
+                (Normalize-KenNo ([string]$_.UKE_NO_KENSA)) -eq $kenNo -and $_.PK_SEQ -ne $hit.PK_SEQ })
+            if ($dup.Count -gt 0) { $rep.状態 = '同じ受付番号が別の人に設定済み'; $plan += $rep; continue }
+
+            if ($cur -eq $kenNo)   { $rep.状態 = '設定済み(変更なし)' }
+            elseif ($cur -eq '')   { $rep.状態 = 'OK' }
+            elseif ($Overwrite)    { $rep.状態 = 'OK(上書き)' }
+            else                   { $rep.状態 = "別の番号が設定済み($cur)" }
+            $plan += $rep
+        }
+
+        Write-Host ''
+        Write-Host '=== 受付番号の設定プレビュー ===' -ForegroundColor Cyan
+        $plan | Select-Object 受付番号, 受診日, 氏名, 現在の番号, 状態 |
+            Format-Table -AutoSize -Wrap | Out-String -Width 200 | Write-Host
+        $ok  = @($plan | Where-Object { $_.状態 -like 'OK*' })
+        $skip = @($plan | Where-Object { $_.状態 -eq '設定済み(変更なし)' })
+        $err = @($plan | Where-Object { $_.状態 -notlike 'OK*' -and $_.状態 -ne '設定済み(変更なし)' })
+        Write-Host ("設定: {0} 件 / 変更なし: {1} 件 / 要確認: {2} 件" -f $ok.Count, $skip.Count, $err.Count) `
+            -ForegroundColor $(if ($err.Count -gt 0) { 'Yellow' } else { 'Green' })
+
+        if (-not $Commit) {
+            Write-Host ''
+            Write-Host '※ プレビューのみ。設定するには「受付番号を設定(書込)」を実行してください。' -ForegroundColor Yellow
+            return
+        }
+        if ($ok.Count -eq 0) { Write-Host '設定する対象がありません。'; return }
+        if (-not (Test-Path $BackupDir)) { [void](New-Item -ItemType Directory -Path $BackupDir) }
+        $bfile = Join-Path $BackupDir ("UKE_NO_{0}.csv" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
+        $plan | Select-Object 受付番号, 受診日, 氏名, 現在の番号, 状態, PkSeq |
+            Export-Csv -Path $bfile -NoTypeInformation -Encoding UTF8
+        Write-Host "[バックアップ] 設定前の状態: $bfile" -ForegroundColor DarkGray
+
+        $tran = $conn.BeginTransaction()
+        try {
+            $done = 0
+            foreach ($t in $ok) {
+                $n = Invoke-DbExec $conn $tran 'UPDATE T_KENSIN SET UKE_NO_KENSA = @no WHERE PK_SEQ = @p' `
+                    @{ no = $t.受付番号; p = $t.PkSeq }
+                if ($n -ne 1) { throw ("UPDATE影響行数が {0} でした (受付番号={1})。ロールバックします。" -f $n, $t.受付番号) }
+                $done++
+            }
+            $tran.Commit()
+            Write-Host ("[設定完了] {0} 人の受付番号を設定しました。" -f $done) -ForegroundColor Green
+        }
+        catch { $tran.Rollback(); throw }
+    }
+    finally { $conn.Close() }
     return
 }
 

@@ -50,8 +50,10 @@ function Read-Xlsx([string]$path) {
         if ($xs) {
             $m = & $nsMgr $xs 'm' $NS
             foreach ($si in $xs.SelectNodes('/m:sst/m:si', $m)) {
+                # m:t (単純な文字列) と m:r/m:t (書式付きの断片) だけを連結する。
+                # m:rPh/m:t は「ふりがな」なので値ではない (健保外 + ケンポガイ になってしまう)
                 $sb = New-Object System.Text.StringBuilder
-                foreach ($t in $si.SelectNodes('.//m:t', $m)) { [void]$sb.Append($t.InnerText) }
+                foreach ($t in $si.SelectNodes('m:t | m:r/m:t', $m)) { [void]$sb.Append($t.InnerText) }
                 $shared += $sb.ToString()
             }
         }

@@ -18,18 +18,15 @@ if (-not (Test-Path $tool)) {
 }
 
 $queries = @(
-    @{ Title = '1. コースを持つテーブル/列'
-       Sql = "SELECT t.name AS TBL, c.name AS COL FROM sys.tables t JOIN sys.columns c ON c.object_id = t.object_id WHERE c.name LIKE '%COURSE%' OR c.name LIKE '%KOSU%' ORDER BY t.name, c.name"
+    @{ Title = '1. コースマスタ T_COURSE1 の列一覧'
+       Sql = "SELECT c.name AS COL, ty.name AS TYPE FROM sys.columns c JOIN sys.types ty ON ty.user_type_id = c.user_type_id WHERE c.object_id = OBJECT_ID('T_COURSE1') ORDER BY c.column_id"
        Max = 60 }
-    @{ Title = '2. 最近つかわれているコースコードと人数'
-       Sql = "SELECT COURSE_CD, COUNT(*) AS NINZU, MIN(D_KENSIN) AS FROM_YMD, MAX(D_KENSIN) AS TO_YMD FROM T_KENSIN WHERE D_KENSIN >= '2026/04/01' GROUP BY COURSE_CD ORDER BY COUNT(*) DESC"
-       Max = 60 }
-    @{ Title = '3. コースマスタ (M_COURSE)'
-       Sql = "SELECT * FROM M_COURSE"
-       Max = 60 }
-    @{ Title = '4. コースマスタ (T_COURSE)'
-       Sql = "SELECT * FROM T_COURSE"
-       Max = 60 }
+    @{ Title = '2. リアンで使われているコース (YA / YB) の中身'
+       Sql = "SELECT * FROM T_COURSE1 WHERE LTRIM(RTRIM(COURSE_CD)) IN ('YA','YB')"
+       Max = 10 }
+    @{ Title = '3. コース一覧 (コードと名称)'
+       Sql = "SELECT * FROM T_COURSE1 ORDER BY COURSE_CD"
+       Max = 120 }
 )
 
 "=== コースマスタ 調査 $(Get-Date -Format 'yyyy/MM/dd HH:mm') ===" | Out-File $out -Encoding Default
@@ -41,6 +38,5 @@ foreach ($q in $queries) {
 }
 
 "" | Out-File $out -Append -Encoding Default
-"※ 3か4のどちらかは「テーブルがありません」のエラーになります。それで正常です。" | Out-File $out -Append -Encoding Default
 "=== 完了。この内容をチャットに貼り付けてください ===" | Out-File $out -Append -Encoding Default
 notepad $out

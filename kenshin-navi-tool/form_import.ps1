@@ -1192,6 +1192,9 @@ try {
 
     $hadError = $false
     $skipped = 0
+    # 全体集計 (26人ぶんを1件ずつ目で追わなくて済むように)
+    $sumPeople = 0; $sumOk = 0; $sumErr = 0
+    $errNos = @(); $notFoundNos = @(); $wroteNos = @()
     foreach ($fields in $targets) {
         $kenNo = Normalize-KenNo (Get-Field $fields $idCols.KenNo)
         $ymd = Resolve-RowYmd $fields $idCols
@@ -1199,6 +1202,7 @@ try {
         if ($null -eq $pk) {
             Write-Warning "受診者が見つかりません (KEN_YMD=$ymd, KEN_NO=$kenNo) → スキップ"
             $hadError = $true
+            $notFoundNos += $kenNo
             continue
         }
         if ($rosterSet -and -not $rosterSet.ContainsKey([string]$pk)) {
@@ -1212,6 +1216,10 @@ try {
         Show-Plan $plan ("受付番号 " + $kenNo)
 
         $err = @($plan | Where-Object { $_.Status -ne 'OK' -and $_.Status -ne '列未設定' -and $_.Status -ne '項目CD未設定' })
+        $sumPeople++
+        $sumOk += @($plan | Where-Object { $_.Status -eq 'OK' }).Count
+        $sumErr += $err.Count
+        if ($err.Count -gt 0) { $errNos += $kenNo }
         if ($Commit) {
             if ($err.Count -gt 0 -and -not $Force) {
                 Write-Host "エラー行があるため書込を中止しました (受付番号 $kenNo)。内容を修正するか、OK行のみ書込む場合は -Force を付けてください。" -ForegroundColor Red
@@ -1219,15 +1227,35 @@ try {
                 continue
             }
             Commit-Plan $conn $pk $plan
+            $wroteNos += $kenNo
         }
     }
     if ($skipped -gt 0) {
         Write-Host ''
         Write-Host ("[名簿しぼり込み] 名簿に無い {0} 人は取り込みませんでした。" -f $skipped) -ForegroundColor Yellow
     }
+    # ---- 全体の集計 ----
+    Write-Host ''
+    Write-Host ('=' * 60) -ForegroundColor Cyan
+    if ($Commit) {
+        Write-Host ("【全体】{0} 人を処理 / 書込 {1} 人 / 書込項目 {2} 件 / エラー {3} 件" -f $sumPeople, $wroteNos.Count, $sumOk, $sumErr) -ForegroundColor Cyan
+    } else {
+        Write-Host ("【全体】{0} 人を確認 / 書込可能 {1} 件 / エラー {2} 件" -f $sumPeople, $sumOk, $sumErr) -ForegroundColor Cyan
+    }
+    if ($notFoundNos.Count -gt 0) {
+        Write-Host ("  受診者が見つからない受付番号 ({0}人): {1}" -f $notFoundNos.Count, ($notFoundNos -join ', ')) -ForegroundColor Red
+    }
+    if ($errNos.Count -gt 0) {
+        Write-Host ("  エラーのある受付番号 ({0}人): {1}" -f $errNos.Count, (($errNos | Select-Object -Unique) -join ', ')) -ForegroundColor Red
+        Write-Host '  → 上にスクロールしてその人の「状態」列を確認してください。' -ForegroundColor Red
+    }
+    if ($notFoundNos.Count -eq 0 -and $errNos.Count -eq 0) {
+        Write-Host '  エラーはありません。' -ForegroundColor Green
+    }
+    Write-Host ('=' * 60) -ForegroundColor Cyan
     if (-not $Commit) {
         Write-Host ''
-        Write-Host '※ プレビューのみ実行しました。書込むには -Commit を付けて再実行してください。' -ForegroundColor Yellow
+        Write-Host '※ プレビューのみ実行しました。書込むには「4. 書込実行」を押してください。' -ForegroundColor Yellow
     }
     if ($hadError) { exit 1 }
 }

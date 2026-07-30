@@ -238,6 +238,17 @@ $form.Controls.Add($txtOut)
 # イベント
 # ============================================================================
 
+# どのボタンの結果かひと目で分かるように見出しを出す
+function Start-Section([string]$title) {
+    $bar = '─' * 60
+    $txtOut.AppendText($bar + "`r`n")
+    $txtOut.AppendText(('■ ' + $title + '   ' + (Get-Date -Format 'HH:mm:ss')) + "`r`n")
+    $txtOut.AppendText($bar + "`r`n")
+    $txtOut.SelectionStart = $txtOut.Text.Length
+    $txtOut.ScrollToCaret()
+    [System.Windows.Forms.Application]::DoEvents()
+}
+
 function Append-Out([string]$text) {
     $txtOut.AppendText($text.TrimEnd() + "`r`n`r`n")
     $txtOut.SelectionStart = $txtOut.Text.Length
@@ -300,6 +311,7 @@ $btnRosterClear.Add_Click({ $txtRoster.Text = '' })
 
 $btnInspect.Add_Click({
     Invoke-Busy {
+        Start-Section '1. 列確認 (ファイルを見るだけ・DBは触りません)'
         $csv = Resolve-CsvPath
         Append-Out (Run-Core (@('-Csv', $csv, '-Inspect') + (Get-CommonArgs)))
     }
@@ -307,6 +319,7 @@ $btnInspect.Add_Click({
 
 $btnDump.Add_Click({
     Invoke-Busy {
+        Start-Section '2. 枠一覧(DB) (健診ナビを読むだけ・書き込みません)'
         # ファイルが選ばれていれば、受付番号・受診日が空欄でもファイルから拾う
         $a = @('-DumpItems')
         $f = $txtFile.Text.Trim().Trim('"')
@@ -370,6 +383,7 @@ function Confirm-YmdOverride([string]$csv) {
 
 $btnPreview.Add_Click({
     Invoke-Busy {
+        Start-Section '3. プレビュー (書き込みません)'
         $csv = Resolve-CsvPath
         if (-not (Confirm-YmdOverride $csv)) { return }
         Append-Out (Run-Core (@('-Csv', $csv) + (Get-CommonArgs)))
@@ -378,6 +392,7 @@ $btnPreview.Add_Click({
 
 $btnCommit.Add_Click({
     Invoke-Busy {
+        Start-Section '4. 書込実行 (健診ナビに書き込みます)'
         $csv = Resolve-CsvPath
         if (-not (Confirm-YmdOverride $csv)) { return }
         $who = if ($txtOnly.Text.Trim() -ne '') { '受付番号 ' + $txtOnly.Text.Trim() + ' の1名' } else { 'CSVの全員' }
@@ -392,6 +407,7 @@ $btnCommit.Add_Click({
 
 $btnUkeNo.Add_Click({
     Invoke-Busy {
+        Start-Section '受付番号を設定'
         $csv = Resolve-CsvPath
         if (-not (Confirm-YmdOverride $csv)) { return }
         $a = @('-Csv', $csv, '-SetUkeNo') + (Get-CommonArgs)
@@ -406,6 +422,7 @@ $btnUkeNo.Add_Click({
 
 $btnYoyaku.Add_Click({
     Invoke-Busy {
+        Start-Section '予約取込ファイルを作成'
         $f = $txtFile.Text.Trim().Trim('"')
         if ($f -eq '') { throw 'フォームのファイルを選択してください。' }
         $yo = Join-Path $scriptDir 'yoyaku_export.ps1'
@@ -430,6 +447,7 @@ $btnYoyaku.Add_Click({
 
 $btnSyoken.Add_Click({
     Invoke-Busy {
+        Start-Section '所見マスタ表示'
         $cd = ($cmbSyoken.SelectedItem -split ' ')[0]
         Append-Out (Run-Core @('-DumpSyoken', $cd))
     }

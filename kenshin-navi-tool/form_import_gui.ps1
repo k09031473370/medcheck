@@ -307,10 +307,21 @@ $btnInspect.Add_Click({
 
 $btnDump.Add_Click({
     Invoke-Busy {
-        if ($txtOnly.Text.Trim() -eq '' -or $txtYmd.Text.Trim() -eq '') {
-            throw '枠一覧には受付番号と受診日の両方を入力してください。'
+        # ファイルが選ばれていれば、受付番号・受診日が空欄でもファイルから拾う
+        $a = @('-DumpItems')
+        $f = $txtFile.Text.Trim().Trim('"')
+        if ($f -ne '' -and (Test-Path $f)) {
+            $a += @('-Csv', (Resolve-CsvPath))
+            if ($chkUtf8.Checked)  { $a += @('-CsvEncoding', 'UTF8') }
+            if ($chkNoHdr.Checked) { $a += '-NoHeader' }
+            if ($cmbMap.SelectedItem) { $a += @('-Mapping', [string]$cmbMap.SelectedItem.File) }
         }
-        Append-Out (Run-Core @('-DumpItems', '-Only', $txtOnly.Text.Trim(), '-KenYmd', $txtYmd.Text.Trim()))
+        elseif ($txtOnly.Text.Trim() -eq '' -or $txtYmd.Text.Trim() -eq '') {
+            throw 'ファイルを選ぶか、受付番号と受診日の両方を入力してください。'
+        }
+        if ($txtOnly.Text.Trim() -ne '') { $a += @('-Only', $txtOnly.Text.Trim()) }
+        if ($txtYmd.Text.Trim()  -ne '') { $a += @('-KenYmd', $txtYmd.Text.Trim()) }
+        Append-Out (Run-Core $a)
     }
 })
 

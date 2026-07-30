@@ -250,7 +250,11 @@ function Load-Mapping {
             else {
                 $cand = @(Get-ChildItem -Path $MapDir -Filter 'mapping*.csv' -File -ErrorAction SilentlyContinue | Sort-Object Name)
                 if ($cand.Count -eq 0) { throw "対応表(mapping*.csv)が $MapDir にありません。" }
-                throw ("レイアウトを自動判別できませんでした。GUIの「レイアウト」で選んでください。候補: " + (($cand | ForEach-Object { $_.Name }) -join ' / '))
+                # ファイルを使わないモード(枠一覧・所見マスタ)では対応表の中身を使わないので、判別できなくてよい
+                if (-not $Csv) { $p = $cand[0].FullName }
+                else {
+                    throw ("レイアウトを自動判別できませんでした。GUIの「レイアウト」で選んでください。候補: " + (($cand | ForEach-Object { $_.Name }) -join ' / '))
+                }
             }
         }
     }
@@ -969,17 +973,31 @@ $idCols   = Get-IdColumns $mapRows
 
 # ---- モード: 対象者の T_KENSA 一覧 ----
 if ($DumpItems) {
-    if (-not $Only) { throw '-DumpItems には -Only <受付番号> が必要です。' }
+    # 受付番号・受診日が未指定なら、選んだファイルの先頭の人で確認する
+    $dumpNo = Normalize-KenNo $Only
     $ymd = $null
     if ($Csv) {
         $rows = Read-FormCsv $Csv $CsvEncoding
         $hd = Split-HeaderData $rows $idCols
-        $sel = Select-TargetRows $hd.Data $idCols
+        $sel = $hd.Data
+        if ($dumpNo -ne '') {
+            $sel = Select-TargetRows $hd.Data $idCols
+        }
+        elseif ($idCols.KenNo -gt 0) {
+            $dumpNo = Normalize-KenNo (Get-Field $sel[0] $idCols.KenNo)
+            if ($dumpNo -ne '') {
+                Write-Host ("[受付番号] 未入力のため、ファイルの先頭 {0} で確認します" -f $dumpNo) -ForegroundColor DarkGray
+            }
+        }
         $ymd = Resolve-RowYmd $sel[0] $idCols
-    } else {
-        if (-not $KenYmd) { throw '-DumpItems には -KenYmd 2026/07/02 のように受診日も指定してください。' }
-        $ymd = Normalize-Ymd $KenYmd
     }
+    else {
+        if (-not $KenYmd) { throw '受診日を入力するか、ファイルを選んでください。' }
+        $ymd = Normalize-Ymd $KenYmd
+        if (-not $ymd) { throw ("受診日「{0}」を解釈できません。2026/07/05 のように入力してください。" -f $KenYmd) }
+    }
+    if ($dumpNo -eq '') { throw '受付番号を入力してください。' }
+    $Only = $dumpNo
     $conn = Open-Db
     try {
         $pk = Resolve-PkSeq $conn $ymd (Normalize-KenNo $Only)

@@ -42,6 +42,7 @@ param(
     [switch]$DumpItems,           # 対象者のT_KENSA行を一覧表示
     [string]$DumpSyoken,          # 指定SYOKEN_CDのT_SYOKEN2一覧を表示 (SHIN/GANTEI/ZK011/ZK020/ZK021/ZK030/ZK031/ZK041)
     [string]$KenYmd,              # 受診日 'YYYY/MM/DD'。CSVに日付列が無い場合に指定
+    [string]$Roster,              # 名簿ファイル(Excel/CSV)。ここに載っている人だけを取り込む
     [string]$MapDir,              # 対応表フォルダ (既定: スクリプトと同じ場所の form\)
     [string]$Mapping,             # 使用する対応表ファイル名 (既定: mapping.csv)
     [string]$ConnFile = '\\KNSV\KenshinNavi\SQLSV\SQLServerConnect.txt',
@@ -176,12 +177,13 @@ function Get-Field($fields, [int]$col) {
 
 # CSVの1行目を見て、どの対応表(レイアウト)かを自動で判別する
 #   対応表に書く指示: # DETECT=HEADER:受付NO,Q1   / # DETECT=COLS:40-50
-function Detect-MappingPath {
-    if (-not $Csv -or -not (Test-Path $Csv)) { return $null }
+function Detect-MappingPath([string]$path) {
+    if (-not $path) { $path = $Csv }
+    if (-not $path -or -not (Test-Path $path)) { return $null }
     $enc = if ($CsvEncoding -eq 'UTF8') { New-Object System.Text.UTF8Encoding($false) } else { [System.Text.Encoding]::GetEncoding(932) }
     $first = ''
     try {
-        $sr = New-Object System.IO.StreamReader($Csv, $enc)
+        $sr = New-Object System.IO.StreamReader($path, $enc)
         $first = $sr.ReadLine()
         $sr.Close()
     } catch { return $null }
@@ -537,6 +539,73 @@ function Resolve-RowYmd($fields, $idCols) {
         return $y
     }
     throw "受診日が特定できません。mapping.csv の KENYMD 行に列番号を設定するか、-KenYmd 2026/07/02 のように指定してください。"
+}
+
+# ============================================================================
+# 名簿によるしぼり込み (-Roster)
+# ============================================================================
+# 血液などの外部データには名簿外の人が混ざってくるため、
+# 名簿(リアン等)に載っている人だけを取り込めるようにする。
+# 人の同定は最終的に PK_SEQ で行うので、名簿と結果ファイルのキーが違っても照合できる。
+
+# .xlsx/.xlsm を Excel COM で一時CSV(SJIS)に変換して、そのパスを返す
+function Convert-ExcelToCsv([string]$xlsxPath) {
+    $tmp = Join-Path $env:TEMP ('roster_' + [System.IO.Path]::GetFileNameWithoutExtension($xlsxPath) + '.csv')
+    $excel = $null; $wb = $null
+    try {
+        $excel = New-Object -ComObject Excel.Application
+        $excel.Visible = $false
+        $excel.DisplayAlerts = $false
+        $wb = $excel.Workbooks.Open($xlsxPath, 0, $true)   # 読み取り専用で開く
+        if (Test-Path $tmp) { Remove-Item $tmp -Force }
+        $wb.Worksheets.Item(1).SaveAs($tmp, 6)             # 6 = xlCSV (先頭シートのみ)
+        return $tmp
+    }
+    finally {
+        if ($wb) { $wb.Close($false) | Out-Null }
+        if ($excel) {
+            $excel.Quit()
+            [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel)
+        }
+    }
+}
+
+# 名簿ファイルから「取込を許可する人」の PK_SEQ 一覧を作る
+function Load-RosterPkSeq($conn, [string]$path) {
+    if (-not (Test-Path $path)) { throw "名簿ファイルが見つかりません: $path" }
+    $p = $path
+    $ext = [System.IO.Path]::GetExtension($p).ToLower()
+    if ($ext -eq '.xlsx' -or $ext -eq '.xlsm' -or $ext -eq '.xls') { $p = Convert-ExcelToCsv $p }
+
+    $mapPath = Detect-MappingPath $p
+    if (-not $mapPath) { throw "名簿のレイアウトを判別できませんでした: $path" }
+    Write-Host "[名簿] $([System.IO.Path]::GetFileName($path)) / 対応表 $([System.IO.Path]::GetFileName($mapPath))" -ForegroundColor DarkGray
+    $rmap = Import-Csv -Path $mapPath -Encoding UTF8
+    $rid  = Get-IdColumns $rmap
+    if ($rid.KenNo -le 0) { throw "名簿の対応表に受付番号(KENNO)の列がありません: $mapPath" }
+
+    $rrows = Read-FormCsv $p $CsvEncoding
+    $rhd   = Split-HeaderData $rrows $rid
+
+    $set = @{}
+    $miss = @()
+    foreach ($f in $rhd.Data) {
+        $no = Normalize-KenNo (Get-Field $f $rid.KenNo)
+        if ($no -eq '') { continue }
+        $ymd = $null
+        if ($rid.Ymd -gt 0) { $ymd = Normalize-Ymd (Get-Field $f $rid.Ymd) }
+        if (-not $ymd -and $KenYmd) { $ymd = Normalize-Ymd $KenYmd }
+        if (-not $ymd) { throw "名簿に受診日の列がありません。-KenYmd で受診日を指定してください: $path" }
+        $pk = Resolve-PkSeq $conn $ymd $no
+        if ($null -eq $pk) { $miss += $no; continue }
+        $set[[string]$pk] = $no
+    }
+    if ($miss.Count -gt 0) {
+        Write-Warning ("名簿にあるが健診ナビで見つからない受付番号 ({0}件): {1}" -f $miss.Count, ($miss -join ', '))
+    }
+    Write-Host ("[名簿] 取込対象 {0} 人" -f $set.Count) -ForegroundColor DarkGray
+    if ($set.Count -eq 0) { throw "名簿から取込対象を1人も特定できませんでした: $path" }
+    return $set
 }
 
 # ============================================================================
@@ -1067,7 +1136,11 @@ if ($idCols.KenNo -le 0) {
 
 $conn = Open-Db
 try {
+    $rosterSet = $null
+    if ($Roster) { $rosterSet = Load-RosterPkSeq $conn $Roster }
+
     $hadError = $false
+    $skipped = 0
     foreach ($fields in $targets) {
         $kenNo = Normalize-KenNo (Get-Field $fields $idCols.KenNo)
         $ymd = Resolve-RowYmd $fields $idCols
@@ -1076,6 +1149,10 @@ try {
             Write-Warning "受診者が見つかりません (KEN_YMD=$ymd, KEN_NO=$kenNo) → スキップ"
             $hadError = $true
             continue
+        }
+        if ($rosterSet -and -not $rosterSet.ContainsKey([string]$pk)) {
+            $skipped++
+            continue   # 名簿外の人 (エラーではない)
         }
         $current = Get-CurrentKensa $conn $pk
         Write-Host ''
@@ -1092,6 +1169,10 @@ try {
             }
             Commit-Plan $conn $pk $plan
         }
+    }
+    if ($skipped -gt 0) {
+        Write-Host ''
+        Write-Host ("[名簿しぼり込み] 名簿に無い {0} 人は取り込みませんでした。" -f $skipped) -ForegroundColor Yellow
     }
     if (-not $Commit) {
         Write-Host ''

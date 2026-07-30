@@ -220,6 +220,29 @@ $btnSyoken.Location = New-Object System.Drawing.Point(800, 80)
 $btnSyoken.Size = New-Object System.Drawing.Size(60, 32)
 $form.Controls.Add($btnSyoken)
 
+# --- 4段目: 名簿でしぼり込む (血液など、名簿外の人が混ざるファイル用) ---
+$form.Controls.Add((New-Label '名簿でしぼり込む:' 12 156 115))
+$txtRoster = New-Object System.Windows.Forms.TextBox
+$txtRoster.Location = New-Object System.Drawing.Point(130, 153)
+$txtRoster.Size = New-Object System.Drawing.Size(575, 24)
+$txtRoster.Anchor = 'Top,Left,Right'
+$tip.SetToolTip($txtRoster, "空欄=ファイル内の全員を取込。名簿(リアン等)を指定すると、その名簿に載っている人だけを取り込みます。")
+$form.Controls.Add($txtRoster)
+
+$btnRoster = New-Object System.Windows.Forms.Button
+$btnRoster.Text = '名簿を選ぶ'
+$btnRoster.Location = New-Object System.Drawing.Point(712, 151)
+$btnRoster.Size = New-Object System.Drawing.Size(100, 26)
+$btnRoster.Anchor = 'Top,Right'
+$form.Controls.Add($btnRoster)
+
+$btnRosterClear = New-Object System.Windows.Forms.Button
+$btnRosterClear.Text = 'クリア'
+$btnRosterClear.Location = New-Object System.Drawing.Point(818, 151)
+$btnRosterClear.Size = New-Object System.Drawing.Size(70, 26)
+$btnRosterClear.Anchor = 'Top,Right'
+$form.Controls.Add($btnRosterClear)
+
 # --- 出力欄 ---
 $txtOut = New-Object System.Windows.Forms.TextBox
 $txtOut.Multiline = $true
@@ -227,8 +250,8 @@ $txtOut.ReadOnly = $true
 $txtOut.ScrollBars = 'Both'
 $txtOut.WordWrap = $false
 $txtOut.Font = New-Object System.Drawing.Font('MS Gothic', 9)
-$txtOut.Location = New-Object System.Drawing.Point(12, 158)
-$txtOut.Size = New-Object System.Drawing.Size(918, 469)
+$txtOut.Location = New-Object System.Drawing.Point(12, 188)
+$txtOut.Size = New-Object System.Drawing.Size(918, 439)
 $txtOut.Anchor = 'Top,Bottom,Left,Right'
 $form.Controls.Add($txtOut)
 
@@ -242,7 +265,7 @@ function Append-Out([string]$text) {
     $txtOut.ScrollToCaret()
 }
 
-$allButtons = @($btnBrowse, $btnInspect, $btnDump, $btnPreview, $btnCommit, $btnSyoken, $btnUkeNo, $btnYoyaku)
+$allButtons = @($btnBrowse, $btnInspect, $btnDump, $btnPreview, $btnCommit, $btnSyoken, $btnUkeNo, $btnYoyaku, $btnRoster, $btnRosterClear)
 
 function Invoke-Busy([scriptblock]$work) {
     foreach ($b in $allButtons) { $b.Enabled = $false }
@@ -280,6 +303,7 @@ function Get-CommonArgs {
     if ($chkUtf8.Checked) { $a += @('-CsvEncoding', 'UTF8') }
     if ($chkNoHdr.Checked) { $a += '-NoHeader' }
     if ($cmbMap.SelectedItem) { $a += @('-Mapping', [string]$cmbMap.SelectedItem.File) }
+    if ($txtRoster.Text.Trim() -ne '') { $a += @('-Roster', $txtRoster.Text.Trim().Trim('"')) }
     return ,$a
 }
 
@@ -288,6 +312,15 @@ $btnBrowse.Add_Click({
     $dlg.Filter = 'Excel/CSV|*.xlsx;*.xlsm;*.xls;*.csv|すべて|*.*'
     if ($dlg.ShowDialog() -eq 'OK') { $txtFile.Text = $dlg.FileName }
 })
+
+$btnRoster.Add_Click({
+    $dlg = New-Object System.Windows.Forms.OpenFileDialog
+    $dlg.Filter = 'Excel/CSV|*.xlsx;*.xlsm;*.xls;*.csv|すべて|*.*'
+    $dlg.Title = '名簿ファイル(リアン等)を選んでください'
+    if ($dlg.ShowDialog() -eq 'OK') { $txtRoster.Text = $dlg.FileName }
+})
+
+$btnRosterClear.Add_Click({ $txtRoster.Text = '' })
 
 $btnInspect.Add_Click({
     Invoke-Busy {

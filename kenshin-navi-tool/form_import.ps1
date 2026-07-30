@@ -83,7 +83,8 @@ function Normalize-Ymd([string]$s) {
         return ([datetime]::FromOADate([double]$v)).ToString('yyyy/MM/dd')
     }
     $dt = [datetime]::MinValue
-    $formats = @('yyyy/MM/dd','yyyy/M/d','yyyy-MM-dd','yyyy-M-d','yyyyMMdd','yyyy年M月d日','yyyy.M.d')
+    #  yyMMdd (260712) も受け付ける。Excelシリアル値(20000〜80000)は上で処理済みなので衝突しない
+    $formats = @('yyyy/MM/dd','yyyy/M/d','yyyy-MM-dd','yyyy-M-d','yyyyMMdd','yyyy年M月d日','yyyy.M.d','yyMMdd','yy/MM/dd')
     foreach ($f in $formats) {
         if ([datetime]::TryParseExact($v, $f, [System.Globalization.CultureInfo]::InvariantCulture,
                 [System.Globalization.DateTimeStyles]::None, [ref]$dt)) {
@@ -550,17 +551,30 @@ function Select-TargetRows($dataRows, $idCols) {
     return ,$sel
 }
 
+$script:YmdNoticeShown = $false
+
 function Resolve-RowYmd($fields, $idCols) {
+    # 受診日を明示指定したときは、ファイルの日付列よりそちらを優先する
+    # (テストで別日の枠に入れたい場合など。通常は空欄にしてファイルの日付を使う)
+    if ($KenYmd) {
+        $y = Normalize-Ymd $KenYmd
+        if (-not $y) { throw ("受診日「{0}」を解釈できません。2026/07/12 のように入力してください。" -f $KenYmd) }
+        if (-not $script:YmdNoticeShown) {
+            $script:YmdNoticeShown = $true
+            if ($idCols.Ymd -gt 0) {
+                $fileYmd = Normalize-Ymd (Get-Field $fields $idCols.Ymd)
+                if ($fileYmd -and $fileYmd -ne $y) {
+                    Write-Host ("[受診日] 指定された {0} を使います (ファイルの日付 {1} は使いません)" -f $y, $fileYmd) -ForegroundColor Yellow
+                }
+            }
+        }
+        return $y
+    }
     if ($idCols.Ymd -gt 0) {
         $y = Normalize-Ymd (Get-Field $fields $idCols.Ymd)
         if ($y) { return $y }
     }
-    if ($KenYmd) {
-        $y = Normalize-Ymd $KenYmd
-        if (-not $y) { throw "-KenYmd の日付を解釈できません: $KenYmd" }
-        return $y
-    }
-    throw "受診日が特定できません。mapping.csv の KENYMD 行に列番号を設定するか、-KenYmd 2026/07/02 のように指定してください。"
+    throw "受診日が特定できません。ファイルに日付の列が無い場合は「受診日」に 2026/07/12 のように入力してください。"
 }
 
 # ============================================================================

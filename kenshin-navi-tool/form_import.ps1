@@ -40,6 +40,7 @@ param(
     [switch]$SetUkeNo,            # 受付番号を健診ナビへ設定 (氏名で照合)
     [switch]$Overwrite,           # -SetUkeNo で既存の受付番号も上書きする
     [switch]$DumpItems,           # 対象者のT_KENSA行を一覧表示
+    [switch]$ShowYmd,             # ファイルの日付と指定日を表示するだけ (GUIの確認用・DB接続なし)
     [string]$DumpSyoken,          # 指定SYOKEN_CDのT_SYOKEN2一覧を表示 (SHIN/GANTEI/ZK011/ZK020/ZK021/ZK030/ZK031/ZK041)
     [string]$KenYmd,              # 受診日 'YYYY/MM/DD'。CSVに日付列が無い場合に指定
     [string]$Roster,              # 名簿ファイル(Excel/CSV)。ここに載っている人だけを取り込む
@@ -1001,6 +1002,25 @@ $rows = Read-FormCsv $Csv $CsvEncoding
 $hd = Split-HeaderData $rows $idCols
 $header = $hd.Header
 $data = $hd.Data
+
+# ---- モード: 受診日の確認だけ (DB接続なし・GUIが上書き確認に使う) ----
+if ($ShowYmd) {
+    $fileYmd = ''
+    if ($idCols.Ymd -gt 0) {
+        foreach ($f in $data) {
+            $y = Normalize-Ymd (Get-Field $f $idCols.Ymd)
+            if ($y) { $fileYmd = $y; break }
+        }
+    }
+    $inYmd = ''
+    if ($KenYmd) {
+        $n = Normalize-Ymd $KenYmd
+        if ($n) { $inYmd = $n }
+    }
+    Write-Output ("FILEYMD=" + $fileYmd)
+    Write-Output ("INPUTYMD=" + $inYmd)
+    return
+}
 
 # ---- モード: CSV列の確認 (DB接続なし) ----
 if ($Inspect) {

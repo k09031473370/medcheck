@@ -314,9 +314,53 @@ $btnDump.Add_Click({
     }
 })
 
+# 受診日欄に入力があり、かつファイルにも日付の列がある場合は、
+# どちらを使うのかを必ず確認する (ファイルの日付を黙って無視しないため)
+function Confirm-YmdOverride([string]$csv) {
+    $typed = $txtYmd.Text.Trim()
+    if ($typed -eq '') { return $true }
+
+    $a = @('-Csv', $csv, '-ShowYmd', '-KenYmd', $typed)
+    if ($chkUtf8.Checked)  { $a += @('-CsvEncoding', 'UTF8') }
+    if ($chkNoHdr.Checked) { $a += '-NoHeader' }
+    if ($cmbMap.SelectedItem) { $a += @('-Mapping', [string]$cmbMap.SelectedItem.File) }
+    $out = Run-Core $a
+
+    $fileYmd = ''; $inYmd = ''
+    foreach ($ln in ($out -split "`r?`n")) {
+        if ($ln -match '^FILEYMD=(.*)$')  { $fileYmd = $Matches[1].Trim() }
+        if ($ln -match '^INPUTYMD=(.*)$') { $inYmd   = $Matches[1].Trim() }
+    }
+
+    if ($inYmd -eq '') {
+        [void][System.Windows.Forms.MessageBox]::Show(
+            "受診日「$typed」を解釈できません。`r`n2026/07/12 のように入力してください。",
+            '受診日の書き方', 'OK', 'Error')
+        return $false
+    }
+    # 日付の列が無いファイル(芝浦巡回AIデータ等)は、受診日欄が唯一の情報源なので確認不要
+    if ($fileYmd -eq '') { return $true }
+    if ($fileYmd -eq $inYmd) { return $true }
+
+    $msg = "このファイルには受診日の列があります。`r`n`r`n" +
+           "  ファイルの日付 : $fileYmd`r`n" +
+           "  入力した受診日 : $inYmd`r`n`r`n" +
+           "入力した $inYmd を使い、ファイルの日付は無視します。`r`n" +
+           "よろしいですか?`r`n`r`n" +
+           "（ファイルの日付 $fileYmd を使いたい場合は「いいえ」を押し、受診日欄を空欄にしてください）"
+    $r = [System.Windows.Forms.MessageBox]::Show($msg, '受診日の確認', 'YesNo', 'Warning', 'Button2')
+    if ($r -ne 'Yes') {
+        Append-Out "[中止] 受診日の確認でキャンセルしました。受診日欄を空欄にすると、ファイルの日付 $fileYmd を使います。"
+        return $false
+    }
+    Append-Out "[受診日] 入力された $inYmd を使います (ファイルの日付 $fileYmd は使いません)。"
+    return $true
+}
+
 $btnPreview.Add_Click({
     Invoke-Busy {
         $csv = Resolve-CsvPath
+        if (-not (Confirm-YmdOverride $csv)) { return }
         Append-Out (Run-Core (@('-Csv', $csv) + (Get-CommonArgs)))
     }
 })
@@ -324,6 +368,7 @@ $btnPreview.Add_Click({
 $btnCommit.Add_Click({
     Invoke-Busy {
         $csv = Resolve-CsvPath
+        if (-not (Confirm-YmdOverride $csv)) { return }
         $who = if ($txtOnly.Text.Trim() -ne '') { '受付番号 ' + $txtOnly.Text.Trim() + ' の1名' } else { 'CSVの全員' }
         $msg = "$who にDB書込を実行します。`r`n先にプレビューで内容を確認しましたか?"
         $r = [System.Windows.Forms.MessageBox]::Show($msg, '書込の確認', 'YesNo', 'Warning', 'Button2')
@@ -337,6 +382,7 @@ $btnCommit.Add_Click({
 $btnUkeNo.Add_Click({
     Invoke-Busy {
         $csv = Resolve-CsvPath
+        if (-not (Confirm-YmdOverride $csv)) { return }
         $a = @('-Csv', $csv, '-SetUkeNo') + (Get-CommonArgs)
         Append-Out (Run-Core $a)
         $r = [System.Windows.Forms.MessageBox]::Show(

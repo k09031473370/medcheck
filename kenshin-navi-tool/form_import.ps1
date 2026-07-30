@@ -1018,7 +1018,11 @@ if ($DumpItems) {
         $pk = Resolve-PkSeq $conn $ymd (Normalize-KenNo $Only)
         if ($null -eq $pk) { throw "受診者が見つかりません (KEN_YMD=$ymd, KEN_NO=$Only)" }
         Write-Host "PK_SEQ = $pk (KEN_YMD=$ymd, KEN_NO=$Only)" -ForegroundColor Cyan
-        $dt = Invoke-DbQuery $conn 'SELECT KOMOKU_CD, KEKKA, KEKKA_CD, HANTEI_KIGO FROM T_KENSA WHERE PK_SEQ = @p ORDER BY KOMOKU_CD' @{ p = $pk }
+        $dt = Invoke-DbQuery $conn @'
+SELECT k.KOMOKU_CD, m.MEISYO1 AS 項目名, k.KEKKA AS 結果, k.KEKKA_CD, k.HANTEI_KIGO AS 判定
+FROM T_KENSA k LEFT JOIN T_KOMOKU m ON LTRIM(RTRIM(m.KOMOKU_CD)) = LTRIM(RTRIM(k.KOMOKU_CD))
+WHERE k.PK_SEQ = @p ORDER BY k.KOMOKU_CD
+'@ @{ p = $pk }
         $dt | Format-Table -AutoSize | Out-String -Width 300 | Write-Host
         if (-not (Test-Path $BackupDir)) { [void](New-Item -ItemType Directory -Path $BackupDir) }
         $full = Invoke-DbQuery $conn 'SELECT * FROM T_KENSA WHERE PK_SEQ = @p' @{ p = $pk }

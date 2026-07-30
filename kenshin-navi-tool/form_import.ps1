@@ -127,14 +127,25 @@ function Parse-CsvText([string]$text) {
     return ,$rows.ToArray()
 }
 
+# .xlsx / .xlsm の読み込み (Excelを使わない共通部品)
+$XlsxLib = Join-Path $PSScriptRoot 'xlsx_read.ps1'
+if (-not (Test-Path $XlsxLib)) { throw "xlsx_read.ps1 が見つかりません: $XlsxLib" }
+. $XlsxLib
+
 function Read-FormCsv([string]$path, [string]$encName) {
-    if (-not (Test-Path $path)) { throw "CSVファイルが見つかりません: $path" }
-    $enc = if ($encName -eq 'UTF8') { New-Object System.Text.UTF8Encoding($false) }
-           else { [System.Text.Encoding]::GetEncoding(932) }
-    $text = [System.IO.File]::ReadAllText($path, $enc)
-    # UTF-8 BOM除去
-    if ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) { $text = $text.Substring(1) }
-    $rows = Parse-CsvText $text
+    if (-not (Test-Path $path)) { throw "ファイルが見つかりません: $path" }
+    $ext = [System.IO.Path]::GetExtension($path).ToLower()
+    if ($ext -eq '.xlsx' -or $ext -eq '.xlsm') {
+        $rows = Read-Xlsx $path
+    }
+    else {
+        $enc = if ($encName -eq 'UTF8') { New-Object System.Text.UTF8Encoding($false) }
+               else { [System.Text.Encoding]::GetEncoding(932) }
+        $text = [System.IO.File]::ReadAllText($path, $enc)
+        # UTF-8 BOM除去
+        if ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) { $text = $text.Substring(1) }
+        $rows = Parse-CsvText $text
+    }
     # 完全空行を除去
     $out = @()
     foreach ($r in $rows) {
@@ -180,16 +191,27 @@ function Get-Field($fields, [int]$col) {
 function Detect-MappingPath([string]$path) {
     if (-not $path) { $path = $Csv }
     if (-not $path -or -not (Test-Path $path)) { return $null }
-    $enc = if ($CsvEncoding -eq 'UTF8') { New-Object System.Text.UTF8Encoding($false) } else { [System.Text.Encoding]::GetEncoding(932) }
     $first = ''
-    try {
-        $sr = New-Object System.IO.StreamReader($path, $enc)
-        $first = $sr.ReadLine()
-        $sr.Close()
-    } catch { return $null }
-    if ($null -eq $first) { return $null }
-    if ($first.Length -gt 0 -and $first[0] -eq [char]0xFEFF) { $first = $first.Substring(1) }
-    $colCount = ($first -split ',').Count
+    $colCount = 0
+    $ext = [System.IO.Path]::GetExtension($path).ToLower()
+    if ($ext -eq '.xlsx' -or $ext -eq '.xlsm') {
+        try {
+            $r1 = (Read-Xlsx $path)[0]
+            $first = ($r1 -join ',')
+            $colCount = $r1.Count
+        } catch { return $null }
+    }
+    else {
+        $enc = if ($CsvEncoding -eq 'UTF8') { New-Object System.Text.UTF8Encoding($false) } else { [System.Text.Encoding]::GetEncoding(932) }
+        try {
+            $sr = New-Object System.IO.StreamReader($path, $enc)
+            $first = $sr.ReadLine()
+            $sr.Close()
+        } catch { return $null }
+        if ($null -eq $first) { return $null }
+        if ($first.Length -gt 0 -and $first[0] -eq [char]0xFEFF) { $first = $first.Substring(1) }
+        $colCount = ($first -split ',').Count
+    }
 
     $byHeader = $null; $byCols = $null
     foreach ($f in (Get-ChildItem -Path $MapDir -Filter 'mapping*.csv' -File -ErrorAction SilentlyContinue | Sort-Object Name)) {
@@ -548,35 +570,11 @@ function Resolve-RowYmd($fields, $idCols) {
 # 名簿(リアン等)に載っている人だけを取り込めるようにする。
 # 人の同定は最終的に PK_SEQ で行うので、名簿と結果ファイルのキーが違っても照合できる。
 
-# .xlsx/.xlsm を Excel COM で一時CSV(SJIS)に変換して、そのパスを返す
-function Convert-ExcelToCsv([string]$xlsxPath) {
-    $tmp = Join-Path $env:TEMP ('roster_' + [System.IO.Path]::GetFileNameWithoutExtension($xlsxPath) + '.csv')
-    $excel = $null; $wb = $null
-    try {
-        $excel = New-Object -ComObject Excel.Application
-        $excel.Visible = $false
-        $excel.DisplayAlerts = $false
-        $wb = $excel.Workbooks.Open($xlsxPath, 0, $true)   # 読み取り専用で開く
-        if (Test-Path $tmp) { Remove-Item $tmp -Force }
-        $wb.Worksheets.Item(1).SaveAs($tmp, 6)             # 6 = xlCSV (先頭シートのみ)
-        return $tmp
-    }
-    finally {
-        if ($wb) { $wb.Close($false) | Out-Null }
-        if ($excel) {
-            $excel.Quit()
-            [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel)
-        }
-    }
-}
 
 # 名簿ファイルから「取込を許可する人」の PK_SEQ 一覧を作る
 function Load-RosterPkSeq($conn, [string]$path) {
     if (-not (Test-Path $path)) { throw "名簿ファイルが見つかりません: $path" }
     $p = $path
-    $ext = [System.IO.Path]::GetExtension($p).ToLower()
-    if ($ext -eq '.xlsx' -or $ext -eq '.xlsm' -or $ext -eq '.xls') { $p = Convert-ExcelToCsv $p }
-
     $mapPath = Detect-MappingPath $p
     if (-not $mapPath) { throw "名簿のレイアウトを判別できませんでした: $path" }
     Write-Host "[名簿] $([System.IO.Path]::GetFileName($path)) / 対応表 $([System.IO.Path]::GetFileName($mapPath))" -ForegroundColor DarkGray

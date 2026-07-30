@@ -55,27 +55,6 @@ function Run-Core([string[]]$coreArgs) {
     return $out
 }
 
-# .xlsx/.xlsm を Excel COM で一時CSV(SJIS)に変換して、そのパスを返す
-function Convert-ExcelToCsv([string]$xlsxPath) {
-    $tmp = Join-Path $env:TEMP ('form_import_' + [System.IO.Path]::GetFileNameWithoutExtension($xlsxPath) + '.csv')
-    $excel = $null; $wb = $null
-    try {
-        $excel = New-Object -ComObject Excel.Application
-        $excel.Visible = $false
-        $excel.DisplayAlerts = $false
-        $wb = $excel.Workbooks.Open($xlsxPath, 0, $true)   # 読み取り専用で開く
-        if (Test-Path $tmp) { Remove-Item $tmp -Force }
-        $wb.Worksheets.Item(1).SaveAs($tmp, 6)             # 6 = xlCSV (先頭シートのみ)
-        return $tmp
-    }
-    finally {
-        if ($wb) { $wb.Close($false) | Out-Null }
-        if ($excel) {
-            $excel.Quit()
-            [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel)
-        }
-    }
-}
 
 # ============================================================================
 # GUI 構築
@@ -285,13 +264,10 @@ function Resolve-CsvPath {
     if ($f -eq '') { throw 'フォームのファイルを選択してください。' }
     if (-not (Test-Path $f)) { throw "ファイルが見つかりません: $f" }
     $ext = [System.IO.Path]::GetExtension($f).ToLower()
-    if ($ext -eq '.xlsx' -or $ext -eq '.xlsm' -or $ext -eq '.xls') {
-        Append-Out '[変換] Excel → CSV に変換しています...'
-        [System.Windows.Forms.Application]::DoEvents()
-        $csv = Convert-ExcelToCsv $f
-        $chkUtf8.Checked = $false   # Excel COM の CSV は SJIS
-        return $csv
+    if ($ext -eq '.xls') {
+        throw "古い形式(.xls)は読めません。Excelで開いて .xlsx として保存し直してください。`n$f"
     }
+    # .xlsx / .xlsm は form_import.ps1 が直接読む (Excelを使わないので固まらない)
     return $f
 }
 

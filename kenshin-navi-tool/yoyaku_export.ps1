@@ -30,6 +30,11 @@ if (-not $MapDir) { $MapDir = Join-Path $PSScriptRoot 'form' }
 try { [void][System.Text.Encoding]::GetEncoding(932) }
 catch { [System.Text.Encoding]::RegisterProvider([System.Text.CodePagesEncodingProvider]::Instance) }
 
+# .xlsx / .xlsm の読み込み (Excelを使わない共通部品)
+$XlsxLib = Join-Path $PSScriptRoot 'xlsx_read.ps1'
+if (-not (Test-Path $XlsxLib)) { throw "xlsx_read.ps1 が見つかりません: $XlsxLib" }
+. $XlsxLib
+
 function Normalize-Text([string]$s) { if ($null -eq $s) { return '' } return $s.Trim() }
 
 # ---- 設定の読み込み ----
@@ -59,34 +64,12 @@ function Load-CourseMap {
 # ---- フォームの読み込み ----
 function Read-FormRows([string]$path) {
     $ext = [System.IO.Path]::GetExtension($path).ToLower()
-    if ($ext -eq '.xlsx' -or $ext -eq '.xlsm' -or $ext -eq '.xls') {
-        $excel = $null; $wb = $null
-        try {
-            $excel = New-Object -ComObject Excel.Application
-            $excel.Visible = $false; $excel.DisplayAlerts = $false
-            $wb = $excel.Workbooks.Open($path, 0, $true)
-            $ws = $wb.Worksheets.Item(1)
-            $used = $ws.UsedRange
-            $rowN = $used.Rows.Count; $colN = [Math]::Min($used.Columns.Count, 110)
-            $vals = $used.Value2
-            $rows = @()
-            for ($r = 1; $r -le $rowN; $r++) {
-                $line = @()
-                for ($c = 1; $c -le $colN; $c++) {
-                    $v = $vals.GetValue($r, $c)
-                    if ($null -eq $v) { $line += '' }
-                    elseif ($v -is [double] -and $c -eq 3) { $line += ([datetime]::FromOADate($v)).ToString('yyyy/MM/dd') }
-                    elseif ($v -is [double] -and $c -eq 11) { $line += ([datetime]::FromOADate($v)).ToString('yyyy/MM/dd') }
-                    else { $line += [string]$v }
-                }
-                $rows += ,$line
-            }
-            return ,$rows
-        }
-        finally {
-            if ($wb) { $wb.Close($false) | Out-Null }
-            if ($excel) { $excel.Quit(); [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel) }
-        }
+    if ($ext -eq '.xlsx' -or $ext -eq '.xlsm') {
+        # Excelを起動せずに読む (日付は yyyy/MM/dd の文字列で返る)
+        return ,(Read-Xlsx $path)
+    }
+    if ($ext -eq '.xls') {
+        throw "古い形式(.xls)は読めません。Excelで開いて .xlsx として保存し直してください。`n$path"
     }
     # CSV
     $enc = if ($CsvEncoding -eq 'UTF8') { New-Object System.Text.UTF8Encoding($false) } else { [System.Text.Encoding]::GetEncoding(932) }
@@ -141,7 +124,12 @@ $warn = @()
 try {
     $excel = New-Object -ComObject Excel.Application
     $excel.Visible = $false; $excel.DisplayAlerts = $false
-    $wb = $excel.Workbooks.Open($Out)
+    $excel.AskToUpdateLinks = $false
+    $excel.EnableEvents = $false
+    $excel.AutomationSecurity = 3      # マクロを無効にして開く
+    # 引数を明示して、パスワード/読み取り専用推奨などのダイアログで止まらないようにする
+    $wb = $excel.Workbooks.Open($Out, 0, $false, [Type]::Missing, '', '', $true,
+                                [Type]::Missing, [Type]::Missing, $false, $false)
     $ws = $null
     foreach ($s in $wb.Worksheets) { if ($s.Name -like '*原本*') { $ws = $s; break } }
     if (-not $ws) { $ws = $wb.Worksheets.Item(1) }

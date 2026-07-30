@@ -222,6 +222,13 @@ $btnRosterClear.Size = New-Object System.Drawing.Size(70, 26)
 $btnRosterClear.Anchor = 'Top,Right'
 $form.Controls.Add($btnRosterClear)
 
+$chkIgnoreName = New-Object System.Windows.Forms.CheckBox
+$chkIgnoreName.Text = '氏名の違いを無視する (テストデータ用)'
+$chkIgnoreName.Location = New-Object System.Drawing.Point(12, 184)
+$chkIgnoreName.Size = New-Object System.Drawing.Size(270, 24)
+$tip.SetToolTip($chkIgnoreName, "通常はチェックしません。Excelの氏名と健診ナビの氏名が違う人は、別人への書込を防ぐためスキップします。")
+$form.Controls.Add($chkIgnoreName)
+
 # --- 出力欄 ---
 $txtOut = New-Object System.Windows.Forms.TextBox
 $txtOut.Multiline = $true
@@ -229,8 +236,8 @@ $txtOut.ReadOnly = $true
 $txtOut.ScrollBars = 'Both'
 $txtOut.WordWrap = $false
 $txtOut.Font = New-Object System.Drawing.Font('MS Gothic', 9)
-$txtOut.Location = New-Object System.Drawing.Point(12, 188)
-$txtOut.Size = New-Object System.Drawing.Size(918, 439)
+$txtOut.Location = New-Object System.Drawing.Point(12, 214)
+$txtOut.Size = New-Object System.Drawing.Size(918, 413)
 $txtOut.Anchor = 'Top,Bottom,Left,Right'
 $form.Controls.Add($txtOut)
 
@@ -291,6 +298,7 @@ function Get-CommonArgs {
     if ($chkNoHdr.Checked) { $a += '-NoHeader' }
     if ($cmbMap.SelectedItem) { $a += @('-Mapping', [string]$cmbMap.SelectedItem.File) }
     if ($txtRoster.Text.Trim() -ne '') { $a += @('-Roster', $txtRoster.Text.Trim().Trim('"')) }
+    if ($chkIgnoreName.Checked) { $a += '-IgnoreName' }
     return ,$a
 }
 

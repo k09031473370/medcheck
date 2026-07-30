@@ -41,6 +41,7 @@ param(
     [switch]$Overwrite,           # -SetUkeNo で既存の受付番号も上書きする
     [switch]$DumpItems,           # 対象者のT_KENSA行を一覧表示
     [switch]$ShowYmd,             # ファイルの日付と指定日を表示するだけ (GUIの確認用・DB接続なし)
+    [switch]$IgnoreName,          # 氏名が一致しなくても取り込む (テストデータ等)
     [string]$DumpSyoken,          # 指定SYOKEN_CDのT_SYOKEN2一覧を表示 (SHIN/GANTEI/ZK011/ZK020/ZK021/ZK030/ZK031/ZK041)
     [string]$KenYmd,              # 受診日 'YYYY/MM/DD'。CSVに日付列が無い場合に指定
     [string]$Roster,              # 名簿ファイル(Excel/CSV)。ここに載っている人だけを取り込む
@@ -449,6 +450,20 @@ function Resolve-PkSeq($conn, [string]$ymd, [string]$kenNo) {
 }
 
 # 対象者の現在の T_KENSA 行 (KOMOKU_CD → 行) を取得
+# PK_SEQ から健診ナビ側の氏名を引く (取り違え防止の照合に使う)
+function Get-NaviName($conn, $pkSeq) {
+    $dt = Invoke-DbQuery $conn @'
+SELECT TOP 1 k.KANJI_SIMEI, k.KANA_SIMEI
+FROM T_KENSIN s LEFT JOIN T_KOJIN1 k ON k.KOJIN_ID = s.KOJIN_ID
+WHERE s.PK_SEQ = @p
+'@ @{ p = $pkSeq }
+    if ($dt.Rows.Count -eq 0) { return $null }
+    return @{
+        Kanji = Normalize-Text ([string]$dt.Rows[0].KANJI_SIMEI)
+        Kana  = Normalize-Text ([string]$dt.Rows[0].KANA_SIMEI)
+    }
+}
+
 function Get-CurrentKensa($conn, $pkSeq) {
     $dt = Invoke-DbQuery $conn 'SELECT KOMOKU_CD, KEKKA, KEKKA_CD, HANTEI_KIGO FROM T_KENSA WHERE PK_SEQ = @p' @{ p = $pkSeq }
     $h = @{}
@@ -1194,7 +1209,7 @@ try {
     $skipped = 0
     # 全体集計 (26人ぶんを1件ずつ目で追わなくて済むように)
     $sumPeople = 0; $sumOk = 0; $sumErr = 0
-    $errNos = @(); $notFoundNos = @(); $wroteNos = @()
+    $errNos = @(); $notFoundNos = @(); $wroteNos = @(); $nameNgNos = @()
     foreach ($fields in $targets) {
         $kenNo = Normalize-KenNo (Get-Field $fields $idCols.KenNo)
         $ymd = Resolve-RowYmd $fields $idCols
@@ -1209,9 +1224,38 @@ try {
             $skipped++
             continue   # 名簿外の人 (エラーではない)
         }
+        # ---- 氏名の突き合わせ (取り違え防止) ----
+        $navi = Get-NaviName $conn $pk
+        $naviLabel = if ($navi) { (@($navi.Kanji, $navi.Kana) | Where-Object { $_ -ne '' }) -join ' / ' } else { '(氏名不明)' }
+        $nameNg = $false
+        $fileKanji = if ($idCols.Kanji -gt 0) { Normalize-Text (Get-Field $fields $idCols.Kanji) } else { '' }
+        $fileKana  = if ($idCols.Kana  -gt 0) { Normalize-Text (Get-Field $fields $idCols.Kana)  } else { '' }
+        if ($navi -and ($fileKanji -ne '' -or $fileKana -ne '')) {
+            # カナを優先して比べる (漢字は旧字体で違うことがあるため)
+            if ($fileKana -ne '' -and $navi.Kana -ne '') {
+                $nameNg = (Normalize-Name $fileKana) -ne (Normalize-Name $navi.Kana)
+            }
+            elseif ($fileKanji -ne '' -and $navi.Kanji -ne '') {
+                $nameNg = (Normalize-Name $fileKanji) -ne (Normalize-Name $navi.Kanji)
+            }
+        }
+
         $current = Get-CurrentKensa $conn $pk
         Write-Host ''
-        Write-Host ("--- 受付番号 {0} / 受診日 {1} / PK_SEQ {2} / 既存T_KENSA枠 {3} 行 ---" -f $kenNo, $ymd, $pk, $current.Count) -ForegroundColor Cyan
+        Write-Host ("--- 受付番号 {0} / 受診日 {1} / {2} / PK_SEQ {3} / 既存T_KENSA枠 {4} 行 ---" -f $kenNo, $ymd, $naviLabel, $pk, $current.Count) -ForegroundColor Cyan
+        if ($nameNg) {
+            $fileLabel = (@($fileKanji, $fileKana) | Where-Object { $_ -ne '' }) -join ' / '
+            Write-Host ("  [氏名が一致しません]  ファイル: {0}   健診ナビ: {1}" -f $fileLabel, $naviLabel) -ForegroundColor Red
+            if ($IgnoreName) {
+                Write-Host '  → 「氏名の違いを無視」が入っているため、このまま続行します。' -ForegroundColor Yellow
+            } else {
+                Write-Host '  → 別人に書き込む恐れがあるため、この人はスキップします。受付番号を確認してください。' -ForegroundColor Red
+                Write-Host '     (テストデータなど、違っていて当然の場合は「氏名の違いを無視」にチェックを入れてください)' -ForegroundColor DarkGray
+                $hadError = $true
+                $nameNgNos += $kenNo
+                continue
+            }
+        }
         $plan = Build-Plan $conn $mapRows $valueMap $fields $current
         Show-Plan $plan ("受付番号 " + $kenNo)
 
@@ -1245,11 +1289,14 @@ try {
     if ($notFoundNos.Count -gt 0) {
         Write-Host ("  受診者が見つからない受付番号 ({0}人): {1}" -f $notFoundNos.Count, ($notFoundNos -join ', ')) -ForegroundColor Red
     }
+    if ($nameNgNos.Count -gt 0) {
+        Write-Host ("  氏名が一致せずスキップした受付番号 ({0}人): {1}" -f $nameNgNos.Count, ($nameNgNos -join ', ')) -ForegroundColor Red
+    }
     if ($errNos.Count -gt 0) {
         Write-Host ("  エラーのある受付番号 ({0}人): {1}" -f $errNos.Count, (($errNos | Select-Object -Unique) -join ', ')) -ForegroundColor Red
         Write-Host '  → 上にスクロールしてその人の「状態」列を確認してください。' -ForegroundColor Red
     }
-    if ($notFoundNos.Count -eq 0 -and $errNos.Count -eq 0) {
+    if ($notFoundNos.Count -eq 0 -and $errNos.Count -eq 0 -and $nameNgNos.Count -eq 0) {
         Write-Host '  エラーはありません。' -ForegroundColor Green
     }
     Write-Host ('=' * 60) -ForegroundColor Cyan

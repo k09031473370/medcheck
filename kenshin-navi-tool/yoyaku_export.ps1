@@ -140,7 +140,8 @@ try {
     $last = $ws.UsedRange.Rows.Count
     if ($last -ge 3) { [void]$ws.Range("A3:AJ$last").ClearContents() }
 
-    $r = 3
+    # 1人1行ぶんの値を先に組み立てる (26列)
+    $lines = @()
     foreach ($row in $data) {
         $name = F $row 7
         if ($name -eq '') { continue }
@@ -158,33 +159,47 @@ try {
         $kenpoName = ''
         if ($hokensya -ne '') { $kenpoName = $settings['健保名'] }
 
-        $ws.Cells.Item($r, 1).Value2  = $no                       # No
-        $ws.Cells.Item($r, 2).Value2  = $name                     # 氏名
-        $ws.Cells.Item($r, 3).Value2  = (F $row 8)                # 氏名カナ
-        $ws.Cells.Item($r, 4).Value2  = (F $row 9)                # 性別
-        $ws.Cells.Item($r, 5).Value2  = (F $row 11)               # 生年月日
-        $ws.Cells.Item($r, 6).Value2  = (F $row 10)               # 年齢
-        $ws.Cells.Item($r, 7).Value2  = $settings['郵便番号']
-        $ws.Cells.Item($r, 8).Value2  = $settings['住所1']
-        $ws.Cells.Item($r, 9).Value2  = $settings['住所2']
-        $ws.Cells.Item($r, 10).Value2 = $settings['住所3']
-        $ws.Cells.Item($r, 11).Value2 = $settings['電話番号']
-        $ws.Cells.Item($r, 12).Value2 = ''                        # カルテ番号
-        $ws.Cells.Item($r, 13).Value2 = (F $row 1)                # 社員番号
-        $ws.Cells.Item($r, 14).Value2 = $hokensya                 # 保険者番号
-        $ws.Cells.Item($r, 15).Value2 = (F $row 15)               # 保険証記号
-        $ws.Cells.Item($r, 16).Value2 = (F $row 16)               # 保険証番号
-        $ws.Cells.Item($r, 17).Value2 = ''                        # 保険証枝番号
-        $ws.Cells.Item($r, 18).Value2 = $settings['健保コード']
-        $ws.Cells.Item($r, 19).Value2 = $kenpoName                # 健保名
-        $ws.Cells.Item($r, 20).Value2 = $settings['事業所コード']
-        $ws.Cells.Item($r, 21).Value2 = (F $row 5)                # 事業所名 (団体名)
-        $ws.Cells.Item($r, 22).Value2 = (F $row 13)               # 所属名 (部署名)
-        $ws.Cells.Item($r, 23).Value2 = $cCode                    # コースコード
-        $ws.Cells.Item($r, 24).Value2 = $cName                    # コース名
-        $ws.Cells.Item($r, 25).Value2 = (F $row 3)                # 予約日
-        $ws.Cells.Item($r, 26).Value2 = $settings['予約時間']
-        $r++
+        $lines += ,@(
+            [int]$no,                       #  1 No
+            [string]$name,                  #  2 氏名
+            [string](F $row 8),             #  3 氏名カナ
+            [string](F $row 9),             #  4 性別
+            [string](F $row 11),            #  5 生年月日
+            [string](F $row 10),            #  6 年齢
+            [string]$settings['郵便番号'],  #  7
+            [string]$settings['住所1'],     #  8
+            [string]$settings['住所2'],     #  9
+            [string]$settings['住所3'],     # 10
+            [string]$settings['電話番号'],  # 11
+            '',                             # 12 カルテ番号
+            [string](F $row 1),             # 13 社員番号
+            [string]$hokensya,              # 14 保険者番号
+            [string](F $row 15),            # 15 保険証記号
+            [string](F $row 16),            # 16 保険証番号
+            '',                             # 17 保険証枝番号
+            [string]$settings['健保コード'],# 18
+            [string]$kenpoName,             # 19 健保名
+            [string]$settings['事業所コード'], # 20
+            [string](F $row 5),             # 21 事業所名 (団体名)
+            [string](F $row 13),            # 22 所属名 (部署名)
+            [string]$cCode,                 # 23 コースコード
+            [string]$cName,                 # 24 コース名
+            [string](F $row 3),             # 25 予約日
+            [string]$settings['予約時間']   # 26 予約時間
+        )
+    }
+
+    # まとめて1回で書き込む
+    #  セルを1つずつ触ると遅いうえ、PowerShellの値の渡し方によっては
+    #  「指定されたキャストは有効ではありません」で失敗することがある。
+    if ($lines.Count -gt 0) {
+        $COLS = 26
+        $arr = New-Object 'object[,]' $lines.Count, $COLS
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            for ($j = 0; $j -lt $COLS; $j++) { $arr[$i, $j] = $lines[$i][$j] }
+        }
+        $rng = $ws.Range($ws.Cells.Item(3, 1), $ws.Cells.Item(2 + $lines.Count, $COLS))
+        $rng.Value2 = $arr
     }
 
     $wb.Save()

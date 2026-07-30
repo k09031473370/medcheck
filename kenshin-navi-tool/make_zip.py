@@ -40,6 +40,7 @@ ENTRIES = [
     'check3.ps1', 'check3.bat',
     'check4.ps1', 'check4.bat',
     'check5.ps1', 'check5.bat',
+    'check6.ps1', 'check6.bat',
     'start.bat',
     'form',
     '受付番号リスト_ひな形.xlsx',

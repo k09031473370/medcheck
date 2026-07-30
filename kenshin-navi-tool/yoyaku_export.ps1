@@ -49,6 +49,19 @@ function Load-Settings {
     }
     return $h
 }
+# 団体名/団体コード → 健診ナビの事業所コード(DANTAI_CD1)
+function Load-DantaiMap {
+    $p = Join-Path $MapDir 'yoyaku_dantai.csv'
+    $h = @{}
+    if (Test-Path $p) {
+        foreach ($r in (Import-Csv -Path $p -Encoding UTF8)) {
+            $k = Normalize-Text $r.FromDantai
+            if ($k -ne '') { $h[$k] = Normalize-Text $r.DantaiCode }
+        }
+    }
+    return $h
+}
+
 function Load-CourseMap {
     $p = Join-Path $MapDir 'yoyaku_course.csv'
     $h = @{}
@@ -112,6 +125,7 @@ if (-not (Test-Path $Csv)) { throw "フォームが見つかりません: $Csv" 
 
 $settings = Load-Settings
 $courses  = Load-CourseMap
+$dantais  = Load-DantaiMap
 
 $rows = Read-FormRows $Csv
 if ($rows.Count -eq 0) { throw 'フォームにデータがありません。' }
@@ -193,6 +207,17 @@ try {
         $kenpoName = ''
         if ($hokensya -ne '') { $kenpoName = $settings['健保名'] }
 
+        # 事業所コード: 団体名(5列目) → 団体コード(4列目) → 設定ファイル の順に探す
+        $dantaiName = F $row 5
+        $dantaiCd   = F $row 4
+        $jigyosyoCd = ''
+        if     ($dantaiName -ne '' -and $dantais.ContainsKey($dantaiName)) { $jigyosyoCd = $dantais[$dantaiName] }
+        elseif ($dantaiCd   -ne '' -and $dantais.ContainsKey($dantaiCd))   { $jigyosyoCd = $dantais[$dantaiCd] }
+        else {
+            $jigyosyoCd = [string]$settings['事業所コード']
+            if ($jigyosyoCd -eq '') { $warn += "事業所「$dantaiName」の事業所コードが未設定 ($name)" }
+        }
+
         $lines += ,@{
             'No'         = [int]$no
             '氏名'       = [string]$name
@@ -213,7 +238,7 @@ try {
             '保険証枝番号' = ''
             '健保コード' = [string]$settings['健保コード']
             '健保名'     = [string]$kenpoName
-            '事業所コード' = [string]$settings['事業所コード']
+            '事業所コード' = [string]$jigyosyoCd
             '事業所名'   = [string](F $row 5)
             '所属名'     = [string](F $row 13)
             'コースコード' = [string]$cCode

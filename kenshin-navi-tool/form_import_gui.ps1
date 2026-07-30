@@ -222,6 +222,14 @@ $btnRosterClear.Size = New-Object System.Drawing.Size(70, 26)
 $btnRosterClear.Anchor = 'Top,Right'
 $form.Controls.Add($btnRosterClear)
 
+$form.Controls.Add((New-Label 'パスワード:' 300 184 80))
+$txtPw = New-Object System.Windows.Forms.TextBox
+$txtPw.Location = New-Object System.Drawing.Point(378, 181)
+$txtPw.Size = New-Object System.Drawing.Size(130, 24)
+$txtPw.UseSystemPasswordChar = $true
+$tip.SetToolTip($txtPw, "パスワード付きExcel(SRLの血液など)のときだけ入力します。例: srl")
+$form.Controls.Add($txtPw)
+
 $chkIgnoreName = New-Object System.Windows.Forms.CheckBox
 $chkIgnoreName.Text = '氏名の違いを無視する (テストデータ用)'
 $chkIgnoreName.Location = New-Object System.Drawing.Point(12, 184)
@@ -299,6 +307,7 @@ function Get-CommonArgs {
     if ($cmbMap.SelectedItem) { $a += @('-Mapping', [string]$cmbMap.SelectedItem.File) }
     if ($txtRoster.Text.Trim() -ne '') { $a += @('-Roster', $txtRoster.Text.Trim().Trim('"')) }
     if ($chkIgnoreName.Checked) { $a += '-IgnoreName' }
+    if ($txtPw.Text -ne '') { $a += @('-Password', $txtPw.Text) }
     return ,$a
 }
 
@@ -336,6 +345,7 @@ $btnDump.Add_Click({
             if ($chkUtf8.Checked)  { $a += @('-CsvEncoding', 'UTF8') }
             if ($chkNoHdr.Checked) { $a += '-NoHeader' }
             if ($cmbMap.SelectedItem) { $a += @('-Mapping', [string]$cmbMap.SelectedItem.File) }
+            if ($txtPw.Text -ne '') { $a += @('-Password', $txtPw.Text) }
         }
         elseif ($txtOnly.Text.Trim() -eq '' -or $txtYmd.Text.Trim() -eq '') {
             throw 'ファイルを選ぶか、受付番号と受診日の両方を入力してください。'
@@ -356,6 +366,7 @@ function Confirm-YmdOverride([string]$csv) {
     if ($chkUtf8.Checked)  { $a += @('-CsvEncoding', 'UTF8') }
     if ($chkNoHdr.Checked) { $a += '-NoHeader' }
     if ($cmbMap.SelectedItem) { $a += @('-Mapping', [string]$cmbMap.SelectedItem.File) }
+    if ($txtPw.Text -ne '') { $a += @('-Password', $txtPw.Text) }
     $out = Run-Core $a
 
     $fileYmd = ''; $inYmd = ''

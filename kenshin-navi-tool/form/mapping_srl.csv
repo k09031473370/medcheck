@@ -1,11 +1,12 @@
 Col,Col2,Label,Kind,KOMOKU_CD,SYOKEN_CD,SYOKEN_CD2,CodeMap,IfEmpty,ReqCol,Format,Note
-# DETECT=COLS:30-38
-# LABEL=SRL血液 (35列・見出しなし)
-5,,受付番号,KENNO,,,,,,,,5列目。カルテNoではなく受付番号で照合できる
-1,,受診日,KENYMD,,,,,,,,YYMMDD形式(260702)
+# DETECT=HEADER:カルテ№,尿素窒素
+# DETECT=COLS:30-39
+# LABEL=SRL血液 (SRLの検査結果Excel)
+5,,受付番号,KENNO,,,,,,,,SRLの「カルテ№」欄。当院の受付番号を入れて依頼しているためここで照合できる
+1,,受診日,KENYMD,,,,,,,,SRLの「受付日」。YYMMDD形式(260702)
 4,,氏名(カナ),NAMEKANA,,,,,,,,取り違え防止の照合に使用
 2,,報告日,IGNORE,,,,,,,,
-3,,検体番号,IGNORE,,,,,,,,
+3,,SRLの受付No,IGNORE,,,,,,,,SRL側の検体番号。当院では使わない
 6,,総蛋白(TP),VALUE,,,,,,,,★項目コード未確認
 7,,アルブミン,VALUE,,,,,,,,★項目コード未確認
 8,,尿素窒素(BUN),VALUE,,,,,,,,★項目コード未確認
@@ -35,5 +36,16 @@ Col,Col2,Label,Kind,KOMOKU_CD,SYOKEN_CD,SYOKEN_CD2,CodeMap,IfEmpty,ReqCol,Format
 32,,MCHC,VALUE,069009,,,,,,,画面で確認済み
 34,,便潜血1回目,MONSHIN,,,,,,,,★項目コード未確認。値は「陰性」なので選択肢の変換が必要
 35,,便潜血2回目,MONSHIN,,,,,,,,★項目コード未確認。同上
+33,,MCIスクリーニング,IGNORE,,,,,,,,
+36,,栄養,IGNORE,,,,,,,,以下36-45列は元ファイルのみ。健診ナビに枠が無いため対象外
+37,,リスクレベル栄養,IGNORE,,,,,,,,
+38,,脂質代謝,IGNORE,,,,,,,,
+39,,リスクレベル脂質代謝,IGNORE,,,,,,,,
+40,,炎症・免疫,IGNORE,,,,,,,,
+41,,リスクレベル炎症免疫,IGNORE,,,,,,,,
+42,,凝固線溶,IGNORE,,,,,,,,
+43,,リスクレベル凝固線溶,IGNORE,,,,,,,,
+44,,リスク値,IGNORE,,,,,,,,
+45,,判定,IGNORE,,,,,,,,
 # ★の行は「2. 枠一覧(DB)」で項目コードを確認してから記入する。
 # 未記入の行は取込時に「項目CD未設定」と表示され、書き込まれない(エラーではない)。

@@ -45,6 +45,7 @@ param(
     [string]$DumpSyoken,          # 指定SYOKEN_CDのT_SYOKEN2一覧を表示 (SHIN/GANTEI/ZK011/ZK020/ZK021/ZK030/ZK031/ZK041)
     [string]$KenYmd,              # 受診日 'YYYY/MM/DD'。CSVに日付列が無い場合に指定
     [string]$Roster,              # 名簿ファイル(Excel/CSV)。ここに載っている人だけを取り込む
+    [string]$Password,            # パスワード付きExcel(SRLの血液など)のパスワード
     [string]$MapDir,              # 対応表フォルダ (既定: スクリプトと同じ場所の form\)
     [string]$Mapping,             # 使用する対応表ファイル名 (既定: mapping.csv)
     [string]$ConnFile = '\\KNSV\KenshinNavi\SQLSV\SQLServerConnect.txt',
@@ -134,6 +135,52 @@ function Parse-CsvText([string]$text) {
 $XlsxLib = Join-Path $PSScriptRoot 'xlsx_read.ps1'
 if (-not (Test-Path $XlsxLib)) { throw "xlsx_read.ps1 が見つかりません: $XlsxLib" }
 . $XlsxLib
+
+# パスワード付きExcelへの対応
+#   xlsx は本来ZIPなので、開けなければ暗号化されている。
+#   その場合だけ Excel を使ってパスワードを外した一時ファイルを作る。
+#   (通常のファイルは Excel を一切使わないので、固まる心配はない)
+function Test-XlsxEncrypted([string]$path) {
+    $ext = [System.IO.Path]::GetExtension($path).ToLower()
+    if ($ext -ne '.xlsx' -and $ext -ne '.xlsm') { return $false }
+    Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+    try {
+        $z = [System.IO.Compression.ZipFile]::OpenRead($path)
+        $z.Dispose()
+        return $false
+    } catch { return $true }
+}
+
+function Resolve-ReadablePath([string]$path) {
+    if (-not $path) { return $path }
+    if (-not (Test-XlsxEncrypted $path)) { return $path }
+    if (-not $Password) {
+        throw ("このExcelにはパスワードが掛かっています。`n" +
+               "  {0}`n" +
+               "GUIの「パスワード」欄に入力するか、Excelで開いてパスワード無しで保存し直してください。" -f $path)
+    }
+    Write-Host '[パスワード] 暗号化されたExcelを一時ファイルに展開しています...' -ForegroundColor DarkGray
+    $tmp = Join-Path $env:TEMP ('dec_' + [System.IO.Path]::GetFileNameWithoutExtension($path) + '.xlsx')
+    $excel = $null; $wb = $null
+    try {
+        $excel = New-Object -ComObject Excel.Application
+        $excel.Visible = $false; $excel.DisplayAlerts = $false
+        foreach ($n in @('AskToUpdateLinks','EnableEvents')) { try { $excel.$n = $false } catch { } }
+        # 読み取りパスワード・書き込みパスワードの両方に同じものを渡す
+        $wb = $excel.Workbooks.Open($path, 0, $true, [Type]::Missing, $Password, $Password, $true)
+        if (Test-Path $tmp) { Remove-Item $tmp -Force }
+        $wb.SaveAs($tmp, 51, '', '')      # 51 = xlsx / パスワードを外して保存
+        Write-Host "[パスワード] 展開しました: $tmp" -ForegroundColor DarkGray
+        return $tmp
+    }
+    catch {
+        throw ("パスワード付きExcelを開けませんでした。パスワードが違う可能性があります。`n  {0}" -f $_.Exception.Message)
+    }
+    finally {
+        if ($wb) { $wb.Close($false) | Out-Null }
+        if ($excel) { $excel.Quit(); [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel) }
+    }
+}
 
 function Read-FormCsv([string]$path, [string]$encName) {
     if (-not (Test-Path $path)) { throw "ファイルが見つかりません: $path" }
@@ -971,6 +1018,10 @@ if ($DumpSyoken) {
     finally { $conn.Close() }
     return
 }
+
+# パスワード付きExcelなら、先にパスワードを外した一時ファイルにする
+if ($Csv)    { $Csv    = Resolve-ReadablePath $Csv }
+if ($Roster) { $Roster = Resolve-ReadablePath $Roster }
 
 $mapRows  = Load-Mapping
 $valueMap = Load-ValueMap

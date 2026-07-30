@@ -1,0 +1,7 @@
+Col,Col2,Label,Kind,KOMOKU_CD,SYOKEN_CD,SYOKEN_CD2,CodeMap,IfEmpty,ReqCol,Format,Note
+# DETECT=COLS:2-4
+# LABEL=受付番号リスト (氏名+受付番号だけ)
+1,,受付番号,KENNO,,,,,,,,「受付番号を設定」専用。結果の取込には使いません
+2,,氏名(漢字),NAMEKANJI,,,,,,,,漢字・カナはどちらか片方でも可
+3,,氏名(カナ),NAMEKANA,,,,,,,,半角カナ。あると同姓同名を区別しやすい
+# 受診日の列は無いので、GUIの「受診日」欄に実施日を入力してください。

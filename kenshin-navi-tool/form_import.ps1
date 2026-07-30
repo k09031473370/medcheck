@@ -176,6 +176,7 @@ function Split-HeaderData($rows, $idCols) {
         for ($i = 1; $i -le $rows[0].Count; $i++) { $h += "列$i" }
         return @{ Header = $h; Data = $rows }
     }
+    if ($rows.Count -lt 2) { throw '見出し行だけでデータがありません。2行目以降に内容を入力してください。' }
     return @{ Header = $rows[0]; Data = @($rows[1..($rows.Count - 1)]) }
 }
 

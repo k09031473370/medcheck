@@ -121,15 +121,16 @@ Write-Host "[生成] $Out" -ForegroundColor Cyan
 
 $excel = $null; $wb = $null
 $warn = @()
+$no = 0
 try {
     $excel = New-Object -ComObject Excel.Application
     $excel.Visible = $false; $excel.DisplayAlerts = $false
-    $excel.AskToUpdateLinks = $false
-    $excel.EnableEvents = $false
-    $excel.AutomationSecurity = 3      # マクロを無効にして開く
-    # 引数を明示して、パスワード/読み取り専用推奨などのダイアログで止まらないようにする
-    $wb = $excel.Workbooks.Open($Out, 0, $false, [Type]::Missing, '', '', $true,
-                                [Type]::Missing, [Type]::Missing, $false, $false)
+    # ダイアログ抑止。環境によって受け付けないプロパティがあるので、失敗しても続行する
+    foreach ($kv in @(@{N='AskToUpdateLinks';V=$false}, @{N='EnableEvents';V=$false}, @{N='AutomationSecurity';V=3})) {
+        try { $excel.($kv.N) = $kv.V } catch { Write-Host ("  (設定 {0} はこの環境では使えません)" -f $kv.N) -ForegroundColor DarkGray }
+    }
+    # 自分でコピーしたファイルなので、余計な引数は付けずに開く
+    $wb = $excel.Workbooks.Open($Out)
     $ws = $null
     foreach ($s in $wb.Worksheets) { if ($s.Name -like '*原本*') { $ws = $s; break } }
     if (-not $ws) { $ws = $wb.Worksheets.Item(1) }
@@ -139,7 +140,6 @@ try {
     $last = $ws.UsedRange.Rows.Count
     if ($last -ge 3) { [void]$ws.Range("A3:AJ$last").ClearContents() }
 
-    $no = 0
     $r = 3
     foreach ($row in $data) {
         $name = F $row 7
@@ -189,6 +189,18 @@ try {
 
     $wb.Save()
     Write-Host ("[完了] {0} 人分を書き出しました。" -f $no) -ForegroundColor Green
+}
+catch {
+    $inv = $_.InvocationInfo
+    Write-Host '' 
+    Write-Host '[失敗] 予約取込ファイルの書き出しでエラーが起きました。' -ForegroundColor Red
+    Write-Host ("  内容 : {0}" -f $_.Exception.Message) -ForegroundColor Red
+    if ($inv) {
+        Write-Host ("  場所 : {0} 行目" -f $inv.ScriptLineNumber) -ForegroundColor Red
+        Write-Host ("  該当 : {0}" -f ($inv.Line).Trim()) -ForegroundColor Red
+    }
+    Write-Host ("  途中まで書けた人数: {0}" -f $no) -ForegroundColor DarkGray
+    throw
 }
 finally {
     if ($wb) { $wb.Close($true) | Out-Null }

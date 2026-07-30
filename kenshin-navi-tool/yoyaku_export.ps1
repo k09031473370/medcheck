@@ -83,6 +83,14 @@ function Read-FormRows([string]$path) {
     return ,$rows
 }
 
+# テンプレートの見出し名から列番号を引く (前方一致も許す)
+#   例: 「住所1」→「住所1(都道府県)」にも一致する
+function ColIdx($colOf, [string]$name) {
+    if ($colOf.ContainsKey($name)) { return [int]$colOf[$name] }
+    foreach ($k in $colOf.Keys) { if ($k -like ($name + '*')) { return [int]$colOf[$k] } }
+    return 0
+}
+
 function F($row, [int]$col) {
     if ($col -le 0 -or $col -gt $row.Count) { return '' }
     return Normalize-Text ([string]$row[$col - 1])
@@ -136,11 +144,37 @@ try {
     if (-not $ws) { $ws = $wb.Worksheets.Item(1) }
     Write-Host "[シート] $($ws.Name)" -ForegroundColor DarkGray
 
-    # 既存のサンプル行を消す (3行目以降)
-    $last = $ws.UsedRange.Rows.Count
-    if ($last -ge 3) { [void]$ws.Range("A3:AJ$last").ClearContents() }
+    # ---- テンプレートの見出しを読んで、列の位置を名前で決める ----
+    #  テンプレートによって「年齢」「社員番号」「所属名」の有無や見出し行が違うため、
+    #  列番号を決め打ちにしない。
+    $probe = $ws.Range($ws.Cells.Item(1, 1), $ws.Cells.Item(6, 40)).Value2
+    $hdrRow = 0
+    $colOf = @{}
+    for ($pr = 1; $pr -le 6; $pr++) {
+        $found = @{}
+        for ($pc = 1; $pc -le 40; $pc++) {
+            $v = $probe.GetValue($pr, $pc)
+            if ($null -eq $v) { continue }
+            $t = ([string]$v).Trim()
+            if ($t -ne '') { $found[$t] = $pc }
+        }
+        if ($found.ContainsKey('氏名') -and (@($found.Keys | Where-Object { $_ -like '生年月日*' }).Count -gt 0)) {
+            $hdrRow = $pr
+            $colOf = $found
+            break
+        }
+    }
+    if ($hdrRow -eq 0) {
+        throw "予約取込フォーマットの見出し行が見つかりません。1〜6行目に「氏名」「生年月日」を含む行が必要です。"
+    }
+    $startRow = $hdrRow + 1
+    Write-Host ("[見出し] {0} 行目 / {1} 列を認識 (データは {2} 行目から)" -f $hdrRow, $colOf.Count, $startRow) -ForegroundColor DarkGray
 
-    # 1人1行ぶんの値を先に組み立てる (26列)
+    # 既存のサンプル行を消す
+    $last = $ws.UsedRange.Rows.Count
+    if ($last -ge $startRow) { [void]$ws.Range($ws.Cells.Item($startRow, 1), $ws.Cells.Item($last, 40)).ClearContents() }
+
+    # 1人1行ぶんの値を「見出し名 → 値」で組み立てる
     $lines = @()
     foreach ($row in $data) {
         $name = F $row 7
@@ -159,46 +193,53 @@ try {
         $kenpoName = ''
         if ($hokensya -ne '') { $kenpoName = $settings['健保名'] }
 
-        $lines += ,@(
-            [int]$no,                       #  1 No
-            [string]$name,                  #  2 氏名
-            [string](F $row 8),             #  3 氏名カナ
-            [string](F $row 9),             #  4 性別
-            [string](F $row 11),            #  5 生年月日
-            [string](F $row 10),            #  6 年齢
-            [string]$settings['郵便番号'],  #  7
-            [string]$settings['住所1'],     #  8
-            [string]$settings['住所2'],     #  9
-            [string]$settings['住所3'],     # 10
-            [string]$settings['電話番号'],  # 11
-            '',                             # 12 カルテ番号
-            [string](F $row 1),             # 13 社員番号
-            [string]$hokensya,              # 14 保険者番号
-            [string](F $row 15),            # 15 保険証記号
-            [string](F $row 16),            # 16 保険証番号
-            '',                             # 17 保険証枝番号
-            [string]$settings['健保コード'],# 18
-            [string]$kenpoName,             # 19 健保名
-            [string]$settings['事業所コード'], # 20
-            [string](F $row 5),             # 21 事業所名 (団体名)
-            [string](F $row 13),            # 22 所属名 (部署名)
-            [string]$cCode,                 # 23 コースコード
-            [string]$cName,                 # 24 コース名
-            [string](F $row 3),             # 25 予約日
-            [string]$settings['予約時間']   # 26 予約時間
-        )
+        $lines += ,@{
+            'No'         = [int]$no
+            '氏名'       = [string]$name
+            '氏名カナ'   = [string](F $row 8)
+            '性別'       = [string](F $row 9)
+            '生年月日'   = [string](F $row 11)
+            '年齢'       = [string](F $row 10)
+            '郵便番号'   = [string]$settings['郵便番号']
+            '住所1'      = [string]$settings['住所1']
+            '住所2'      = [string]$settings['住所2']
+            '住所3'      = [string]$settings['住所3']
+            '電話番号'   = [string]$settings['電話番号']
+            'カルテ番号' = ''
+            '社員番号'   = [string](F $row 1)
+            '保険者番号' = [string]$hokensya
+            '保険証記号' = [string](F $row 15)
+            '保険証番号' = [string](F $row 16)
+            '保険証枝番号' = ''
+            '健保コード' = [string]$settings['健保コード']
+            '健保名'     = [string]$kenpoName
+            '事業所コード' = [string]$settings['事業所コード']
+            '事業所名'   = [string](F $row 5)
+            '所属名'     = [string](F $row 13)
+            'コースコード' = [string]$cCode
+            'コース名'   = [string]$cName
+            '予約日'     = [string](F $row 3)
+            '予約時間'   = [string]$settings['予約時間']
+        }
     }
 
-    # まとめて1回で書き込む
-    #  セルを1つずつ触ると遅いうえ、PowerShellの値の渡し方によっては
-    #  「指定されたキャストは有効ではありません」で失敗することがある。
+    # 見出し名 → 列番号 に置き換えて、まとめて1回で書き込む
     if ($lines.Count -gt 0) {
-        $COLS = 26
-        $arr = New-Object 'object[,]' $lines.Count, $COLS
-        for ($i = 0; $i -lt $lines.Count; $i++) {
-            for ($j = 0; $j -lt $COLS; $j++) { $arr[$i, $j] = $lines[$i][$j] }
+        $place = @{}
+        $maxCol = 0
+        foreach ($k in $lines[0].Keys) {
+            $ci = ColIdx $colOf $k
+            if ($ci -gt 0) {
+                $place[$k] = $ci
+                if ($ci -gt $maxCol) { $maxCol = $ci }
+            }
+            else { $warn += "テンプレートに「$k」の列がないため、書き出していません" }
         }
-        $rng = $ws.Range($ws.Cells.Item(3, 1), $ws.Cells.Item(2 + $lines.Count, $COLS))
+        $arr = New-Object 'object[,]' $lines.Count, $maxCol
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            foreach ($k in $place.Keys) { $arr[$i, ($place[$k] - 1)] = $lines[$i][$k] }
+        }
+        $rng = $ws.Range($ws.Cells.Item($startRow, 1), $ws.Cells.Item($startRow + $lines.Count - 1, $maxCol))
         $rng.Value2 = $arr
     }
 

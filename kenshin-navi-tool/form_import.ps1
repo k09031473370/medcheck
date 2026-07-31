@@ -309,7 +309,7 @@ function Load-Mapping {
     if (-not (Test-Path $p)) { throw "対応表が見つかりません: $p" }
     Write-Host "[対応表] $([System.IO.Path]::GetFileName($p))" -ForegroundColor DarkGray
     $rows = Import-Csv -Path $p -Encoding UTF8
-    $valid = @('KENNO','KENYMD','NAMEKANJI','NAMEKANA','VALUE','NYOU','CHORYOKU','MONSHIN','VISION','SHOKEN','SHOKEN2','SHOKENCD','SHOKENCD2','IGNORE')
+    $valid = @('KENNO','KENYMD','NAMEKANJI','NAMEKANA','VALUE','NYOU','CHORYOKU','MONSHIN','VISION','SHOKEN','SHOKEN2','SHOKENCD','SHOKENCD2','NOFRAME','IGNORE')
     foreach ($r in $rows) {
         $k = (Normalize-Text $r.Kind).ToUpper()
         if ($k -ne '' -and $valid -notcontains $k) {
@@ -649,6 +649,7 @@ $script:YmdNoticeShown = $false
 $script:MiukeCount = 0          # 未受付のためT_KENSINから特定した人数
 $script:RosterYmds = @{}        # 名簿側で使った受診日
 $script:SkipYmds   = @{}        # 名簿外としてスキップした行の受診日
+$script:UkeNoYmds  = @{}        # 受付番号設定で対象になった受診日 (ロック用)
 
 function Resolve-RowYmd($fields, $idCols) {
     # 受診日を明示指定したときは、ファイルの日付列よりそちらを優先する
@@ -739,23 +740,57 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current) {
             Col = $(if ($col -gt 0) { $col } else { '-' })
             Label = $label; KomokuCd = $komoku
             Now = ''; New = ''; KekkaCd = ''; Hantei = ''
-            Status = ''; Update = $null
+            Status = ''; Update = $null; IsDefault = $false
         }
 
         if ($col -le 0) { $rep.Status = '列未設定'; $plan += $rep; continue }
+
+        # 健診ナビに枠が無い項目。入力があったことだけ知らせる (書き込みはしない)
+        #   Col=範囲の開始列 / Col2=範囲の終了列 (省略時は Col のみ)
+        if ($kind -eq 'NOFRAME') {
+            $endCol = $col
+            [void][int]::TryParse((Normalize-Text $m.Col2), [ref]$endCol)
+            if ($endCol -lt $col) { $endCol = $col }
+            $n = 0
+            for ($cc = $col; $cc -le $endCol; $cc++) {
+                if ((Normalize-Text (Get-Field $fields $cc)) -ne '') { $n++ }
+            }
+            if ($n -eq 0) { continue }
+            $rep.Status = '取込対象外(健診ナビに枠なし)'
+            $rep.New = "{0}項目に入力あり" -f $n
+            $plan += $rep
+            continue
+        }
         $raw = Get-Field $fields $col
 
         # 所見欄が空でも、検査を実施していれば既定コード(異常なし)を書く
-        # IfEmpty = 書き込む結果CD / ReqCol = 実施を示す列(この列が空なら何もしない)
+        # 所見欄が空のとき、検査を実施していれば既定値(異常なし等)を入れる
+        #   IfEmpty = 書き込む結果CD
+        #   ReqCol  = 実施を示す列 (この列を見て、実施したかどうかを判断する)
+        #   ReqVal  = ReqCol がこの値のときだけ実施とみなす (カンマ区切りで複数可)
+        #             空なら「ReqCol が空でなければ実施」とみなす
+        # ※ 「未実施」を「異常なし」にしてしまわないための判断なので、
+        #    ReqVal を書ける列は書いておくこと。
         $ifEmpty = Normalize-Text $m.IfEmpty
         if ($ifEmpty -ne '' -and (Normalize-Text $raw) -eq '') {
             $reqCol = 0
             [void][int]::TryParse((Normalize-Text $m.ReqCol), [ref]$reqCol)
             $done = $true
-            if ($reqCol -gt 0) { $done = (Normalize-Text (Get-Field $fields $reqCol)) -ne '' }
+            if ($reqCol -gt 0) {
+                $reqRaw = Normalize-Text (Get-Field $fields $reqCol)
+                $reqVal = ''
+                if ($m.PSObject.Properties.Name -contains 'ReqVal') { $reqVal = Normalize-Text $m.ReqVal }
+                if ($reqVal -ne '') {
+                    $allow = @($reqVal -split '[|,、]' | ForEach-Object { Normalize-Text $_ } | Where-Object { $_ -ne '' })
+                    $done = ($allow -contains $reqRaw)
+                } else {
+                    $done = ($reqRaw -ne '')
+                }
+            }
             if (-not $done) { continue }   # 検査未実施 → 何も書かない
             $raw = $ifEmpty
             $rep.Label = $label + '(所見なし)'
+            $rep.IsDefault = $true
         }
 
         if ($kind -eq 'SHOKENCD' -or $kind -eq 'SHOKENCD2') {
@@ -981,13 +1016,16 @@ function Show-Plan($plan, [string]$who) {
     $plan |
         Select-Object @{n='列';e={$_.Col}}, @{n='項目';e={$_.Label}}, @{n='KOMOKU_CD';e={$_.KomokuCd}},
                       @{n='現在値';e={$_.Now}}, @{n='新しい値';e={$_.New}},
-                      @{n='KEKKA_CD';e={$_.KekkaCd}}, @{n='判定';e={$_.Hantei}}, @{n='状態';e={$_.Status}} |
+                      @{n='KEKKA_CD';e={$_.KekkaCd}}, @{n='判定';e={$_.Hantei}},
+                      @{n='状態';e={ if ($_.IsDefault -and $_.Status -eq 'OK') { 'OK(既定値)' } else { $_.Status } }} |
         Format-Table -AutoSize -Wrap | Out-String -Width 300 | Write-Host
     $ok   = @($plan | Where-Object { $_.Status -eq 'OK' })
     $warn = @($plan | Where-Object { $_.Status -eq '列未設定' -or $_.Status -eq '項目CD未設定' })
     $drop = @($plan | Where-Object { $_.Status -like '取込対象外*' })
     $err  = @($plan | Where-Object { $_.Status -ne 'OK' -and $_.Status -ne '列未設定' -and $_.Status -ne '項目CD未設定' -and $_.Status -notlike '取込対象外*' })
+    $def  = @($ok | Where-Object { $_.IsDefault })
     $line = "書込可能: {0} 件 / 対応表未設定(スキップ): {1} 件 / エラー: {2} 件" -f $ok.Count, $warn.Count, $err.Count
+    if ($def.Count  -gt 0) { $line += " / うち既定値: {0} 件" -f $def.Count }
     if ($drop.Count -gt 0) { $line += " / 取込対象外: {0} 件" -f $drop.Count }
     Write-Host $line -ForegroundColor $(if ($err.Count -gt 0) { 'Yellow' } else { 'Green' })
 }
@@ -1232,7 +1270,7 @@ if ($SetUkeNo) {
             $kenNo = Normalize-KenNo (Get-Field $fields $idCols.KenNo)
             if ($kenNo -eq '') { continue }
             $ymd = Resolve-RowYmd $fields $idCols
-            $ymdForLock = $ymd
+            $script:UkeNoYmds[$ymd] = 1
             if (-not $cache.ContainsKey($ymd)) {
                 $cache[$ymd] = Invoke-DbQuery $conn @'
 SELECT s.PK_SEQ, s.UKE_NO_KENSA, k.KANJI_SIMEI, k.KANA_SIMEI
@@ -1309,7 +1347,10 @@ WHERE s.D_KENSIN = @ymd AND s.F_TORIKESI = 0
 
         $tran = $conn.BeginTransaction()
         try {
-            Acquire-AppLock $conn $tran ("UKENO_SET:" + $ymdForLock)
+            # ファイルに複数の受診日が混ざっていても取りこぼさないよう、日付ごとにロックする
+            foreach ($ly in ($script:UkeNoYmds.Keys | Sort-Object)) {
+                Acquire-AppLock $conn $tran ("UKENO_SET:" + $ly)
+            }
             $done = 0
             foreach ($t in $ok) {
                 $n = Invoke-DbExec $conn $tran 'UPDATE T_KENSIN SET UKE_NO_KENSA = @no WHERE PK_SEQ = @p' `
@@ -1340,7 +1381,7 @@ try {
     $hadError = $false
     $skipped = 0
     # 全体集計 (26人ぶんを1件ずつ目で追わなくて済むように)
-    $sumPeople = 0; $sumOk = 0; $sumErr = 0; $sumDrop = 0
+    $sumPeople = 0; $sumOk = 0; $sumErr = 0; $sumDrop = 0; $sumDef = 0
     $errNos = @(); $notFoundNos = @(); $wroteNos = @(); $nameNgNos = @()
     foreach ($fields in $targets) {
         $kenNo = Normalize-KenNo (Get-Field $fields $idCols.KenNo)
@@ -1396,6 +1437,7 @@ try {
         $sumPeople++
         $sumOk += @($plan | Where-Object { $_.Status -eq 'OK' }).Count
         $sumDrop += @($plan | Where-Object { $_.Status -like '取込対象外*' }).Count
+        $sumDef  += @($plan | Where-Object { $_.Status -eq 'OK' -and $_.IsDefault }).Count
         $sumErr += $err.Count
         if ($err.Count -gt 0) { $errNos += $kenNo }
         if ($Commit) {
@@ -1446,6 +1488,10 @@ try {
     if ($errNos.Count -gt 0) {
         Write-Host ("  エラーのある受付番号 ({0}人): {1}" -f $errNos.Count, (($errNos | Select-Object -Unique) -join ', ')) -ForegroundColor Red
         Write-Host '  → 上にスクロールしてその人の「状態」列を確認してください。' -ForegroundColor Red
+    }
+    if ($sumDef -gt 0) {
+        Write-Host ("  うち {0} 件は「検査したが所見が空」として既定値(異常なし等)を入れます。" -f $sumDef) -ForegroundColor Yellow
+        Write-Host '  実施していない検査が混ざっていないか、プレビューの「OK(既定値)」の行で確認してください。' -ForegroundColor Yellow
     }
     if ($sumDrop -gt 0) {
         Write-Host ("  取込対象外 {0} 件 (変換表で「取り込まない」と決めてある値)。上の一覧で内容を確認できます。" -f $sumDrop) -ForegroundColor Yellow

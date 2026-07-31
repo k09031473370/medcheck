@@ -546,6 +546,13 @@ WHERE LTRIM(RTRIM(SYOKEN_CD)) = @cd AND ISNUMERIC(KEKKA_CD) = 1
 '@ @{ cd = $cd; n = [int]$c }
         if ($dt.Rows.Count -gt 0) { return $dt.Rows[0] }
     }
+    # 3) 選択肢の表示文字で一致 (「(-)」のように、コードでなく文字で来る場合)
+    #    1)2)で引けなかったときだけ試すので、既存の照合結果は変わらない
+    $dt = Invoke-DbQuery $conn @'
+SELECT TOP 1 KEKKA_CD, SYOKEN, HANTEI_KIGO FROM T_SYOKEN2
+WHERE LTRIM(RTRIM(SYOKEN_CD)) = @cd AND LTRIM(RTRIM(SYOKEN)) = @sy
+'@ @{ cd = $cd; sy = $c }
+    if ($dt.Rows.Count -gt 0) { return $dt.Rows[0] }
     return $null
 }
 
@@ -880,6 +887,9 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current) {
                 if ($hit) {
                     $label = [string]$hit.SYOKEN
                     $hanteiK = Normalize-Text ([string]$hit.HANTEI_KIGO)
+                    # 書くのはDB側の結果CD。'1'と'01'、文字一致で引けた場合の差を吸収する
+                    $dbCd = Normalize-Text ([string]$hit.KEKKA_CD)
+                    if ($dbCd -ne '') { $code = $dbCd }
                 }
             }
             if ($null -eq $label) {

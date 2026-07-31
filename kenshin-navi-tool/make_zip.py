@@ -35,6 +35,7 @@ ENTRIES = [
     'ecg_import.ps1',
     'yoyaku_export.ps1',
     'db_tool.ps1',
+    'restore_backup.ps1',
     'check.ps1', 'check.bat',
     'check2.ps1', 'check2.bat',
     'check3.ps1', 'check3.bat',

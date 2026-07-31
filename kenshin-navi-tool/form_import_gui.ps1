@@ -297,6 +297,28 @@ function Resolve-CsvPath {
     return $f
 }
 
+# プレビューと書込が「同じ条件」かを機械的に確かめるための指紋。
+#   ファイルの中身が差し替わった場合も更新日時とサイズで検出する。
+$script:PreviewSig = $null
+function Get-ConditionSig {
+    $parts = @()
+    foreach ($t in @($txtFile, $txtRoster)) {
+        $p = $t.Text.Trim().Trim('"')
+        if ($p -ne '' -and (Test-Path $p)) {
+            $fi = Get-Item $p
+            $parts += ('{0}|{1:yyyyMMddHHmmss}|{2}' -f $fi.FullName, $fi.LastWriteTimeUtc, $fi.Length)
+        } else { $parts += $p }
+    }
+    $parts += $txtOnly.Text.Trim()
+    $parts += $txtYmd.Text.Trim()
+    $parts += $(if ($cmbMap.SelectedItem) { [string]$cmbMap.SelectedItem.File } else { '' })
+    $parts += [string]$chkNoHdr.Checked
+    $parts += [string]$chkUtf8.Checked
+    $parts += [string]$chkForce.Checked
+    $parts += [string]$chkIgnoreName.Checked
+    return ($parts -join "`n")
+}
+
 # 共通引数 (受付番号・受診日・エンコーディング)
 function Get-CommonArgs {
     $a = @()
@@ -406,6 +428,7 @@ $btnPreview.Add_Click({
         $csv = Resolve-CsvPath
         if (-not (Confirm-YmdOverride $csv)) { return }
         Append-Out (Run-Core (@('-Csv', $csv) + (Get-CommonArgs)))
+        $script:PreviewSig = Get-ConditionSig
     }
 })
 
@@ -414,6 +437,34 @@ $btnCommit.Add_Click({
         Start-Section '4. 書込実行 (健診ナビに書き込みます)'
         $csv = Resolve-CsvPath
         if (-not (Confirm-YmdOverride $csv)) { return }
+
+        # プレビューと同じ条件か
+        $sigNow = Get-ConditionSig
+        if ($null -eq $script:PreviewSig) {
+            $r0 = [System.Windows.Forms.MessageBox]::Show(
+                "まだプレビューをしていません。`r`nプレビューを見ずに書込むと、内容を確認できません。`r`n`r`nこのまま続けますか?",
+                'プレビュー未実施', 'YesNo', 'Warning', 'Button2')
+            if ($r0 -ne 'Yes') { Append-Out '[中止] 先に「3. プレビュー」を押してください。'; return }
+        }
+        elseif ($sigNow -ne $script:PreviewSig) {
+            $r0 = [System.Windows.Forms.MessageBox]::Show(
+                "プレビューしたときと条件が変わっています。`r`n(ファイル・受付番号・受診日・名簿・チェックのいずれか、またはファイルの中身)`r`n`r`n" +
+                "このまま書込むと、確認した内容と違うものが書き込まれます。`r`nもう一度プレビューし直すことを強くおすすめします。`r`n`r`nそれでも続けますか?",
+                'プレビューと条件が違います', 'YesNo', 'Warning', 'Button2')
+            if ($r0 -ne 'Yes') { Append-Out '[中止] 条件が変わっています。もう一度「3. プレビュー」を押してください。'; return }
+        }
+
+        # 非常口を使うときは、何を無視するのかを明示して確認する
+        $bypass = @()
+        if ($chkForce.Checked)      { $bypass += 'エラーのある項目を飛ばして書込む' }
+        if ($chkIgnoreName.Checked) { $bypass += '氏名が違う人にも書込む(別人に書く恐れ)' }
+        if ($bypass.Count -gt 0) {
+            $r0 = [System.Windows.Forms.MessageBox]::Show(
+                ("通常の安全確認を外した状態です。`r`n`r`n・" + ($bypass -join "`r`n・") + "`r`n`r`n本当にこの設定で書込みますか?"),
+                '安全確認を外しています', 'YesNo', 'Warning', 'Button2')
+            if ($r0 -ne 'Yes') { Append-Out '[中止] 安全確認の外しをキャンセルしました。'; return }
+        }
+
         $who = if ($txtOnly.Text.Trim() -ne '') { '受付番号 ' + $txtOnly.Text.Trim() + ' の1名' } else { 'CSVの全員' }
         $msg = "$who にDB書込を実行します。`r`n先にプレビューで内容を確認しましたか?"
         $r = [System.Windows.Forms.MessageBox]::Show($msg, '書込の確認', 'YesNo', 'Warning', 'Button2')
@@ -421,6 +472,13 @@ $btnCommit.Add_Click({
         $a = @('-Csv', $csv, '-Commit') + (Get-CommonArgs)
         if ($chkForce.Checked) { $a += '-Force' }
         Append-Out (Run-Core $a)
+        # 付けっぱなしで次の人に使われないよう、書込のたびに戻す
+        if ($chkForce.Checked -or $chkIgnoreName.Checked) {
+            $chkForce.Checked = $false
+            $chkIgnoreName.Checked = $false
+            Append-Out '[安全確認] 「エラーを飛ばす」「氏名の違いを無視する」のチェックを外しました。'
+        }
+        $script:PreviewSig = $null
     }
 })
 

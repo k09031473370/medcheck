@@ -1,0 +1,154 @@
+﻿<#
+.SYNOPSIS
+  書込前バックアップから T_KENSA を戻す (restore_backup.ps1)
+
+.DESCRIPTION
+  form_import.ps1 が書込前に backup\ へ保存した CSV を読み、
+  PK_SEQ + KOMOKU_CD 単位で 結果 / 結果CD / 判定記号 を元の値に戻す。
+
+  既定はプレビュー。実際に戻すには -Commit を付ける。
+  戻す前の状態も backup\ に保存するので、やり直しがきく。
+
+.EXAMPLE
+  # 何が戻るかを見る
+  powershell -ExecutionPolicy Bypass -File restore_backup.ps1 -File backup\T_KENSA_2004717_20260731_094500.csv
+
+  # 実際に戻す
+  powershell -ExecutionPolicy Bypass -File restore_backup.ps1 -File backup\T_KENSA_2004717_20260731_094500.csv -Commit
+
+  # 直近のバックアップを一覧する
+  powershell -ExecutionPolicy Bypass -File restore_backup.ps1 -List
+#>
+[CmdletBinding()]
+param(
+    [string]$File,                # 戻す元のバックアップCSV
+    [switch]$Commit,              # 付けると実際に戻す。付けなければ表示のみ
+    [switch]$List,                # backup\ の一覧を表示して終了
+    [string]$Only,                # 特定の項目コードだけ戻す (カンマ区切り)
+    [string]$ConnFile = '\\KNSV\KenshinNavi\SQLSV\SQLServerConnect.txt',
+    [string]$ConnectionString
+)
+
+$ErrorActionPreference = 'Stop'
+$BackupDir = Join-Path $PSScriptRoot 'backup'
+
+# form_import.ps1 から接続まわりを借りる (同じ接続先を使うため)
+$Core = Join-Path $PSScriptRoot 'form_import.ps1'
+if (-not (Test-Path $Core)) { throw "form_import.ps1 が同じフォルダにありません: $PSScriptRoot" }
+$src = Get-Content $Core -Raw
+function Import-Part([string]$from, [string]$to) {
+    $i = $src.IndexOf($from); $j = $src.IndexOf($to, $i)
+    if ($i -lt 0 -or $j -lt 0) { throw "form_import.ps1 の構成が変わっています ($from)" }
+    Invoke-Expression $src.Substring($i, $j - $i)
+}
+Import-Part 'function Normalize-Text' 'function Normalize-KenNo'
+Import-Part 'function Resolve-ConnectionString' 'function Get-CurrentKensa'
+Import-Part 'function Test-Locked' 'function Commit-Plan'
+
+# ---- 一覧モード ----
+if ($List -or -not $File) {
+    if (-not (Test-Path $BackupDir)) { throw "backup フォルダがありません: $BackupDir" }
+    Write-Host "=== backup フォルダの中身 (新しい順) ===" -ForegroundColor Cyan
+    Get-ChildItem $BackupDir -Filter 'T_KENSA_*.csv' -File |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 40 @{n='保存日時';e={$_.LastWriteTime}}, @{n='ファイル';e={$_.Name}}, @{n='サイズ';e={$_.Length}} |
+        Format-Table -AutoSize | Out-String -Width 200 | Write-Host
+    if (-not $File) {
+        Write-Host '戻すには -File でファイルを指定してください。' -ForegroundColor Yellow
+    }
+    if ($List) { return }
+}
+
+if (-not (Test-Path $File)) { throw "バックアップファイルがありません: $File" }
+$rows = @(Import-Csv -Path $File -Encoding UTF8)
+if ($rows.Count -eq 0) { throw "バックアップが空です: $File" }
+foreach ($need in @('PK_SEQ','KOMOKU_CD','KEKKA')) {
+    if ($rows[0].PSObject.Properties.Name -notcontains $need) {
+        throw "このCSVは T_KENSA のバックアップではないようです ($need の列がありません): $File"
+    }
+}
+
+$pkList = @($rows | ForEach-Object { Normalize-Text $_.PK_SEQ } | Sort-Object -Unique)
+if ($pkList.Count -ne 1) { throw "1人分のバックアップだけを指定してください (PK_SEQ が {0} 種類あります)" -f $pkList.Count }
+$pkSeq = $pkList[0]
+
+$wants = @()
+if ($Only) { $wants = @($Only -split '[,、]' | ForEach-Object { Normalize-Text $_ } | Where-Object { $_ -ne '' }) }
+
+Write-Host ("バックアップ: {0}" -f $File) -ForegroundColor Cyan
+Write-Host ("対象 PK_SEQ : {0} / {1} 行" -f $pkSeq, $rows.Count) -ForegroundColor Cyan
+
+$conn = Open-Db
+try {
+    $cur = @{}
+    $dt = Invoke-DbQuery $conn 'SELECT KOMOKU_CD, KEKKA, KEKKA_CD, HANTEI_KIGO FROM T_KENSA WHERE PK_SEQ = @p' @{ p = $pkSeq }
+    foreach ($r in $dt.Rows) { $cur[(Normalize-Text $r.KOMOKU_CD)] = $r }
+    if ($cur.Count -eq 0) { throw "この PK_SEQ の検査行が健診ナビにありません: $pkSeq" }
+
+    $diff = @()
+    foreach ($b in $rows) {
+        $k = Normalize-Text $b.KOMOKU_CD
+        if ($k -eq '') { continue }
+        if ($wants.Count -gt 0 -and $wants -notcontains $k) { continue }
+        if (-not $cur.ContainsKey($k)) { continue }
+        $now = $cur[$k]
+        $bK  = Normalize-Text $b.KEKKA
+        $bC  = Normalize-Text $b.KEKKA_CD
+        $bH  = Normalize-Text $b.HANTEI_KIGO
+        $nK  = Normalize-Text ([string]$now.KEKKA)
+        $nC  = Normalize-Text ([string]$now.KEKKA_CD)
+        $nH  = Normalize-Text ([string]$now.HANTEI_KIGO)
+        if ($bK -eq $nK -and $bC -eq $nC -and $bH -eq $nH) { continue }
+        $diff += New-Object PSObject -Property @{
+            KOMOKU_CD = $k
+            今の値 = $nK; 戻す値 = $bK
+            今のCD = $nC; 戻すCD = $bC
+            今の判定 = $nH; 戻す判定 = $bH
+        }
+    }
+
+    if ($diff.Count -eq 0) {
+        Write-Host 'バックアップの内容と現在の値は同じです。戻すものはありません。' -ForegroundColor Green
+        return
+    }
+
+    Write-Host ''
+    $diff | Select-Object KOMOKU_CD, 今の値, 戻す値, 今のCD, 戻すCD, 今の判定, 戻す判定 |
+        Format-Table -AutoSize | Out-String -Width 300 | Write-Host
+    Write-Host ("戻す項目: {0} 件" -f $diff.Count) -ForegroundColor Cyan
+
+    if (-not $Commit) {
+        Write-Host ''
+        Write-Host '※ 表示のみです。実際に戻すには -Commit を付けて再実行してください。' -ForegroundColor Yellow
+        return
+    }
+
+    # 戻す前の状態も保存しておく (やり直せるように)
+    $safety = Join-Path $BackupDir ("T_KENSA_{0}_{1}_before_restore.csv" -f $pkSeq, (Get-Date -Format 'yyyyMMdd_HHmmss'))
+    (Invoke-DbQuery $conn 'SELECT * FROM T_KENSA WHERE PK_SEQ = @p' @{ p = $pkSeq }) |
+        Export-Csv -Path $safety -NoTypeInformation -Encoding UTF8
+    Write-Host "[バックアップ] 戻す前の状態: $safety" -ForegroundColor DarkGray
+
+    $lock = Test-Locked $conn $pkSeq
+    if ($lock) { throw "この受診者は健診ナビの結果入力画面で編集中です ($lock)。画面を閉じてから再実行してください。" }
+
+    $tran = $conn.BeginTransaction()
+    try {
+        Acquire-AppLock $conn $tran ("KENSA_IMPORT:" + $pkSeq)
+        $lock2 = Test-Locked $conn $pkSeq $tran
+        if ($lock2) { throw "この受診者は健診ナビの結果入力画面で編集中です ($lock2)。" }
+        $done = 0
+        foreach ($d in $diff) {
+            $n = Invoke-DbExec $conn $tran `
+                'UPDATE T_KENSA SET KEKKA = @k, KEKKA_CD = @kc, HANTEI_KIGO = @h WHERE PK_SEQ = @p AND KOMOKU_CD = @cd' `
+                @{ k = $d.戻す値; kc = $d.戻すCD; h = $d.戻す判定; p = $pkSeq; cd = $d.KOMOKU_CD }
+            if ($n -ne 1) { throw ("UPDATE影響行数が {0} でした (KOMOKU_CD={1})。ロールバックします。" -f $n, $d.KOMOKU_CD) }
+            $done++
+        }
+        $tran.Commit()
+        Write-Host ("[復元完了] {0} 項目を元に戻しました (PK_SEQ={1})" -f $done, $pkSeq) -ForegroundColor Green
+        Write-Host '※ 健診ナビで対象者を開き「自動判定」を実行し直してください。'
+    }
+    catch { $tran.Rollback(); throw }
+}
+finally { $conn.Close() }

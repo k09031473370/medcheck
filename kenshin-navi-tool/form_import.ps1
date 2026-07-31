@@ -452,8 +452,10 @@ function Open-Db {
     return $conn
 }
 
-function Invoke-DbQuery($conn, [string]$sql, [hashtable]$params) {
+function Invoke-DbQuery($conn, [string]$sql, [hashtable]$params, $tran) {
     $cmd = $conn.CreateCommand()
+    # トランザクション中は、同じ接続のコマンドにもトランザクションを渡す必要がある
+    if ($tran) { $cmd.Transaction = $tran }
     $cmd.CommandText = $sql
     if ($params) {
         foreach ($k in $params.Keys) { [void]$cmd.Parameters.AddWithValue('@' + $k, $params[$k]) }
@@ -601,11 +603,28 @@ function Get-IdColumns($mapRows) {
     return @{ KenNo = $kenNoCol; Ymd = $ymdCol; Kanji = $kanjiCol; Kana = $kanaCol }
 }
 
-# 氏名の照合用に正規化 (空白・記号を除去)
+# 氏名の照合用に正規化
+#   半角カナ→全角カナ、濁点の合成、ひらがな→カタカナ、長音・空白・記号の違いを吸収する。
+#   「ｲｿﾉ ﾑﾂｺ」「イソノ　ムツコ」「いその むつこ」を同じものとして扱う。
+#   .NET標準の正規化(FormKC)だけを使うので、環境によって効いたり効かなかったりしない。
 function Normalize-Name([string]$s) {
     $v = Normalize-Text $s
-    $v = $v -replace '[\s　・･,、]', ''
-    return $v
+    if ($v -eq '') { return '' }
+    # 半角カナ→全角カナ、ﾞﾟの合成、全角英数→半角 などをまとめて行う
+    $v = $v.Normalize([System.Text.NormalizationForm]::FormKC)
+    # ひらがな→カタカナ
+    $sb = New-Object System.Text.StringBuilder
+    foreach ($ch in $v.ToCharArray()) {
+        $n = [int][char]$ch
+        if ($n -ge 0x3041 -and $n -le 0x3096) { [void]$sb.Append([char]($n + 0x60)) }
+        else { [void]$sb.Append($ch) }
+    }
+    $v = $sb.ToString()
+    # 長音・ハイフン類をまとめる
+    $v = $v -replace '[\u30FC\u2010\u2011\u2012\u2013\u2014\u2015\u2212\uFF0D\u002D]', 'ー'
+    # 空白・記号を除去
+    $v = $v -replace '[\s\u3000・,、.]', ''
+    return $v.ToUpper()
 }
 
 function Select-TargetRows($dataRows, $idCols) {
@@ -967,9 +986,9 @@ function Show-Plan($plan, [string]$who) {
 }
 
 # 結果入力画面で編集中(ロック中)かどうか。ロック中の書込は画面側の登録で上書きされる危険がある
-function Test-Locked($conn, $pkSeq) {
+function Test-Locked($conn, $pkSeq, $tran) {
     try {
-        $dt = Invoke-DbQuery $conn 'SELECT PC_NAME, USER_ID, LOCKED_DATE FROM T_MULTI WHERE PK_SEQ = @p' @{ p = $pkSeq }
+        $dt = Invoke-DbQuery $conn 'SELECT PC_NAME, USER_ID, LOCKED_DATE FROM T_MULTI WHERE PK_SEQ = @p' @{ p = $pkSeq } $tran
         if ($dt.Rows.Count -gt 0) {
             $r = $dt.Rows[0]
             return "$($r.PC_NAME) / $($r.USER_ID) / $($r.LOCKED_DATE)"
@@ -987,6 +1006,27 @@ function Backup-Kensa($conn, $pkSeq) {
     return $file
 }
 
+# ツール同士の同時書込を防ぐ (T_MULTI は健診ナビ画面のロックしか見ていないため)
+#   トランザクション単位のアプリケーションロック。コミット/ロールバックで自動解放される。
+function Acquire-AppLock($conn, $tran, [string]$resource, [int]$timeoutMs = 10000) {
+    $cmd = $conn.CreateCommand()
+    $cmd.Transaction = $tran
+    $cmd.CommandText = @'
+DECLARE @r int
+EXEC @r = sp_getapplock @Resource = @res, @LockMode = 'Exclusive',
+                        @LockOwner = 'Transaction', @LockTimeout = @ms
+SELECT @r
+'@
+    [void]$cmd.Parameters.AddWithValue('@res', $resource)
+    [void]$cmd.Parameters.AddWithValue('@ms', $timeoutMs)
+    $r = $cmd.ExecuteScalar()
+    $cmd.Dispose()
+    # 0 = 取得, 1 = 待って取得。負の値は失敗
+    if ($null -eq $r -or [int]$r -lt 0) {
+        throw ("他のパソコン(または別の取込)が同じ受診者を処理中です。しばらく待ってからやり直してください。 [{0} / code={1}]" -f $resource, $r)
+    }
+}
+
 function Commit-Plan($conn, $pkSeq, $plan) {
     $targets = @($plan | Where-Object { $_.Status -eq 'OK' -and $_.Update })
     if ($targets.Count -eq 0) { Write-Host '書込対象がありません。'; return }
@@ -997,6 +1037,12 @@ function Commit-Plan($conn, $pkSeq, $plan) {
     [void](Backup-Kensa $conn $pkSeq)
     $tran = $conn.BeginTransaction()
     try {
+        Acquire-AppLock $conn $tran ("KENSA_IMPORT:" + $pkSeq)
+        # ロックを取ってから、もう一度画面ロックを確認する (待っている間に開かれた場合の対策)
+        $lock2 = Test-Locked $conn $pkSeq $tran
+        if ($lock2) {
+            throw "この受診者は健診ナビの結果入力画面で編集中です ($lock2)。画面を閉じてから再実行してください。"
+        }
         $done = 0
         foreach ($t in $targets) {
             $p = @{}
@@ -1179,6 +1225,7 @@ if ($SetUkeNo) {
             $kenNo = Normalize-KenNo (Get-Field $fields $idCols.KenNo)
             if ($kenNo -eq '') { continue }
             $ymd = Resolve-RowYmd $fields $idCols
+            $ymdForLock = $ymd
             if (-not $cache.ContainsKey($ymd)) {
                 $cache[$ymd] = Invoke-DbQuery $conn @'
 SELECT s.PK_SEQ, s.UKE_NO_KENSA, k.KANJI_SIMEI, k.KANA_SIMEI
@@ -1216,6 +1263,13 @@ WHERE s.D_KENSIN = @ymd AND s.F_TORIKESI = 0
             $dup = @($navi | Where-Object {
                 (Normalize-KenNo ([string]$_.UKE_NO_KENSA)) -eq $kenNo -and $_.PK_SEQ -ne $hit.PK_SEQ })
             if ($dup.Count -gt 0) { $rep.状態 = '同じ受付番号が別の人に設定済み'; $plan += $rep; continue }
+            # 受付済み(T_KANJA_Gに行がある)の人は、健診ナビ側が受付番号を別に持っている。
+            # ここで T_KENSIN だけ書き換えると食い違うので触らない。
+            $uke = Invoke-DbQuery $conn 'SELECT TOP 1 KEN_NO FROM T_KANJA_G WHERE PK_SEQ = @p' @{ p = $hit.PK_SEQ }
+            if ($uke.Rows.Count -gt 0) {
+                $rep.状態 = ("受付済みのため変更しません(健診ナビ側 {0})" -f (Normalize-KenNo ([string]$uke.Rows[0].KEN_NO)))
+                $plan += $rep; continue
+            }
 
             if ($cur -eq $kenNo)   { $rep.状態 = '設定済み(変更なし)' }
             elseif ($cur -eq '')   { $rep.状態 = 'OK' }
@@ -1248,6 +1302,7 @@ WHERE s.D_KENSIN = @ymd AND s.F_TORIKESI = 0
 
         $tran = $conn.BeginTransaction()
         try {
+            Acquire-AppLock $conn $tran ("UKENO_SET:" + $ymdForLock)
             $done = 0
             foreach ($t in $ok) {
                 $n = Invoke-DbExec $conn $tran 'UPDATE T_KENSIN SET UKE_NO_KENSA = @no WHERE PK_SEQ = @p' `

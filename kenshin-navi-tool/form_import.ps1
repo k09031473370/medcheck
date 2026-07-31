@@ -708,7 +708,8 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current) {
     $plan = @()
     foreach ($m in $mapRows) {
         $kind = (Normalize-Text $m.Kind).ToUpper()
-        if ($kind -eq '' -or $kind -eq 'KENNO' -or $kind -eq 'KENYMD' -or $kind -eq 'IGNORE') { continue }
+        # 人の特定・照合に使う列と、対象外の列はプレビューに出さない
+        if (@('', 'KENNO', 'KENYMD', 'NAMEKANJI', 'NAMEKANA', 'IGNORE') -contains $kind) { continue }
 
         $col = 0
         [void][int]::TryParse((Normalize-Text $m.Col), [ref]$col)

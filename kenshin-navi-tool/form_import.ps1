@@ -763,7 +763,9 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current) {
             $shoCode = (Normalize-Text $raw).ToUpper()
             if ($shoCode -ne '') {
                 $cv = Convert-Code $m $shoCode
-                if ($cv.Status -eq 'DROP') { continue }
+                if ($cv.Status -eq 'DROP') {
+                    $rep.Status = "取込対象外(変換表で除外: $shoCode)"; $rep.New = $shoCode; $plan += $rep; continue
+                }
                 if ($cv.Status -eq 'NOMAP') {
                     $rep.Status = "変換表に無いコード($shoCode)"; $rep.New = $shoCode; $plan += $rep; continue
                 }
@@ -898,7 +900,10 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current) {
             if ($rawCode -eq '') { continue }
             if ($komoku -eq '') { $rep.Status = '項目CD未設定'; $rep.New = $rawCode; $plan += $rep; continue }
             $cv = Convert-Code $m $rawCode
-            if ($cv.Status -eq 'DROP') { continue }   # 変換表で「取り込まない」と定義済み
+            if ($cv.Status -eq 'DROP') {
+                # 変換表で「取り込まない」と定義済み。黙って捨てると気付けないので一覧に出す
+                $rep.Status = "取込対象外(変換表で除外: $rawCode)"; $rep.New = $rawCode; $plan += $rep; continue
+            }
             if ($cv.Status -eq 'NOMAP') {
                 $rep.Status = "変換表に無いコード($rawCode)"; $rep.New = $rawCode; $plan += $rep; continue
             }
@@ -980,9 +985,11 @@ function Show-Plan($plan, [string]$who) {
         Format-Table -AutoSize -Wrap | Out-String -Width 300 | Write-Host
     $ok   = @($plan | Where-Object { $_.Status -eq 'OK' })
     $warn = @($plan | Where-Object { $_.Status -eq '列未設定' -or $_.Status -eq '項目CD未設定' })
-    $err  = @($plan | Where-Object { $_.Status -ne 'OK' -and $_.Status -ne '列未設定' -and $_.Status -ne '項目CD未設定' })
-    Write-Host ("書込可能: {0} 件 / 対応表未設定(スキップ): {1} 件 / エラー: {2} 件" -f $ok.Count, $warn.Count, $err.Count) `
-        -ForegroundColor $(if ($err.Count -gt 0) { 'Yellow' } else { 'Green' })
+    $drop = @($plan | Where-Object { $_.Status -like '取込対象外*' })
+    $err  = @($plan | Where-Object { $_.Status -ne 'OK' -and $_.Status -ne '列未設定' -and $_.Status -ne '項目CD未設定' -and $_.Status -notlike '取込対象外*' })
+    $line = "書込可能: {0} 件 / 対応表未設定(スキップ): {1} 件 / エラー: {2} 件" -f $ok.Count, $warn.Count, $err.Count
+    if ($drop.Count -gt 0) { $line += " / 取込対象外: {0} 件" -f $drop.Count }
+    Write-Host $line -ForegroundColor $(if ($err.Count -gt 0) { 'Yellow' } else { 'Green' })
 }
 
 # 結果入力画面で編集中(ロック中)かどうか。ロック中の書込は画面側の登録で上書きされる危険がある
@@ -1333,7 +1340,7 @@ try {
     $hadError = $false
     $skipped = 0
     # 全体集計 (26人ぶんを1件ずつ目で追わなくて済むように)
-    $sumPeople = 0; $sumOk = 0; $sumErr = 0
+    $sumPeople = 0; $sumOk = 0; $sumErr = 0; $sumDrop = 0
     $errNos = @(); $notFoundNos = @(); $wroteNos = @(); $nameNgNos = @()
     foreach ($fields in $targets) {
         $kenNo = Normalize-KenNo (Get-Field $fields $idCols.KenNo)
@@ -1385,9 +1392,10 @@ try {
         $plan = Build-Plan $conn $mapRows $valueMap $fields $current
         Show-Plan $plan ("受付番号 " + $kenNo)
 
-        $err = @($plan | Where-Object { $_.Status -ne 'OK' -and $_.Status -ne '列未設定' -and $_.Status -ne '項目CD未設定' })
+        $err = @($plan | Where-Object { $_.Status -ne 'OK' -and $_.Status -ne '列未設定' -and $_.Status -ne '項目CD未設定' -and $_.Status -notlike '取込対象外*' })
         $sumPeople++
         $sumOk += @($plan | Where-Object { $_.Status -eq 'OK' }).Count
+        $sumDrop += @($plan | Where-Object { $_.Status -like '取込対象外*' }).Count
         $sumErr += $err.Count
         if ($err.Count -gt 0) { $errNos += $kenNo }
         if ($Commit) {
@@ -1438,6 +1446,9 @@ try {
     if ($errNos.Count -gt 0) {
         Write-Host ("  エラーのある受付番号 ({0}人): {1}" -f $errNos.Count, (($errNos | Select-Object -Unique) -join ', ')) -ForegroundColor Red
         Write-Host '  → 上にスクロールしてその人の「状態」列を確認してください。' -ForegroundColor Red
+    }
+    if ($sumDrop -gt 0) {
+        Write-Host ("  取込対象外 {0} 件 (変換表で「取り込まない」と決めてある値)。上の一覧で内容を確認できます。" -f $sumDrop) -ForegroundColor Yellow
     }
     if ($notFoundNos.Count -eq 0 -and $errNos.Count -eq 0 -and $nameNgNos.Count -eq 0) {
         Write-Host '  エラーはありません。' -ForegroundColor Green

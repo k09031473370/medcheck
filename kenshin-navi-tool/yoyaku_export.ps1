@@ -215,7 +215,16 @@ try {
         elseif ($dantaiCd   -ne '' -and $dantais.ContainsKey($dantaiCd))   { $jigyosyoCd = $dantais[$dantaiCd] }
         else {
             $jigyosyoCd = [string]$settings['事業所コード']
-            if ($jigyosyoCd -eq '') { $warn += "事業所「$dantaiName」の事業所コードが未設定 ($name)" }
+            if ($jigyosyoCd -eq '') {
+                # 予約登録の入口なので、ここで止める。
+                # 事業所コードが空だと健診ナビ側でコースまで解決できず、
+                # 気付かないまま中途半端な予約取込ファイルを作ってしまうため。
+                throw ("事業所「{0}」(団体コード {1}) の事業所コードが分かりません。`n" +
+                       "form\yoyaku_dantai.csv に1行足してください。`n" +
+                       "  例)  {0},0000000230,`n" +
+                       "健診ナビの事業所コードは、その事業所の受診者を「2. 枠一覧(DB)」で見るか、" +
+                       "予約画面の事業所コード欄で確認できます。") -f $dantaiName, $dantaiCd
+            }
         }
 
         $lines += ,@{

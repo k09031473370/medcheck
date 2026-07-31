@@ -492,7 +492,7 @@ function Resolve-PkSeq($conn, [string]$ymd, [string]$kenNo) {
     }
     if ($dt.Rows.Count -eq 0) { return $null }
     if ($dt.Rows.Count -gt 1) { throw "受診者が複数見つかりました (D_KENSIN=$ymd, 受付No=$kenNo)。中止します。" }
-    Write-Host "[情報] 未受付のため T_KENSIN から特定しました (受付No=$kenNo)" -ForegroundColor DarkYellow
+    $script:MiukeCount = 1 + [int]$script:MiukeCount
     return $dt.Rows[0].PK_SEQ
 }
 
@@ -627,6 +627,9 @@ function Select-TargetRows($dataRows, $idCols) {
 }
 
 $script:YmdNoticeShown = $false
+$script:MiukeCount = 0          # 未受付のためT_KENSINから特定した人数
+$script:RosterYmds = @{}        # 名簿側で使った受診日
+$script:SkipYmds   = @{}        # 名簿外としてスキップした行の受診日
 
 function Resolve-RowYmd($fields, $idCols) {
     # 受診日を明示指定したときは、ファイルの日付列よりそちらを優先する
@@ -684,6 +687,7 @@ function Load-RosterPkSeq($conn, [string]$path) {
         if (-not $ymd -and $KenYmd) { $ymd = Normalize-Ymd $KenYmd }
         if (-not $ymd) { throw "名簿に受診日の列がありません。-KenYmd で受診日を指定してください: $path" }
         $pk = Resolve-PkSeq $conn $ymd $no
+        $script:RosterYmds[$ymd] = 1
         if ($null -eq $pk) { $miss += $no; continue }
         $set[[string]$pk] = $no
     }
@@ -1287,6 +1291,7 @@ try {
         }
         if ($rosterSet -and -not $rosterSet.ContainsKey([string]$pk)) {
             $skipped++
+            $script:SkipYmds[$ymd] = 1
             continue   # 名簿外の人 (エラーではない)
         }
         # ---- 氏名の突き合わせ (取り違え防止) ----
@@ -1344,6 +1349,23 @@ try {
         Write-Host ("[名簿しぼり込み] 名簿に無い {0} 人は取り込みませんでした。" -f $skipped) -ForegroundColor Yellow
     }
     # ---- 全体の集計 ----
+    if ($script:MiukeCount -gt 0) {
+        Write-Host ''
+        Write-Host ("[情報] {0} 人は未受付のため予約情報から特定しました (取込には支障ありません)。" -f $script:MiukeCount) -ForegroundColor DarkGray
+    }
+    # 名簿でしぼり込んだ結果1人も残らなかった場合、たいてい受診日の食い違いが原因
+    if ($rosterSet -and $sumPeople -eq 0 -and $skipped -gt 0) {
+        $rY = ($script:RosterYmds.Keys | Sort-Object) -join ', '
+        $sY = ($script:SkipYmds.Keys   | Sort-Object) -join ', '
+        Write-Host ''
+        Write-Host '[!] 名簿でしぼり込んだ結果、対象が0人になりました。' -ForegroundColor Red
+        Write-Host ("    名簿の受診日      : {0}" -f $rY) -ForegroundColor Red
+        Write-Host ("    取込ファイルの受診日: {0}" -f $sY) -ForegroundColor Red
+        if ($rY -ne $sY) {
+            Write-Host '    受診日が違うため、同じ人でも別の受診として扱われ、全員が名簿外になっています。' -ForegroundColor Yellow
+            Write-Host ("    → 「受診日」欄に {0} と入力してやり直すか、同じ日の名簿を指定してください。" -f $rY) -ForegroundColor Yellow
+        }
+    }
     Write-Host ''
     Write-Host ('=' * 60) -ForegroundColor Cyan
     if ($Commit) {

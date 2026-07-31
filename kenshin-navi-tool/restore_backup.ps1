@@ -36,14 +36,15 @@ $BackupDir = Join-Path $PSScriptRoot 'backup'
 $Core = Join-Path $PSScriptRoot 'form_import.ps1'
 if (-not (Test-Path $Core)) { throw "form_import.ps1 が同じフォルダにありません: $PSScriptRoot" }
 $src = Get-Content $Core -Raw
-function Import-Part([string]$from, [string]$to) {
+function Get-Part([string]$from, [string]$to) {
     $i = $src.IndexOf($from); $j = $src.IndexOf($to, $i)
     if ($i -lt 0 -or $j -lt 0) { throw "form_import.ps1 の構成が変わっています ($from)" }
-    Invoke-Expression $src.Substring($i, $j - $i)
+    return $src.Substring($i, $j - $i)
 }
-Import-Part 'function Normalize-Text' 'function Normalize-KenNo'
-Import-Part 'function Resolve-ConnectionString' 'function Get-CurrentKensa'
-Import-Part 'function Test-Locked' 'function Commit-Plan'
+# Invoke-Expression は呼んだ場所のスコープに定義されるので、必ずスクリプト直下で実行する
+Invoke-Expression (Get-Part 'function Normalize-Text' 'function Normalize-KenNo')
+Invoke-Expression (Get-Part 'function Resolve-ConnectionString' 'function Get-CurrentKensa')
+Invoke-Expression (Get-Part 'function Test-Locked' 'function Commit-Plan')
 
 # ---- 一覧モード ----
 if ($List -or -not $File) {

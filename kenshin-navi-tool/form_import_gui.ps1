@@ -298,17 +298,21 @@ function Resolve-CsvPath {
 }
 
 # プレビューと書込が「同じ条件」かを機械的に確かめるための指紋。
-#   ファイルの中身が差し替わった場合も更新日時とサイズで検出する。
+#   取込内容を左右するものは全部入れる:
+#     入力ファイル・名簿 (中身が差し替わっても分かるよう更新日時とサイズも)
+#     画面の入力とチェック
+#     form\ の対応表すべて (自動判別のときレイアウト名は 'auto' 固定で、
+#       mapping や code_map を書き換えても名前だけでは分からないため)
+#     取込エンジン本体 (更新の直後に古いプレビューで書込むのを防ぐ)
 $script:PreviewSig = $null
+function Get-FileStamp([string]$p) {
+    if ($p -eq '' -or -not (Test-Path $p)) { return $p }
+    $fi = Get-Item $p
+    return ('{0}|{1:yyyyMMddHHmmss}|{2}' -f $fi.FullName, $fi.LastWriteTimeUtc, $fi.Length)
+}
 function Get-ConditionSig {
     $parts = @()
-    foreach ($t in @($txtFile, $txtRoster)) {
-        $p = $t.Text.Trim().Trim('"')
-        if ($p -ne '' -and (Test-Path $p)) {
-            $fi = Get-Item $p
-            $parts += ('{0}|{1:yyyyMMddHHmmss}|{2}' -f $fi.FullName, $fi.LastWriteTimeUtc, $fi.Length)
-        } else { $parts += $p }
-    }
+    foreach ($t in @($txtFile, $txtRoster)) { $parts += Get-FileStamp ($t.Text.Trim().Trim('"')) }
     $parts += $txtOnly.Text.Trim()
     $parts += $txtYmd.Text.Trim()
     $parts += $(if ($cmbMap.SelectedItem) { [string]$cmbMap.SelectedItem.File } else { '' })
@@ -316,6 +320,14 @@ function Get-ConditionSig {
     $parts += [string]$chkUtf8.Checked
     $parts += [string]$chkForce.Checked
     $parts += [string]$chkIgnoreName.Checked
+    # 対応表フォルダの中身すべて
+    foreach ($f in (Get-ChildItem (Join-Path $scriptDir 'form') -File -ErrorAction SilentlyContinue | Sort-Object Name)) {
+        $parts += Get-FileStamp $f.FullName
+    }
+    # スクリプト本体
+    foreach ($n in @('form_import.ps1', 'xlsx_read.ps1')) {
+        $parts += Get-FileStamp (Join-Path $scriptDir $n)
+    }
     return ($parts -join "`n")
 }
 
@@ -447,8 +459,21 @@ $btnCommit.Add_Click({
             if ($r0 -ne 'Yes') { Append-Out '[中止] 先に「3. プレビュー」を押してください。'; return }
         }
         elseif ($sigNow -ne $script:PreviewSig) {
+            $before = $script:PreviewSig -split "`n"
+            $after  = $sigNow -split "`n"
+            $names = @('取込ファイル','名簿','受付番号','受診日','レイアウト','見出し行なし','CSVはUTF-8','エラーを飛ばす','氏名の違いを無視')
+            $changed = @()
+            for ($i = 0; $i -lt [Math]::Max($before.Count, $after.Count); $i++) {
+                $b = if ($i -lt $before.Count) { $before[$i] } else { '' }
+                $a = if ($i -lt $after.Count)  { $after[$i]  } else { '' }
+                if ($b -ne $a) {
+                    if ($i -lt $names.Count) { $changed += $names[$i] }
+                    elseif ($changed -notcontains '対応表またはツール本体') { $changed += '対応表またはツール本体' }
+                }
+            }
+            $what = if ($changed.Count -gt 0) { '変わったもの: ' + ($changed -join ' / ') } else { 'ファイルの中身が変わっています' }
             $r0 = [System.Windows.Forms.MessageBox]::Show(
-                "プレビューしたときと条件が変わっています。`r`n(ファイル・受付番号・受診日・名簿・チェックのいずれか、またはファイルの中身)`r`n`r`n" +
+                "プレビューしたときと条件が変わっています。`r`n$what`r`n`r`n" +
                 "このまま書込むと、確認した内容と違うものが書き込まれます。`r`nもう一度プレビューし直すことを強くおすすめします。`r`n`r`nそれでも続けますか?",
                 'プレビューと条件が違います', 'YesNo', 'Warning', 'Button2')
             if ($r0 -ne 'Yes') { Append-Out '[中止] 条件が変わっています。もう一度「3. プレビュー」を押してください。'; return }

@@ -309,7 +309,7 @@ function Load-Mapping {
     if (-not (Test-Path $p)) { throw "対応表が見つかりません: $p" }
     Write-Host "[対応表] $([System.IO.Path]::GetFileName($p))" -ForegroundColor DarkGray
     $rows = Import-Csv -Path $p -Encoding UTF8
-    $valid = @('KENNO','KENYMD','NAMEKANJI','NAMEKANA','VALUE','NYOU','CHORYOKU','MONSHIN','VISION','SHOKEN','SHOKEN2','SHOKENCD','SHOKENCD2','NOFRAME','IGNORE')
+    $valid = @('KENNO','KENYMD','NAMEKANJI','NAMEKANA','VALUE','NYOU','CHORYOKU','MONSHIN','VISION','SHOKEN','SHOKEN2','SHOKENCD','SHOKENCD2','NOFRAME','KOJINNO','IGNORE')
     foreach ($r in $rows) {
         $k = (Normalize-Text $r.Kind).ToUpper()
         if ($k -ne '' -and $valid -notcontains $k) {
@@ -501,13 +501,16 @@ function Resolve-PkSeq($conn, [string]$ymd, [string]$kenNo) {
 # 対象者の現在の T_KENSA 行 (KOMOKU_CD → 行) を取得
 # PK_SEQ から健診ナビ側の氏名を引く (取り違え防止の照合に使う)
 function Get-NaviName($conn, $pkSeq) {
+    # KOJIN_ID と社員番号(KOJIN_NO)も一緒に取る。社員番号の書込に使う。
     $dt = Invoke-DbQuery $conn @'
-SELECT TOP 1 k.KANJI_SIMEI, k.KANA_SIMEI
+SELECT TOP 1 k.KANJI_SIMEI, k.KANA_SIMEI, k.KOJIN_ID, k.KOJIN_NO
 FROM T_KENSIN s LEFT JOIN T_KOJIN1 k ON k.KOJIN_ID = s.KOJIN_ID
 WHERE s.PK_SEQ = @p
 '@ @{ p = $pkSeq }
     if ($dt.Rows.Count -eq 0) { return $null }
     return @{
+        KojinId = $(if ([DBNull]::Value.Equals($dt.Rows[0].KOJIN_ID)) { $null } else { $dt.Rows[0].KOJIN_ID })
+        KojinNo = Normalize-Text ([string]$dt.Rows[0].KOJIN_NO)
         Kanji = Normalize-Text ([string]$dt.Rows[0].KANJI_SIMEI)
         Kana  = Normalize-Text ([string]$dt.Rows[0].KANA_SIMEI)
     }
@@ -724,7 +727,7 @@ function Load-RosterPkSeq($conn, [string]$path) {
 # ============================================================================
 # 戻り値: レポート行の配列。書込対象は .Update に UPDATE 内容を持つ。
 
-function Build-Plan($conn, $mapRows, $valueMap, $fields, $current) {
+function Build-Plan($conn, $mapRows, $valueMap, $fields, $current, $kojin) {
     $plan = @()
     # 「自覚症状1〜10」のように枠が並んでいる項目で、同じ内容を二重に書かないための記録。
     # 例: リアンの「眼が疲れる・かすむ」と「視力が低下した」は、健診ナビでは
@@ -768,6 +771,33 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current) {
             continue
         }
         $raw = Get-Field $fields $col
+
+        # ---- 社員番号 (個人マスタ T_KOJIN1.KOJIN_NO) ----
+        # 検査結果ではなく個人マスタへの書込。結果票の差込み文字 **社員番号 がここを読む。
+        # 受診ごとではなく人ごとの情報なので、他の受診日の結果票にも出る。
+        if ($kind -eq 'KOJINNO') {
+            $v = Normalize-Text $raw
+            if ($v -eq '') { continue }
+            $rep.New = $v
+            if ($null -eq $kojin -or $null -eq $kojin.KojinId) {
+                $rep.Status = '個人マスタが引けません'; $plan += $rep; continue
+            }
+            $rep.Now = $kojin.KojinNo
+            if ($kojin.KojinNo -eq $v) { $rep.Status = '設定済み(変更なし)'; $plan += $rep; continue }
+            if ($kojin.KojinNo -ne '') {
+                # すでに別の番号が入っている。上書きすると過去の結果票にも影響するので出さない
+                $rep.Status = "取込対象外(すでに別の番号 $($kojin.KojinNo) が入っています)"
+                $plan += $rep; continue
+            }
+            $rep.Status = 'OK'
+            $rep.Update = @{
+                Sql   = 'UPDATE T_KOJIN1 SET KOJIN_NO = @v WHERE KOJIN_ID = @kid'
+                P     = @{ v = $v; kid = $kojin.KojinId }
+                Table = 'T_KOJIN1'
+            }
+            $plan += $rep
+            continue
+        }
 
         # 所見欄が空でも、検査を実施していれば既定コード(異常なし)を書く
         # 所見欄が空のとき、検査を実施していれば既定値(異常なし等)を入れる
@@ -1039,7 +1069,7 @@ function Show-Plan($plan, [string]$who) {
     $ok   = @($plan | Where-Object { $_.Status -eq 'OK' })
     $warn = @($plan | Where-Object { $_.Status -eq '列未設定' -or $_.Status -eq '項目CD未設定' })
     $drop = @($plan | Where-Object { $_.Status -like '取込対象外*' })
-    $err  = @($plan | Where-Object { $_.Status -ne 'OK' -and $_.Status -ne '列未設定' -and $_.Status -ne '項目CD未設定' -and $_.Status -notlike '取込対象外*' })
+    $err  = @($plan | Where-Object { $_.Status -ne 'OK' -and $_.Status -ne '列未設定' -and $_.Status -ne '項目CD未設定' -and $_.Status -ne '設定済み(変更なし)' -and $_.Status -notlike '取込対象外*' })
     $def  = @($ok | Where-Object { $_.IsDefault })
     $line = "書込可能: {0} 件 / 対応表未設定(スキップ): {1} 件 / エラー: {2} 件" -f $ok.Count, $warn.Count, $err.Count
     if ($def.Count  -gt 0) { $line += " / うち既定値: {0} 件" -f $def.Count }
@@ -1065,6 +1095,17 @@ function Backup-Kensa($conn, $pkSeq) {
     $file = Join-Path $BackupDir ("T_KENSA_{0}_{1}.csv" -f $pkSeq, (Get-Date -Format 'yyyyMMdd_HHmmss'))
     $dt | Export-Csv -Path $file -NoTypeInformation -Encoding UTF8
     Write-Host "[バックアップ] 書込前の T_KENSA を保存: $file" -ForegroundColor DarkGray
+    return $file
+}
+
+# 個人マスタ(社員番号など)を書き換えるときのバックアップ。
+# T_KENSA と違い「人」に紐づくので、KOJIN_ID をファイル名にする。
+function Backup-Kojin1($conn, $kojinId) {
+    if (-not (Test-Path $BackupDir)) { [void](New-Item -ItemType Directory -Path $BackupDir) }
+    $dt = Invoke-DbQuery $conn 'SELECT * FROM T_KOJIN1 WHERE KOJIN_ID = @k' @{ k = $kojinId }
+    $file = Join-Path $BackupDir ("T_KOJIN1_{0}_{1}.csv" -f $kojinId, (Get-Date -Format 'yyyyMMdd_HHmmss'))
+    $dt | Export-Csv -Path $file -NoTypeInformation -Encoding UTF8
+    Write-Host "[バックアップ] 書込前の T_KOJIN1 を保存: $file" -ForegroundColor DarkGray
     return $file
 }
 
@@ -1097,6 +1138,11 @@ function Commit-Plan($conn, $pkSeq, $plan) {
         throw "この受診者は健診ナビの結果入力画面で編集中です ($lock)。画面を閉じてから再実行してください。"
     }
     [void](Backup-Kensa $conn $pkSeq)
+    # 個人マスタも書き換えるなら、そちらも先に控えておく (元に戻せるように)
+    $kojinTargets = @($targets | Where-Object { $_.Update.Table -eq 'T_KOJIN1' })
+    if ($kojinTargets.Count -gt 0) {
+        [void](Backup-Kojin1 $conn $kojinTargets[0].Update.P.kid)
+    }
     $tran = $conn.BeginTransaction()
     try {
         Acquire-AppLock $conn $tran ("KENSA_IMPORT:" + $pkSeq)
@@ -1112,7 +1158,8 @@ function Commit-Plan($conn, $pkSeq, $plan) {
             $p['p'] = $pkSeq
             $n = Invoke-DbExec $conn $tran $t.Update.Sql $p
             if ($n -ne 1) {
-                throw ("UPDATE影響行数が {0} でした (KOMOKU_CD={1})。ロールバックします。" -f $n, $t.KomokuCd)
+                throw ("UPDATE影響行数が {0} でした ({1})。ロールバックします。" -f $n,
+                       $(if ($t.Update.Table) { $t.Update.Table + '/' + $t.Label } else { 'KOMOKU_CD=' + $t.KomokuCd }))
             }
             $done++
         }
@@ -1447,10 +1494,10 @@ try {
                 continue
             }
         }
-        $plan = Build-Plan $conn $mapRows $valueMap $fields $current
+        $plan = Build-Plan $conn $mapRows $valueMap $fields $current $navi
         Show-Plan $plan ("受付番号 " + $kenNo)
 
-        $err = @($plan | Where-Object { $_.Status -ne 'OK' -and $_.Status -ne '列未設定' -and $_.Status -ne '項目CD未設定' -and $_.Status -notlike '取込対象外*' })
+        $err = @($plan | Where-Object { $_.Status -ne 'OK' -and $_.Status -ne '列未設定' -and $_.Status -ne '項目CD未設定' -and $_.Status -ne '設定済み(変更なし)' -and $_.Status -notlike '取込対象外*' })
         $sumPeople++
         $sumOk += @($plan | Where-Object { $_.Status -eq 'OK' }).Count
         $sumDrop += @($plan | Where-Object { $_.Status -like '取込対象外*' }).Count

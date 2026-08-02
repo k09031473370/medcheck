@@ -1,6 +1,7 @@
 ﻿Col,Col2,Label,Kind,KOMOKU_CD,SYOKEN_CD,SYOKEN_CD2,CodeMap,IfEmpty,ReqCol,ReqVal,Format,Note
 # DETECT=COLS:95-120
 # LABEL=リアンパターン (106列)
+1,,社員番号,KOJINNO,,,,,,,,,個人マスタ(T_KOJIN1.KOJIN_NO)へ入れる。結果票の差込み文字 **社員番号 がここを読む。すでに別の番号が入っている人は上書きしない
 2,,受付番号,KENNO,,,,,,,,,テンプレート「受付番号」
 3,,受診日,KENYMD,,,,,,,,,テンプレート「受診日付」
 7,,氏名(漢字),NAMEKANJI,,,,,,,,,受付番号の照合に使用

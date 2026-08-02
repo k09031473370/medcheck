@@ -50,7 +50,8 @@ Invoke-Expression (Get-Part 'function Test-Locked' 'function Commit-Plan')
 if ($List -or -not $File) {
     if (-not (Test-Path $BackupDir)) { throw "backup フォルダがありません: $BackupDir" }
     Write-Host "=== backup フォルダの中身 (新しい順) ===" -ForegroundColor Cyan
-    Get-ChildItem $BackupDir -Filter 'T_KENSA_*.csv' -File |
+    Get-ChildItem $BackupDir -File |
+        Where-Object { $_.Name -like 'T_KENSA_*.csv' -or $_.Name -like 'T_KOJIN1_*.csv' } |
         Sort-Object LastWriteTime -Descending |
         Select-Object -First 40 @{n='保存日時';e={$_.LastWriteTime}}, @{n='ファイル';e={$_.Name}}, @{n='サイズ';e={$_.Length}} |
         Format-Table -AutoSize | Out-String -Width 200 | Write-Host
@@ -63,8 +64,57 @@ if ($List -or -not $File) {
 if (-not (Test-Path $File)) { throw "バックアップファイルがありません: $File" }
 $rows = @(Import-Csv -Path $File -Encoding UTF8)
 if ($rows.Count -eq 0) { throw "バックアップが空です: $File" }
+$cols = $rows[0].PSObject.Properties.Name
+
+# ---- 個人マスタ(社員番号)のバックアップなら、そちらの手順で戻して終わり ----
+# このツールが個人マスタに書くのは社員番号(KOJIN_NO)だけなので、戻すのもそこだけ。
+# 氏名や住所まで巻き戻すと、取込と関係のない手直しまで消えてしまう。
+if ($cols -contains 'KOJIN_ID' -and $cols -notcontains 'KOMOKU_CD') {
+    if ($rows.Count -ne 1) { throw "1人分のバックアップだけを指定してください (行数 $($rows.Count))" }
+    $kojinId = Normalize-Text $rows[0].KOJIN_ID
+    $bNo = Normalize-Text $rows[0].KOJIN_NO
+    Write-Host ("バックアップ: {0}" -f $File) -ForegroundColor Cyan
+    Write-Host ("対象 KOJIN_ID : {0} (個人マスタの社員番号)" -f $kojinId) -ForegroundColor Cyan
+
+    $conn = Open-Db
+    try {
+        $dt = Invoke-DbQuery $conn 'SELECT KOJIN_ID, KANJI_SIMEI, KOJIN_NO FROM T_KOJIN1 WHERE KOJIN_ID = @k' @{ k = $kojinId }
+        if ($dt.Rows.Count -eq 0) { throw "この KOJIN_ID が健診ナビにありません: $kojinId" }
+        $nNo = Normalize-Text ([string]$dt.Rows[0].KOJIN_NO)
+        Write-Host ("氏名: {0}" -f $dt.Rows[0].KANJI_SIMEI)
+        if ($bNo -eq $nNo) {
+            Write-Host 'バックアップの内容と現在の値は同じです。戻すものはありません。' -ForegroundColor Green
+            return
+        }
+        Write-Host ''
+        Write-Host ("社員番号  今: 「{0}」  →  戻す: 「{1}」" -f $nNo, $bNo)
+        if (-not $Commit) {
+            Write-Host ''
+            Write-Host '※ 表示のみです。実際に戻すには -Commit を付けて再実行してください。' -ForegroundColor Yellow
+            return
+        }
+        $safety = Join-Path $BackupDir ("T_KOJIN1_{0}_{1}_before_restore.csv" -f $kojinId, (Get-Date -Format 'yyyyMMdd_HHmmss'))
+        (Invoke-DbQuery $conn 'SELECT * FROM T_KOJIN1 WHERE KOJIN_ID = @k' @{ k = $kojinId }) |
+            Export-Csv -Path $safety -NoTypeInformation -Encoding UTF8
+        Write-Host "[バックアップ] 戻す前の状態: $safety" -ForegroundColor DarkGray
+
+        $tran = $conn.BeginTransaction()
+        try {
+            Acquire-AppLock $conn $tran ("KOJIN_IMPORT:" + $kojinId)
+            $n = Invoke-DbExec $conn $tran 'UPDATE T_KOJIN1 SET KOJIN_NO = @v WHERE KOJIN_ID = @k' `
+                 @{ v = $bNo; k = $kojinId }
+            if ($n -ne 1) { throw ("UPDATE影響行数が {0} でした。ロールバックします。" -f $n) }
+            $tran.Commit()
+            Write-Host ("[復元完了] 社員番号を元に戻しました (KOJIN_ID={0})" -f $kojinId) -ForegroundColor Green
+        }
+        catch { $tran.Rollback(); throw }
+    }
+    finally { $conn.Close() }
+    return
+}
+
 foreach ($need in @('PK_SEQ','KOMOKU_CD','KEKKA')) {
-    if ($rows[0].PSObject.Properties.Name -notcontains $need) {
+    if ($cols -notcontains $need) {
         throw "このCSVは T_KENSA のバックアップではないようです ($need の列がありません): $File"
     }
 }

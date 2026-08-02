@@ -1,17 +1,21 @@
 ﻿<#
   「社員番号」がDBのどの欄に入るのかを突き止める (check11.ps1)
   check11.bat をダブルクリックすると実行され、結果 r_check11.txt がメモ帳で開きます。
-  DBは読むだけ、帳票も読むだけで、一切変更しません。
+  DBは読むだけで、一切変更しません。
 
   分かっていること:
     帳票の差込み文字 **社員番号 は健診ナビが用意している
-    (701_新規 Microsoft Excel Worksheet.xlsx で使われている)。
-    ただし、それがDBのどの欄を読んでいるかは分からない。
+    (退避\701_新規 Microsoft Excel Worksheet.xlsx が差込み文字の一覧になっている)。
+    健診ナビの「個人マスタ」画面にも 社員番号 と 部署 の入力欄がある。
+    残るは、それがDBのどの欄に入るのか。
 
   やりかた:
-    健診ナビの画面で、テスト用の人1人に「社員番号」らしい欄へ
-    目印になる値 (既定 99999) を入れて保存してから、これを実行する。
-    個人・受診まわりの全部の欄からその値を探して、入った場所を特定する。
+    健診ナビの個人マスタで、テスト用の人1人の「社員番号」に
+    目印の値 (既定 99999) を入れて登録してから、これを実行する。
+    DB全体の文字列の欄からその値を探して、入った場所を特定する。
+
+  ※ 前の版は動的SQLを使っていて db_tool.ps1 に弾かれた。
+     db_tool.ps1 にある -FindText (全テーブル文字列検索) を使う形に直した。
 #>
 $ErrorActionPreference = 'Continue'
 $dir = $PSScriptRoot
@@ -21,75 +25,53 @@ $out = Join-Path $dir 'r_check11.txt'
 function W($t) { $t | Out-File $out -Append -Encoding Default }
 
 Write-Host ''
-Write-Host '健診ナビの画面で、テストの人に入れた値を教えてください。'
-Write-Host '(まだ入れていない場合は、そのまま Enter を押せば帳票の調査だけ行います)'
+Write-Host '健診ナビの個人マスタで「社員番号」に入れた値を教えてください。'
 $val = Read-Host '探す値 [既定 99999]'
 if ([string]::IsNullOrWhiteSpace($val)) { $val = '99999' }
 $val = $val.Trim()
 
+Write-Host ''
+Write-Host 'DB全体を探します。1〜2分かかります…'
+
 "=== 社員番号の入り先さがし $(Get-Date -Format 'yyyy/MM/dd HH:mm') ===" | Out-File $out -Encoding Default
 W "探す値: $val"
 
-if (Test-Path $tool) {
-    # 個人・受診まわりの全列から、その値を探す
-    $sql = @"
-IF OBJECT_ID('tempdb..#r') IS NOT NULL DROP TABLE #r;
-CREATE TABLE #r (TBL sysname, COL sysname, 件数 int);
-DECLARE @v nvarchar(100) = N'$($val -replace "'", "''")';
-DECLARE @sql nvarchar(max) = N'';
-SELECT @sql = @sql + N'INSERT INTO #r SELECT ''' + c.TABLE_NAME + N''',''' + c.COLUMN_NAME
-     + N''', COUNT(*) FROM [' + c.TABLE_NAME + N'] WHERE CONVERT(nvarchar(200),['
-     + c.COLUMN_NAME + N']) LIKE ''%'' + @v + ''%'' HAVING COUNT(*) > 0;'
-FROM INFORMATION_SCHEMA.COLUMNS c
-WHERE c.TABLE_NAME IN ('T_KOJIN1','T_KOJIN2','T_KENSIN','T_KANJA_G')
-  AND c.DATA_TYPE IN ('varchar','nvarchar','char','nchar','numeric','int','bigint','smallint','decimal');
-EXEC sp_executesql @sql, N'@v nvarchar(100)', @v = @v;
-SELECT TBL AS テーブル, COL AS 列, 件数 FROM #r ORDER BY 件数, TBL, COL;
-DROP TABLE #r;
-"@
-    W ''
-    W '--- 1. その値が入っている欄 (件数が1なら、そこが社員番号の欄) ---'
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $tool -Sql $sql -MaxRows 60 *>&1 | Out-File $out -Append -Encoding Default
-    W ''
-    W '※ 何も出ないときは、まだ画面から入れていないか、別の値です。'
-    W '※ 件数が多い欄(受付番号など)は、たまたま同じ数字が入っているだけなので無視してください。'
-} else {
-    W 'db_tool.ps1 がありません'
-}
+if (-not (Test-Path $tool)) { W "db_tool.ps1 がありません: $dir"; notepad $out; return }
 
-# ---- 701 の中身を見て、社員番号の隣に何が書いてあるか確かめる ----
 W ''
-W '--- 2. **社員番号 を使っている帳票の中身 ---'
-$reader = Join-Path $dir 'xlsx_read.ps1'
-if (-not (Test-Path $reader)) {
-    W 'xlsx_read.ps1 がありません'
-} else {
-    . $reader
-    $roots = @('\\KNSV\KenshinNavi\11_健康診断結果報告書', '\\KNSV\KenshinNavi', 'C:\KenshinNavi')
-    $tpl = $null
-    foreach ($r in $roots) {
-        if (-not (Test-Path $r)) { continue }
-        $hit = Get-ChildItem -Path $r -Filter '701_*.xls*' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($hit) { $tpl = $hit.FullName; break }
-    }
-    if (-not $tpl) {
-        W '701_ で始まる帳票が見つかりませんでした。'
-    } else {
-        W "テンプレート: $tpl"
-        W ''
-        try {
-            $rows = Read-Xlsx $tpl
-            for ($i = 0; $i -lt $rows.Count; $i++) {
-                $line = @()
-                for ($c = 0; $c -lt $rows[$i].Count; $c++) {
-                    $v = [string]$rows[$i][$c]
-                    if ($v.Trim() -ne '') { $line += ('{0}:{1}' -f ($c + 1), $v.Trim()) }
-                }
-                if ($line.Count -gt 0) { W ('{0,4}行  {1}' -f ($i + 1), ($line -join ' | ')) }
-            }
-        } catch { W ("読めませんでした: {0}" -f $_.Exception.Message) }
-    }
-}
+W '--- 1. その値が入っている欄 ---'
+& powershell -NoProfile -ExecutionPolicy Bypass -File $tool -FindText $val -MaxRows 5 *>&1 |
+    Out-File $out -Append -Encoding Default
+
+W ''
+W '※ 受付番号など、たまたま同じ数字が入っているだけの欄も出ます。'
+W '※ 個人マスタ(T_KOJIN1 / T_KOJIN2)に出てくる欄が、社員番号の入り先です。'
+
+# 部署の入り先も一緒に確かめる (個人マスタの社員番号のすぐ上にある欄)
+W ''
+W '--- 2. 部署まわり (T_BUSYO と、個人マスタの部署らしい欄) ---'
+$sql = @"
+SELECT TOP 20 j.KOJIN_ID AS 管理ID, j.KANJI_SIMEI AS 氏名,
+       j.KOJIN_NO AS 個人番号, j.KARUTE_NO AS カルテNo, j.TECHO_NO AS 手帳No,
+       j2.SYUSSEKI_NO AS 出席番号, j2.DIVISION AS DIVISION,
+       j2.GYOSYU AS 業種, j2.CLASS AS CLASS, j2.GAKUNEN AS 学年
+FROM T_KOJIN1 j LEFT JOIN T_KOJIN2 j2 ON j2.KOJIN_ID = j.KOJIN_ID
+WHERE j.KANA_SIMEI LIKE N'ﾃｽﾄ%' OR j.KANA_SIMEI LIKE N'テスト%' OR j.KANJI_SIMEI LIKE N'テスト%'
+ORDER BY j.KOJIN_ID DESC
+"@
+& powershell -NoProfile -ExecutionPolicy Bypass -File $tool -Sql $sql -MaxRows 25 *>&1 |
+    Out-File $out -Append -Encoding Default
+
+W ''
+W '--- 3. 個人マスタ T_KOJIN1 の列一覧 (社員番号がこちらにある場合の確認用) ---'
+$sql2 = @"
+SELECT COLUMN_NAME AS COL, DATA_TYPE AS TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'T_KOJIN1'
+ORDER BY ORDINAL_POSITION
+"@
+& powershell -NoProfile -ExecutionPolicy Bypass -File $tool -Sql $sql2 -MaxRows 80 *>&1 |
+    Out-File $out -Append -Encoding Default
 
 W ''
 W '=== 完了。この内容をチャットに貼り付けてください ==='

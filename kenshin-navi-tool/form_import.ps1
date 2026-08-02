@@ -726,6 +726,12 @@ function Load-RosterPkSeq($conn, [string]$path) {
 
 function Build-Plan($conn, $mapRows, $valueMap, $fields, $current) {
     $plan = @()
+    # 「自覚症状1〜10」のように枠が並んでいる項目で、同じ内容を二重に書かないための記録。
+    # 例: リアンの「眼が疲れる・かすむ」と「視力が低下した」は、健診ナビでは
+    #     どちらも「目が疲れたり、かすんだりする」の1つしかない。
+    # 枠が並んでいる項目(017107A〜J のように末尾が英字)だけが対象。
+    # 聴力(067132/067133/…)のように別々の項目コードなら重複扱いしない。
+    $seenChoice = @{}
     foreach ($m in $mapRows) {
         $kind = (Normalize-Text $m.Kind).ToUpper()
         # 人の特定・照合に使う列と、対象外の列はプレビューに出さない
@@ -965,6 +971,17 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current) {
                 $rep.New = $code; $plan += $rep; continue
             }
             if (-not $current.ContainsKey($komoku)) { $rep.Status = '枠なし'; $rep.New = $label; $plan += $rep; continue }
+
+            # 並んだ枠(017107A〜J等)に同じ選択肢を二重に書かない
+            if ($komoku -match '^(.*\d)[A-Z]$') {
+                $dupKey = '{0}/{1}' -f $Matches[1], $code
+                if ($seenChoice.ContainsKey($dupKey)) {
+                    $rep.Status = "取込対象外(同じ内容が$($seenChoice[$dupKey])に入るため)"
+                    $rep.New = $label; $plan += $rep; continue
+                }
+                $seenChoice[$dupKey] = $rep.Label
+            }
+
             $rep.Now = Normalize-Text ([string]$current[$komoku].KEKKA)
             $rep.New = $label
             $rep.KekkaCd = $code

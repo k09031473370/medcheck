@@ -264,7 +264,7 @@ function Detect-MappingPath([string]$path) {
         $colCount = ($first -split ',').Count
     }
 
-    $byHeader = $null; $byCols = $null
+    $byHeader = $null; $byHeaderKw = -1; $byCols = $null
     foreach ($f in (Get-ChildItem -Path $MapDir -Filter 'mapping*.csv' -File -ErrorAction SilentlyContinue | Sort-Object Name)) {
         foreach ($ln in (Get-Content $f.FullName -TotalCount 8 -Encoding UTF8)) {
             if ($ln -notmatch '^#\s*DETECT\s*=\s*(.+)$') { continue }
@@ -273,7 +273,9 @@ function Detect-MappingPath([string]$path) {
                 $kws = @($Matches[1] -split '[,|]' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
                 $all = $true
                 foreach ($k in $kws) { if ($first -notlike "*$k*") { $all = $false; break } }
-                if ($all -and -not $byHeader) { $byHeader = $f.FullName }
+                # 複数の対応表に合うときは、キーワードが多い(=より特定的な)方を選ぶ。
+                # 例: 芝浦の素の46列(受付NO,Q1)と日付列つき47列(受診日,受付NO,Q1)。
+                if ($all -and $kws.Count -gt $byHeaderKw) { $byHeader = $f.FullName; $byHeaderKw = $kws.Count }
             }
             elseif ($spec -match '^(?i)COLS\s*:\s*(\d+)\s*-\s*(\d+)$') {
                 if ($colCount -ge [int]$Matches[1] -and $colCount -le [int]$Matches[2] -and -not $byCols) { $byCols = $f.FullName }

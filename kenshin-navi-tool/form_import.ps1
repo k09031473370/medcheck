@@ -270,12 +270,20 @@ function Detect-MappingPath([string]$path) {
             if ($ln -notmatch '^#\s*DETECT\s*=\s*(.+)$') { continue }
             $spec = $Matches[1].Trim()
             if ($spec -match '^(?i)HEADER\s*:\s*(.+)$') {
+                # 「!」で始まるキーワードは「見出しに無いこと」が条件 (除外キーワード)。
+                # 例: 芝浦の素の46列は !受診日,!日付 を付け、日付列つきファイルを取り違えない。
                 $kws = @($Matches[1] -split '[,|]' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
-                $all = $true
-                foreach ($k in $kws) { if ($first -notlike "*$k*") { $all = $false; break } }
-                # 複数の対応表に合うときは、キーワードが多い(=より特定的な)方を選ぶ。
-                # 例: 芝浦の素の46列(受付NO,Q1)と日付列つき47列(受診日,受付NO,Q1)。
-                if ($all -and $kws.Count -gt $byHeaderKw) { $byHeader = $f.FullName; $byHeaderKw = $kws.Count }
+                $all = $true; $nPos = 0
+                foreach ($k in $kws) {
+                    if ($k.StartsWith('!')) {
+                        if ($first -like ('*' + $k.Substring(1) + '*')) { $all = $false; break }
+                    } else {
+                        $nPos++
+                        if ($first -notlike "*$k*") { $all = $false; break }
+                    }
+                }
+                # 複数の対応表に合うときは、(除外を数えず)キーワードが多い方を選ぶ。
+                if ($all -and $nPos -gt $byHeaderKw) { $byHeader = $f.FullName; $byHeaderKw = $nPos }
             }
             elseif ($spec -match '^(?i)COLS\s*:\s*(\d+)\s*-\s*(\d+)$') {
                 if ($colCount -ge [int]$Matches[1] -and $colCount -le [int]$Matches[2] -and -not $byCols) { $byCols = $f.FullName }

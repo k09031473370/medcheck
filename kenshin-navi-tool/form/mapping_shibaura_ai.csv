@@ -1,5 +1,5 @@
 ﻿Col,Col2,Label,Kind,KOMOKU_CD,SYOKEN_CD,SYOKEN_CD2,CodeMap,IfEmpty,ReqCol,Format,Note
-# DETECT=HEADER:受付NO,Q1
+# DETECT=HEADER:受付NO,Q1,!受診日,!日付,!実施日
 # DETECT=COLS:40-50
 # LABEL=芝浦巡回AIデータ (46列)
 # 2026/08/02 実データ(0615_0617.xlsx 48人)で列を確定した。

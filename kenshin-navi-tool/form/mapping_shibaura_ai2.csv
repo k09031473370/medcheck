@@ -1,5 +1,7 @@
 ﻿Col,Col2,Label,Kind,KOMOKU_CD,SYOKEN_CD,SYOKEN_CD2,CodeMap,IfEmpty,ReqCol,Format,Note
 # DETECT=HEADER:受診日,受付NO,Q1
+# DETECT=HEADER:日付,受付NO,Q1
+# DETECT=HEADER:実施日,受付NO,Q1
 # DETECT=COLS:47-47
 # LABEL=芝浦巡回AIデータ (47列・A列に受診日)
 # 芝浦巡回AIデータのA列に「受診日」を挿入した推奨レイアウト。

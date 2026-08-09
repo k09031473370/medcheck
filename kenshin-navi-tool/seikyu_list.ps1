@@ -111,6 +111,7 @@ ORDER BY LEN(LTRIM(RTRIM(s.UKE_NO_KENSA))), s.UKE_NO_KENSA
 
     $lines = @()
     $warn = @()
+    $chk  = @()   # 減額になった人 (目視確認用)
     $sumBase = 0; $sumOpt = 0; $sumAdj = 0; $sumBill = 0; $sumKenpo = 0
 
     foreach ($r in $people.Rows) {
@@ -137,15 +138,18 @@ ORDER BY LEN(LTRIM(RTRIM(s.UKE_NO_KENSA))), s.UKE_NO_KENSA
 
         # ---- オプション明細 (T_RYOUKIN。受付で入力した料金) ----
         $optSum = 0
+        $optKenpo = 0   # オプションの健保負担分 (マンモ・子宮など協会補助のあるもの)
         $optNames = @()
         $optCds = @{}   # 金額つきで入っていたオプションの項目CD (二重加算防止に使う)
         $opt = Invoke-DbQuery $conn @'
-SELECT LTRIM(RTRIM(r.KOMOKU_CD)) AS CD, ISNULL(r.GOUKEI,0) AS GOUKEI, k.MEISYO1
+SELECT LTRIM(RTRIM(r.KOMOKU_CD)) AS CD, ISNULL(r.GOUKEI,0) AS GOUKEI,
+       ISNULL(r.KENPO_RYOUKIN,0) AS KENPO_RYOUKIN, k.MEISYO1
 FROM T_RYOUKIN r
 LEFT JOIN T_KOMOKU k ON LTRIM(RTRIM(k.KOMOKU_CD)) = LTRIM(RTRIM(r.KOMOKU_CD))
 WHERE r.PK_SEQ = @p AND LTRIM(RTRIM(ISNULL(r.KOMOKU_CD,''))) <> ''
 '@ @{ p = $pk }
         foreach ($o in $opt.Rows) {
+            $optKenpo += [int]$o.KENPO_RYOUKIN
             $g = [int]$o.GOUKEI
             if ($g -eq 0) { continue }
             $optSum += $g
@@ -166,10 +170,16 @@ SELECT LTRIM(RTRIM(KOMOKU_CD)) AS CD, KEKKA FROM T_KENSA WHERE PK_SEQ = @p
         function Test-Waku([string]$cd) { return $waku.ContainsKey($cd) }                       # 枠がある
         function Test-Done([string]$cd) { return ($waku.ContainsKey($cd) -and $waku[$cd] -ne '') } # 結果あり
 
-        $ixMiss   = ((Test-Waku '077300A') -and -not (Test-Done '077300A'))  # 胃部X線: 枠があるのに結果が無い
+        # 料金表に状態別の行があるコースは、そのコースに検査が含まれている証拠。
+        # その場合は「枠が無い」も未実施として扱う(巡回でバリウム車が無い日などは
+        # 健診ナビに枠すら作られないことがあるため、枠の有無だけでは取りこぼす)。
+        $ixPriced  = ($null -ne (Find-Price $dantaiMei $course '胃部X線未実施'))
+        $benPriced = ($null -ne (Find-Price $dantaiMei $course '便潜血未実施'))
+
+        $ixMiss   = (-not (Test-Done '077300A')) -and ((Test-Waku '077300A') -or $ixPriced)
         $psaDone  = (Test-Done '067818')                                     # PSA: 結果あり
         # 便潜血: 1回目=069245 / 2回目=069246
-        $benFrame = ((Test-Waku '069245') -or (Test-Waku '069246'))
+        $benFrame = ((Test-Waku '069245') -or (Test-Waku '069246') -or $benPriced)
         $benCount = @('069245','069246' | Where-Object { Test-Done $_ }).Count
 
         # ---- 状態を決めて、基本料金を料金表から引く ----
@@ -182,6 +192,13 @@ SELECT LTRIM(RTRIM(KOMOKU_CD)) AS CD, KEKKA FROM T_KENSA WHERE PK_SEQ = @p
         elseif ($ixMiss)                          { $state = '胃部X線未実施' }
         elseif ($benFrame -and $benCount -eq 0)   { $state = '便潜血未実施' }
         elseif ($benFrame -and $benCount -eq 1)   { $state = '便潜血1本のみ' }
+
+        # 減額になる人は金額が変わるので、必ず一覧に出して目視確認してもらう。
+        # 「結果がまだ入っていないだけ」を「受けなかった」と取り違えると請求を誤る。
+        if ($state -ne '通常') {
+            $chk += ("{0} {1} … {2} (胃部X線の枠 {3} / 便潜血 {4}本)" -f $uke, $name, $state,
+                     $(if (Test-Waku '077300A') { 'あり' } else { 'なし' }), $benCount)
+        }
 
         $priceRow = Find-Price $dantaiMei $course $state
         if (-not $priceRow -and $state -ne '通常') {
@@ -196,6 +213,7 @@ SELECT LTRIM(RTRIM(KOMOKU_CD)) AS CD, KEKKA FROM T_KENSA WHERE PK_SEQ = @p
             $base = $masterBase; $kenpo = $masterKenpo
             $warn += ("コース {0}: seikyu_prices.csv に料金が無いため健診ナビのマスタの額 ({1}円) を使いました。年度が古い可能性があるので確認してください" -f $course, $masterBase)
         }
+        $kenpo += $optKenpo   # マンモ・子宮など、オプションにも協会補助があるぶんを合算
 
         # ---- 調整ルール適用 ----
         $adjSum = 0
@@ -277,6 +295,11 @@ SELECT LTRIM(RTRIM(KOMOKU_CD)) AS CD, KEKKA FROM T_KENSA WHERE PK_SEQ = @p
     Write-Host ("健保への請求 (参考): {0:N0} 円" -f $sumKenpo)
     Write-Host ''
     Write-Host "出力: $OutCsv" -ForegroundColor Cyan
+    if ($chk.Count -gt 0) {
+        Write-Host ''
+        Write-Host ('【減額になった人 {0} 名】結果がまだ入っていないだけでないか確認してください' -f $chk.Count) -ForegroundColor Yellow
+        $chk | ForEach-Object { Write-Host "  ・$_" }
+    }
     if ($warn.Count -gt 0) {
         Write-Host ''
         Write-Host '【確認が必要】' -ForegroundColor Yellow

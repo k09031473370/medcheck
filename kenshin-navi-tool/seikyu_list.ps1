@@ -46,6 +46,8 @@ Invoke-Expression (Get-Part 'function Normalize-Text' 'function Normalize-KenNo'
 Invoke-Expression (Get-Part 'function Normalize-Ymd' 'function Parse-CsvText')
 Invoke-Expression (Get-Part 'function Resolve-ConnectionString' 'function Get-CurrentKensa')
 
+# 通常は 請求一覧.bat が set /p で聞いて引数で渡してくる。
+# 直接呼ばれて引数が無いときだけ、ここで聞く。
 if (-not $Ymd)    { $Ymd    = Read-Host '受診日 (例 2026/06/26)' }
 if (-not $Dantai) { $Dantai = Read-Host '会社名の一部 (例 サンテック)' }
 $y = Normalize-Ymd $Ymd

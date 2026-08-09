@@ -130,19 +130,22 @@ WHERE r.PK_SEQ = @p AND LTRIM(RTRIM(ISNULL(r.KOMOKU_CD,''))) <> ''
             $optNames += ('{0} {1}円' -f ($nm -replace '[【】]', ''), $g)
         }
 
-        # ---- 実施状況 ----
+        # ---- 実施状況 (その人の全検査行を1回で読んで、条件はメモリ上で判定する) ----
         $kensa = Invoke-DbQuery $conn @'
-SELECT LTRIM(RTRIM(KOMOKU_CD)) AS CD, KEKKA FROM T_KENSA
-WHERE PK_SEQ = @p AND LTRIM(RTRIM(KOMOKU_CD)) IN ('077300A','067818')
+SELECT LTRIM(RTRIM(KOMOKU_CD)) AS CD, KEKKA FROM T_KENSA WHERE PK_SEQ = @p
 '@ @{ p = $pk }
-        $hasIxFrame = $false; $ixDone = $false; $psaDone = $false
+        $waku = @{}   # 項目CD → 結果 (枠がある項目だけキーが存在する)
         foreach ($k in $kensa.Rows) {
-            $cd = [string]$k.CD
-            $v = Normalize-Text ([string]$k.KEKKA)
-            if ($cd -eq '077300A') { $hasIxFrame = $true; if ($v -ne '') { $ixDone = $true } }
-            if ($cd -eq '067818' -and $v -ne '') { $psaDone = $true }
+            $waku[[string]$k.CD] = Normalize-Text ([string]$k.KEKKA)
         }
-        $ixMiss = ($hasIxFrame -and -not $ixDone)   # 枠があるのに結果が無い = 撮らなかった
+        function Test-Waku([string]$cd) { return $waku.ContainsKey($cd) }                       # 枠がある
+        function Test-Done([string]$cd) { return ($waku.ContainsKey($cd) -and $waku[$cd] -ne '') } # 結果あり
+
+        $ixMiss   = ((Test-Waku '077300A') -and -not (Test-Done '077300A'))  # 胃部X線: 枠があるのに結果が無い
+        $psaDone  = (Test-Done '067818')                                     # PSA: 結果あり
+        # 便潜血: 1回目=069245 / 2回目=069246
+        $benFrame = ((Test-Waku '069245') -or (Test-Waku '069246'))
+        $benCount = @('069245','069246' | Where-Object { Test-Done $_ }).Count
 
         # ---- 調整ルール適用 ----
         $adjSum = 0
@@ -154,10 +157,16 @@ WHERE PK_SEQ = @p AND LTRIM(RTRIM(KOMOKU_CD)) IN ('077300A','067818')
             if ($rc -ne '' -and $dantaiMei -notlike "*$rc*") { continue }
             if ($rcs -ne '' -and $rcs -ne $course) { continue }
             $hit = $false
-            switch ($cond) {
-                '胃部X線未実施' { $hit = $ixMiss }
-                'PSA実施'      { $hit = $psaDone }
-                default        { $warn += "ルールの条件「$cond」は未対応です (seikyu_rules.csv)"; continue }
+            switch -Regex ($cond) {
+                '^胃部X線未実施$'   { $hit = $ixMiss; break }
+                '^PSA実施$'        { $hit = $psaDone; break }
+                '^便潜血未実施$'    { $hit = ($benFrame -and $benCount -eq 0); break }
+                '^便潜血1本のみ$'   { $hit = ($benFrame -and $benCount -eq 1); break }
+                # 汎用: 「実施:項目CD」=その項目に結果がある / 「未実施:項目CD」=枠があるのに結果が無い
+                # 新しい加減算が出てきたら、コードを直さずルール行の追加だけで対応できる。
+                '^実施:(.+)$'      { $hit = (Test-Done $Matches[1].Trim()); break }
+                '^未実施:(.+)$'    { $c = $Matches[1].Trim(); $hit = ((Test-Waku $c) -and -not (Test-Done $c)); break }
+                default            { $warn += "ルールの条件「$cond」は未対応です (seikyu_rules.csv)"; continue }
             }
             if (-not $hit) { continue }
             $amt = 0
@@ -180,7 +189,8 @@ WHERE PK_SEQ = @p AND LTRIM(RTRIM(KOMOKU_CD)) IN ('077300A','067818')
             調整 = $adjSum
             会社請求額 = $bill
             健保請求_参考 = $kenpo
-            胃部X線 = $(if (-not $hasIxFrame) { '対象外' } elseif ($ixDone) { '実施' } else { '未実施' })
+            胃部X線 = $(if (-not (Test-Waku '077300A')) { '対象外' } elseif ($ixMiss) { '未実施' } else { '実施' })
+            便潜血 = $(if (-not $benFrame) { '対象外' } else { "$benCount本" })
             PSA = $(if ($psaDone) { '実施' } else { '' })
             内訳 = (@($optNames + $adjNames) -join ' / ')
         }
@@ -192,7 +202,7 @@ WHERE PK_SEQ = @p AND LTRIM(RTRIM(KOMOKU_CD)) IN ('077300A','067818')
         コース = ''
         基本料金 = $sumBase; オプション = $sumOpt; 調整 = $sumAdj
         会社請求額 = $sumBill; 健保請求_参考 = $sumKenpo
-        胃部X線 = ''; PSA = ''; 内訳 = ''
+        胃部X線 = ''; 便潜血 = ''; PSA = ''; 内訳 = ''
     }
 
     if (-not $OutCsv) {
@@ -202,7 +212,7 @@ WHERE PK_SEQ = @p AND LTRIM(RTRIM(KOMOKU_CD)) IN ('077300A','067818')
     $lines | Export-Csv -Path $OutCsv -NoTypeInformation -Encoding Default
 
     Write-Host ''
-    $lines | Format-Table 受付番号, 氏名, 年齢, コース, 基本料金, オプション, 調整, 会社請求額, 胃部X線, PSA -AutoSize |
+    $lines | Format-Table 受付番号, 氏名, 年齢, コース, 基本料金, オプション, 調整, 会社請求額, 胃部X線, 便潜血, PSA -AutoSize |
         Out-String -Width 220 | Write-Host
     Write-Host ("会社請求 合計: {0:N0} 円 (基本 {1:N0} + オプション {2:N0} + 調整 {3:N0})" -f $sumBill, $sumBase, $sumOpt, $sumAdj) -ForegroundColor Green
     Write-Host ("健保への請求 (参考): {0:N0} 円" -f $sumKenpo)

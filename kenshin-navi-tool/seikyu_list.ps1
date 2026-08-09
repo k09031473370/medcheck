@@ -64,6 +64,28 @@ if (Test-Path $rulesPath) {
         (Normalize-Text $_.条件) -ne '' -and -not ((Normalize-Text $_.会社).StartsWith('#')) })
 }
 
+# ---- 状態別の基本料金 (form\seikyu_prices.csv) ----
+#   会社,コースCD,状態,会社請求,健保請求
+#   協会けんぽの料金表そのままの形。胃部X線や便潜血をやらなかった人は
+#   「減額」ではなく状態別の料金行に切り替える(料金表がそういう作りのため)。
+#   この表が最優先で、行が無いコースだけ健診ナビのマスタ(T_COURSE3)を使う。
+$pricesPath = Join-Path $PSScriptRoot 'form\seikyu_prices.csv'
+$prices = @()
+if (Test-Path $pricesPath) {
+    $prices = @(Import-Csv $pricesPath -Encoding UTF8 | Where-Object {
+        (Normalize-Text $_.状態) -ne '' -and -not ((Normalize-Text $_.会社).StartsWith('#')) })
+}
+function Find-Price([string]$dantaiMei, [string]$course, [string]$state) {
+    foreach ($p in $prices) {
+        $pc = Normalize-Text $p.会社
+        if ($pc -ne '' -and $dantaiMei -notlike "*$pc*") { continue }
+        if ((Normalize-Text $p.コースCD) -ne $course) { continue }
+        if ((Normalize-Text $p.状態) -ne $state) { continue }
+        return $p
+    }
+    return $null
+}
+
 $conn = Open-Db
 try {
     # ---- 対象者 ----
@@ -109,12 +131,14 @@ ORDER BY LEN(LTRIM(RTRIM(s.UKE_NO_KENSA))), s.UKE_NO_KENSA
             $age = $a
         }
 
-        $base = [int]$r.DANTAI_RYOUKIN
-        $kenpo = [int]$r.KENPO_RYOUKIN
+        # マスタの料金は「料金表CSVに行が無いとき」の代替。年度が古いことがある
+        $masterBase = [int]$r.DANTAI_RYOUKIN
+        $masterKenpo = [int]$r.KENPO_RYOUKIN
 
         # ---- オプション明細 (T_RYOUKIN。受付で入力した料金) ----
         $optSum = 0
         $optNames = @()
+        $optCds = @{}   # 金額つきで入っていたオプションの項目CD (二重加算防止に使う)
         $opt = Invoke-DbQuery $conn @'
 SELECT LTRIM(RTRIM(r.KOMOKU_CD)) AS CD, ISNULL(r.GOUKEI,0) AS GOUKEI, k.MEISYO1
 FROM T_RYOUKIN r
@@ -125,6 +149,7 @@ WHERE r.PK_SEQ = @p AND LTRIM(RTRIM(ISNULL(r.KOMOKU_CD,''))) <> ''
             $g = [int]$o.GOUKEI
             if ($g -eq 0) { continue }
             $optSum += $g
+            $optCds[[string]$o.CD] = $g
             $nm = Normalize-Text ([string]$o.MEISYO1)
             if ($nm -eq '') { $nm = [string]$o.CD }
             $optNames += ('{0} {1}円' -f ($nm -replace '[【】]', ''), $g)
@@ -147,6 +172,31 @@ SELECT LTRIM(RTRIM(KOMOKU_CD)) AS CD, KEKKA FROM T_KENSA WHERE PK_SEQ = @p
         $benFrame = ((Test-Waku '069245') -or (Test-Waku '069246'))
         $benCount = @('069245','069246' | Where-Object { Test-Done $_ }).Count
 
+        # ---- 状態を決めて、基本料金を料金表から引く ----
+        $state = '通常'
+        if ($ixMiss -and $benFrame -and $benCount -eq 0) {
+            # 胃も便も無しの組合せ料金は料金表に無い。胃欠を採用して確認を促す
+            $state = '胃部X線未実施'
+            $warn += ("{0} {1}: 胃部X線と便潜血の両方が未実施です。胃欠の料金にしていますが、正しい額を確認してください" -f $uke, $name)
+        }
+        elseif ($ixMiss)                          { $state = '胃部X線未実施' }
+        elseif ($benFrame -and $benCount -eq 0)   { $state = '便潜血未実施' }
+        elseif ($benFrame -and $benCount -eq 1)   { $state = '便潜血1本のみ' }
+
+        $priceRow = Find-Price $dantaiMei $course $state
+        if (-not $priceRow -and $state -ne '通常') {
+            $warn += ("{0} {1}: 状態「{2}」の料金が seikyu_prices.csv にありません (通常料金で計算)" -f $uke, $name, $state)
+            $priceRow = Find-Price $dantaiMei $course '通常'
+        }
+        if ($priceRow) {
+            $base = 0; $kenpo = 0
+            [void][int]::TryParse((Normalize-Text $priceRow.会社請求), [ref]$base)
+            [void][int]::TryParse((Normalize-Text $priceRow.健保請求), [ref]$kenpo)
+        } else {
+            $base = $masterBase; $kenpo = $masterKenpo
+            $warn += ("コース {0}: seikyu_prices.csv に料金が無いため健診ナビのマスタの額 ({1}円) を使いました。年度が古い可能性があるので確認してください" -f $course, $masterBase)
+        }
+
         # ---- 調整ルール適用 ----
         $adjSum = 0
         $adjNames = @()
@@ -159,7 +209,14 @@ SELECT LTRIM(RTRIM(KOMOKU_CD)) AS CD, KEKKA FROM T_KENSA WHERE PK_SEQ = @p
             $hit = $false
             switch -Regex ($cond) {
                 '^胃部X線未実施$'   { $hit = $ixMiss; break }
-                '^PSA実施$'        { $hit = $psaDone; break }
+                '^PSA実施$'        {
+                    $hit = $psaDone
+                    # 受付の料金入力にPSAが金額つきで入っていれば、二重になるのでルール加算はしない
+                    if ($hit -and (@('OPJ001','OPI001','OP0002') | Where-Object { $optCds.ContainsKey($_) })) {
+                        $hit = $false
+                    }
+                    break
+                }
                 '^便潜血未実施$'    { $hit = ($benFrame -and $benCount -eq 0); break }
                 '^便潜血1本のみ$'   { $hit = ($benFrame -and $benCount -eq 1); break }
                 # 汎用: 「実施:項目CD」=その項目に結果がある / 「未実施:項目CD」=枠があるのに結果が無い
@@ -184,6 +241,7 @@ SELECT LTRIM(RTRIM(KOMOKU_CD)) AS CD, KEKKA FROM T_KENSA WHERE PK_SEQ = @p
         $lines += [pscustomobject]@{
             受付番号 = $uke; 氏名 = $name; 年齢 = $age
             コース = $courseMei
+            料金区分 = $state
             基本料金 = $base
             オプション = $optSum
             調整 = $adjSum
@@ -200,6 +258,7 @@ SELECT LTRIM(RTRIM(KOMOKU_CD)) AS CD, KEKKA FROM T_KENSA WHERE PK_SEQ = @p
     $lines += [pscustomobject]@{
         受付番号 = ''; 氏名 = ('合計 ' + $people.Rows.Count + '名'); 年齢 = ''
         コース = ''
+        料金区分 = ''
         基本料金 = $sumBase; オプション = $sumOpt; 調整 = $sumAdj
         会社請求額 = $sumBill; 健保請求_参考 = $sumKenpo
         胃部X線 = ''; 便潜血 = ''; PSA = ''; 内訳 = ''
@@ -212,7 +271,7 @@ SELECT LTRIM(RTRIM(KOMOKU_CD)) AS CD, KEKKA FROM T_KENSA WHERE PK_SEQ = @p
     $lines | Export-Csv -Path $OutCsv -NoTypeInformation -Encoding Default
 
     Write-Host ''
-    $lines | Format-Table 受付番号, 氏名, 年齢, コース, 基本料金, オプション, 調整, 会社請求額, 胃部X線, 便潜血, PSA -AutoSize |
+    $lines | Format-Table 受付番号, 氏名, 年齢, コース, 料金区分, 基本料金, オプション, 調整, 会社請求額, 胃部X線, 便潜血, PSA -AutoSize |
         Out-String -Width 220 | Write-Host
     Write-Host ("会社請求 合計: {0:N0} 円 (基本 {1:N0} + オプション {2:N0} + 調整 {3:N0})" -f $sumBill, $sumBase, $sumOpt, $sumAdj) -ForegroundColor Green
     Write-Host ("健保への請求 (参考): {0:N0} 円" -f $sumKenpo)

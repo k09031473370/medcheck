@@ -56,12 +56,38 @@ Invoke-Expression (Get-Part 'function Resolve-ConnectionString' 'function Get-Cu
 
 # 通常は 請求一覧.bat が set /p で聞いて引数で渡してくる。
 # 直接呼ばれて引数が無いときだけ、ここで聞く。
-if (-not $Ymd)    { $Ymd    = Read-Host '受診日 (例 2026/06/26)' }
-if (-not $Dantai) { $Dantai = Read-Host '会社名の一部 (例 サンテック)' }
-$y = Normalize-Ymd $Ymd
-if (-not $y) { throw "受診日「$Ymd」を解釈できません。2026/06/26 のように入力してください。" }
-$Dantai = $Dantai.Trim()
-if ($Dantai -eq '') { throw '会社名が空です。' }
+if (-not $Ymd) { $Ymd = Read-Host '受診日または年月 (例 2026/06/26 または 2026/06)' }
+
+# 期間の解釈。1日分でも1か月分でも同じ処理で扱えるよう from〜to に正規化する。
+# 請求は月締めのことが多いので「2026/06」で月まとめができるようにしてある。
+$ymdIn = (Normalize-Text $Ymd)
+$isMonth = $false
+$mY = 0; $mM = 0
+if ($ymdIn -match '^(\d{4})[/\-年](\d{1,2})月?$') {
+    # 区切りがある形 (2026/06, 2026-6, 2026年6月)
+    $mY = [int]$Matches[1]; $mM = [int]$Matches[2]
+}
+elseif ($ymdIn -match '^(20\d{2})(0[1-9]|1[0-2])$') {
+    # 区切り無しの6桁。260626(yyMMdd)と紛れるので、西暦4桁+月2桁の形だけ月とみなす
+    $mY = [int]$Matches[1]; $mM = [int]$Matches[2]
+}
+if ($mY -gt 0) {
+    $yy = $mY; $mm = $mM
+    if ($mm -lt 1 -or $mm -gt 12) { throw "月「$Ymd」を解釈できません。2026/06 のように入力してください。" }
+    $first = Get-Date -Year $yy -Month $mm -Day 1
+    $from = $first.ToString('yyyy/MM/dd')
+    $to   = $first.AddMonths(1).AddDays(-1).ToString('yyyy/MM/dd')
+    $isMonth = $true
+    $periodLabel = '{0}年{1}月' -f $yy, $mm
+} else {
+    $from = Normalize-Ymd $Ymd
+    if (-not $from) { throw "受診日「$Ymd」を解釈できません。2026/06/26 か 2026/06 のように入力してください。" }
+    $to = $from
+    $periodLabel = $from
+}
+$y = $from   # 出力ファイル名などに使う
+
+$Dantai = (Normalize-Text $Dantai)
 
 # ---- 調整ルール (form\seikyu_rules.csv) ----
 #   会社,コースCD,条件,金額,備考
@@ -98,9 +124,32 @@ function Find-Price([string]$dantaiMei, [string]$course, [string]$state) {
 
 $conn = Open-Db
 try {
+    # ---- 会社名を指定しなかったら、その期間にいる会社を一覧表示して終わる ----
+    # どの会社がその月に来ていたかを覚えていなくても選べるようにするため。
+    if ($Dantai -eq '') {
+        $dl = Invoke-DbQuery $conn @'
+SELECT d.MEISYO1 AS 事業所名, COUNT(*) AS 人数,
+       MIN(s.D_KENSIN) AS 最初の受診日, MAX(s.D_KENSIN) AS 最後の受診日
+FROM T_KENSIN s
+JOIN M_DANTAI d ON d.DANTAI_CD1 = s.DANTAI_CD1
+WHERE s.D_KENSIN BETWEEN @f AND @t AND s.F_TORIKESI = 0
+GROUP BY d.MEISYO1
+ORDER BY COUNT(*) DESC
+'@ @{ f = $from; t = $to }
+        Write-Host ''
+        Write-Host "=== $periodLabel に受診した会社 ===" -ForegroundColor Cyan
+        if ($dl.Rows.Count -eq 0) {
+            Write-Host '  該当なし'
+        } else {
+            $dl | Format-Table -AutoSize | Out-String -Width 200 | Write-Host
+            Write-Host 'もう一度 請求一覧.bat を実行して、会社名の一部を入れてください。' -ForegroundColor Yellow
+        }
+        return
+    }
+
     # ---- 対象者 ----
     $people = Invoke-DbQuery $conn @'
-SELECT s.PK_SEQ, s.UKE_NO_KENSA, j.KANJI_SIMEI, j.D_SEINEN, s.COURSE_CD,
+SELECT s.PK_SEQ, s.D_KENSIN, s.UKE_NO_KENSA, j.KANJI_SIMEI, j.D_SEINEN, s.COURSE_CD,
        c1.MEISYO AS COURSE_MEI, d.MEISYO1 AS DANTAI_MEI,
        ISNULL(c3.DANTAI_RYOUKIN,0) AS DANTAI_RYOUKIN, ISNULL(c3.KENPO_RYOUKIN,0) AS KENPO_RYOUKIN
 FROM T_KENSIN s
@@ -108,20 +157,21 @@ JOIN T_KOJIN1 j ON j.KOJIN_ID = s.KOJIN_ID
 JOIN M_DANTAI d ON d.DANTAI_CD1 = s.DANTAI_CD1
 LEFT JOIN T_COURSE1 c1 ON c1.COURSE_CD = s.COURSE_CD AND c1.DANTAI_CD1 = s.DANTAI_CD1
 LEFT JOIN T_COURSE3 c3 ON c3.COURSE_CD = s.COURSE_CD AND c3.DANTAI_CD1 = s.DANTAI_CD1
-WHERE s.D_KENSIN = @y AND s.F_TORIKESI = 0 AND d.MEISYO1 LIKE '%' + @d + '%'
-ORDER BY LEN(LTRIM(RTRIM(s.UKE_NO_KENSA))), s.UKE_NO_KENSA
-'@ @{ y = $y; d = $Dantai }
+WHERE s.D_KENSIN BETWEEN @f AND @t AND s.F_TORIKESI = 0 AND d.MEISYO1 LIKE '%' + @d + '%'
+ORDER BY s.D_KENSIN, LEN(LTRIM(RTRIM(s.UKE_NO_KENSA))), s.UKE_NO_KENSA
+'@ @{ f = $from; t = $to; d = $Dantai }
 
     if ($people.Rows.Count -eq 0) {
-        Write-Host "該当者がいません (受診日=$y 会社名に「$Dantai」を含む)" -ForegroundColor Yellow
+        Write-Host "該当者がいません ($periodLabel / 会社名に「$Dantai」を含む)" -ForegroundColor Yellow
         return
     }
     $dantaiMei = [string]$people.Rows[0].DANTAI_MEI
-    Write-Host ("対象: {0} / {1} / {2} 人" -f $dantaiMei, $y, $people.Rows.Count) -ForegroundColor Cyan
+    Write-Host ("対象: {0} / {1} / {2} 人" -f $dantaiMei, $periodLabel, $people.Rows.Count) -ForegroundColor Cyan
 
     $lines = @()
     $warn = @()
     $chk  = @()   # 減額になった人 (目視確認用)
+    $courseStat = @{}   # コース別の人数と、料金をどこから取ったか
     $sumBase = 0; $sumOpt = 0; $sumAdj = 0; $sumBill = 0; $sumKenpo = 0
 
     foreach ($r in $people.Rows) {
@@ -131,12 +181,14 @@ ORDER BY LEN(LTRIM(RTRIM(s.UKE_NO_KENSA))), s.UKE_NO_KENSA
         $course = Normalize-Text ([string]$r.COURSE_CD)
         $courseMei = Normalize-Text ([string]$r.COURSE_MEI)
 
-        # 年齢 (受診日時点。N_NENREIが空の環境なので生年月日から計算)
+        $kenYmd = Normalize-Text ([string]$r.D_KENSIN)
+        # 年齢 (その人の受診日時点。N_NENREIが空の環境なので生年月日から計算)
         $age = ''
         $sei = Normalize-Text ([string]$r.D_SEINEN)
         $dt = [datetime]::MinValue
         if ([datetime]::TryParse($sei, [ref]$dt)) {
-            $kdt = [datetime]::Parse($y)
+            $kdt = [datetime]::MinValue
+            if (-not [datetime]::TryParse($kenYmd, [ref]$kdt)) { $kdt = [datetime]::Parse($from) }
             $a = $kdt.Year - $dt.Year
             if ($kdt -lt $dt.AddYears($a)) { $a-- }
             $age = $a
@@ -234,8 +286,10 @@ SELECT LTRIM(RTRIM(KOMOKU_CD)) AS CD, KEKKA FROM T_KENSA WHERE PK_SEQ = @p
             $base = 0; $kenpo = 0
             [void][int]::TryParse((Normalize-Text $priceRow.会社請求), [ref]$base)
             [void][int]::TryParse((Normalize-Text $priceRow.健保請求), [ref]$kenpo)
+            $priceSrc = '料金表'
         } else {
             $base = $masterBase; $kenpo = $masterKenpo
+            $priceSrc = '★健診ナビのマスタ'
             $warn += ("コース {0}: seikyu_prices.csv に料金が無いため健診ナビのマスタの額 ({1}円) を使いました。年度が古い可能性があるので確認してください" -f $course, $masterBase)
         }
         $kenpo += $optKenpo   # マンモ・子宮など、オプションにも協会補助があるぶんを合算
@@ -279,10 +333,19 @@ SELECT LTRIM(RTRIM(KOMOKU_CD)) AS CD, KEKKA FROM T_KENSA WHERE PK_SEQ = @p
             $adjNames += ('{0} {1}円' -f $cond, $amt)
         }
 
+        # コース別の集計。料金をどこから取ったかを最後にまとめて出す(料金表の整備漏れに気付くため)
+        $ckey = '{0}|{1}|{2}' -f $course, $courseMei, $priceSrc
+        if (-not $courseStat.ContainsKey($ckey)) {
+            $courseStat[$ckey] = [pscustomobject]@{ コースCD=$course; コース名=$courseMei; 料金の出どころ=$priceSrc; 人数=0; 自己負担計=0 }
+        }
+        $courseStat[$ckey].人数++
+        $courseStat[$ckey].自己負担計 += $base
+
         $bill = $base + $optSum + $adjSum
         $sumBase += $base; $sumOpt += $optSum; $sumAdj += $adjSum; $sumBill += $bill; $sumKenpo += $kenpo
 
         $lines += [pscustomobject]@{
+            受診日 = $kenYmd
             受付番号 = $uke; 氏名 = $name; 年齢 = $age
             コース = $courseMei
             料金区分 = $state
@@ -300,6 +363,7 @@ SELECT LTRIM(RTRIM(KOMOKU_CD)) AS CD, KEKKA FROM T_KENSA WHERE PK_SEQ = @p
 
     # 合計行
     $lines += [pscustomobject]@{
+        受診日 = ''
         受付番号 = ''; 氏名 = ('合計 ' + $people.Rows.Count + '名'); 年齢 = ''
         コース = ''
         料金区分 = ''
@@ -310,7 +374,8 @@ SELECT LTRIM(RTRIM(KOMOKU_CD)) AS CD, KEKKA FROM T_KENSA WHERE PK_SEQ = @p
 
     if (-not $OutCsv) {
         $desk = [Environment]::GetFolderPath('Desktop')
-        $OutCsv = Join-Path $desk ('請求一覧_{0}_{1}.csv' -f $dantaiMei, ($y -replace '/', ''))
+        $tag = if ($isMonth) { ($from -replace '/','').Substring(0,6) } else { $from -replace '/','' }
+        $OutCsv = Join-Path $desk ('請求一覧_{0}_{1}.csv' -f $dantaiMei, $tag)
     }
     $lines | Export-Csv -Path $OutCsv -NoTypeInformation -Encoding Default
 
@@ -327,13 +392,13 @@ SELECT LTRIM(RTRIM(KOMOKU_CD)) AS CD, KEKKA FROM T_KENSA WHERE PK_SEQ = @p
         $ws = $wb.Worksheets.Item(1)
         $ws.Name = '費用明細'
 
-        $head = @('No','受付番号','氏名','年齢','コース','区分','自己負担','オプション','調整','合計','摘要')
+        $head = @('No','受診日','受付番号','氏名','年齢','コース','区分','自己負担','オプション','調整','合計','摘要')
         $rowCount = $lines.Count + 5      # 見出し4行 + ヘッダ1行
         $arr = New-Object 'object[,]' $rowCount, $head.Count
         $arr[0,0] = '健康診断 費用明細書'
         $arr[1,0] = $dantaiMei + '　御中'
-        $arr[2,0] = '実施日 ' + $y
-        $arr[2,4] = '発行日 ' + (Get-Date -Format 'yyyy/MM/dd')
+        $arr[2,0] = '実施日 ' + $(if ($isMonth) { $periodLabel + '  (' + $from + ' 〜 ' + $to + ')' } else { $from })
+        $arr[2,5] = '発行日 ' + (Get-Date -Format 'yyyy/MM/dd')
         for ($c = 0; $c -lt $head.Count; $c++) { $arr[4,$c] = $head[$c] }
 
         $no = 0
@@ -341,16 +406,17 @@ SELECT LTRIM(RTRIM(KOMOKU_CD)) AS CD, KEKKA FROM T_KENSA WHERE PK_SEQ = @p
             $L = $lines[$i]; $r = $i + 5
             $isTotal = ($L.受付番号 -eq '')
             if (-not $isTotal) { $no++; $arr[$r,0] = $no }
-            $arr[$r,1] = $L.受付番号
-            $arr[$r,2] = $L.氏名
-            $arr[$r,3] = $L.年齢
-            $arr[$r,4] = $L.コース
-            $arr[$r,5] = $L.料金区分
-            $arr[$r,6] = $L.基本料金
-            $arr[$r,7] = $L.オプション
-            $arr[$r,8] = $L.調整
-            $arr[$r,9] = $L.会社請求額
-            $arr[$r,10] = $L.内訳
+            $arr[$r,1] = $L.受診日
+            $arr[$r,2] = $L.受付番号
+            $arr[$r,3] = $L.氏名
+            $arr[$r,4] = $L.年齢
+            $arr[$r,5] = $L.コース
+            $arr[$r,6] = $L.料金区分
+            $arr[$r,7] = $L.基本料金
+            $arr[$r,8] = $L.オプション
+            $arr[$r,9] = $L.調整
+            $arr[$r,10] = $L.会社請求額
+            $arr[$r,11] = $L.内訳
         }
         $rng = $ws.Range($ws.Cells.Item(1,1), $ws.Cells.Item($rowCount, $head.Count))
         $rng.Value2 = $arr
@@ -361,7 +427,7 @@ SELECT LTRIM(RTRIM(KOMOKU_CD)) AS CD, KEKKA FROM T_KENSA WHERE PK_SEQ = @p
         $ws.Range($ws.Cells.Item(5,1), $ws.Cells.Item(5,$head.Count)).Font.Bold = $true
         $ws.Range($ws.Cells.Item(5,1), $ws.Cells.Item($rowCount,$head.Count)).Borders.LineStyle = 1
         $ws.Range($ws.Cells.Item($rowCount,1), $ws.Cells.Item($rowCount,$head.Count)).Font.Bold = $true
-        $ws.Range($ws.Cells.Item(6,7), $ws.Cells.Item($rowCount,10)).NumberFormatLocal = '#,##0'
+        $ws.Range($ws.Cells.Item(6,8), $ws.Cells.Item($rowCount,11)).NumberFormatLocal = '#,##0'
         [void]$ws.Columns.AutoFit()
         $ws.PageSetup.Orientation = 2      # 横向き
         $ws.PageSetup.Zoom = $false
@@ -388,6 +454,16 @@ SELECT LTRIM(RTRIM(KOMOKU_CD)) AS CD, KEKKA FROM T_KENSA WHERE PK_SEQ = @p
     Write-Host '  ※ 協会けんぽのコースは「自己負担」が会社に請求する額です(補助分は協会へ請求済み)。'
     Write-Host '  ※ 定期健診Aなど補助の無いコースは、金額そのものが会社負担です。' 
     Write-Host ("健保への請求 (参考): {0:N0} 円" -f $sumKenpo)
+    Write-Host ''
+    Write-Host ''
+    Write-Host '--- コース別の内訳 ---'
+    $courseStat.Values | Sort-Object コースCD |
+        Format-Table コースCD, コース名, 人数, 自己負担計, 料金の出どころ -AutoSize |
+        Out-String -Width 200 | Write-Host
+    if (@($courseStat.Values | Where-Object { $_.料金の出どころ -like '★*' }).Count -gt 0) {
+        Write-Host '  ★ の付いたコースは form\seikyu_prices.csv に料金の行がありません。' -ForegroundColor Yellow
+        Write-Host '     健診ナビのマスタの額を使っているので、正しい単価を確認して1行足してください。' -ForegroundColor Yellow
+    }
     Write-Host ''
     Write-Host "確認用CSV: $OutCsv" -ForegroundColor Cyan
     if ($chk.Count -gt 0) {

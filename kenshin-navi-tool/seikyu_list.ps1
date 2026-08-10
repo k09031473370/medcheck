@@ -6,9 +6,17 @@
   健診ナビのDBを読むだけで、指定日・指定会社の受診者の請求一覧を作る。
   DBには一切書き込まない。
 
+  出力は2つ:
+    請求一覧_会社_日付.csv    … 確認用。判定の根拠(実施状況)まで入っている
+    費用明細書_会社_日付.xlsx … 会社へ送る用。1人1行の明細と合計
+
   1人1行:
-    受付番号 / 氏名 / 年齢 / コース / 基本料金(会社負担) / オプション計 /
-    調整(胃部X線未実施の減額など) / 会社請求額 / 健保請求(参考) / 内訳
+    受付番号 / 氏名 / 年齢 / コース / 区分 / 自己負担 / オプション /
+    調整 / 合計(会社請求額) / 健保請求(参考) / 内訳
+
+  「自己負担」= 協会けんぽの補助を引いたあとの本人負担額。
+  会社が本人の代わりに払うので、これが会社への請求額になる。
+  定期健診Aなど補助の無いコースは、金額そのものが会社負担。
 
   金額の出どころ:
     基本料金     … T_COURSE3 (団体料金=会社負担、健保料金=協会けんぽ等へ請求する分)
@@ -306,13 +314,82 @@ SELECT LTRIM(RTRIM(KOMOKU_CD)) AS CD, KEKKA FROM T_KENSA WHERE PK_SEQ = @p
     }
     $lines | Export-Csv -Path $OutCsv -NoTypeInformation -Encoding Default
 
+    # ---- 会社へ送る明細書(Excel)も作る ----
+    # CSVは確認用。こちらは請求書に添える体裁にしてある。
+    # Excelが入っていない/失敗しても、CSVは既に出来ているので処理は続ける。
+    $xlsxPath = [System.IO.Path]::ChangeExtension($OutCsv, '.xlsx')
+    $xlsxPath = $xlsxPath -replace '請求一覧_', '費用明細書_'
+    $excel = $null; $wb = $null
+    try {
+        $excel = New-Object -ComObject Excel.Application
+        $excel.Visible = $false; $excel.DisplayAlerts = $false
+        $wb = $excel.Workbooks.Add()
+        $ws = $wb.Worksheets.Item(1)
+        $ws.Name = '費用明細'
+
+        $head = @('No','受付番号','氏名','年齢','コース','区分','自己負担','オプション','調整','合計','摘要')
+        $rowCount = $lines.Count + 5      # 見出し4行 + ヘッダ1行
+        $arr = New-Object 'object[,]' $rowCount, $head.Count
+        $arr[0,0] = '健康診断 費用明細書'
+        $arr[1,0] = $dantaiMei + '　御中'
+        $arr[2,0] = '実施日 ' + $y
+        $arr[2,4] = '発行日 ' + (Get-Date -Format 'yyyy/MM/dd')
+        for ($c = 0; $c -lt $head.Count; $c++) { $arr[4,$c] = $head[$c] }
+
+        $no = 0
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            $L = $lines[$i]; $r = $i + 5
+            $isTotal = ($L.受付番号 -eq '')
+            if (-not $isTotal) { $no++; $arr[$r,0] = $no }
+            $arr[$r,1] = $L.受付番号
+            $arr[$r,2] = $L.氏名
+            $arr[$r,3] = $L.年齢
+            $arr[$r,4] = $L.コース
+            $arr[$r,5] = $L.料金区分
+            $arr[$r,6] = $L.基本料金
+            $arr[$r,7] = $L.オプション
+            $arr[$r,8] = $L.調整
+            $arr[$r,9] = $L.会社請求額
+            $arr[$r,10] = $L.内訳
+        }
+        $rng = $ws.Range($ws.Cells.Item(1,1), $ws.Cells.Item($rowCount, $head.Count))
+        $rng.Value2 = $arr
+
+        $ws.Range($ws.Cells.Item(1,1), $ws.Cells.Item(1,1)).Font.Size = 16
+        $ws.Range($ws.Cells.Item(1,1), $ws.Cells.Item(1,1)).Font.Bold = $true
+        $ws.Range($ws.Cells.Item(2,1), $ws.Cells.Item(2,1)).Font.Bold = $true
+        $ws.Range($ws.Cells.Item(5,1), $ws.Cells.Item(5,$head.Count)).Font.Bold = $true
+        $ws.Range($ws.Cells.Item(5,1), $ws.Cells.Item($rowCount,$head.Count)).Borders.LineStyle = 1
+        $ws.Range($ws.Cells.Item($rowCount,1), $ws.Cells.Item($rowCount,$head.Count)).Font.Bold = $true
+        $ws.Range($ws.Cells.Item(6,7), $ws.Cells.Item($rowCount,10)).NumberFormatLocal = '#,##0'
+        [void]$ws.Columns.AutoFit()
+        $ws.PageSetup.Orientation = 2      # 横向き
+        $ws.PageSetup.Zoom = $false
+        $ws.PageSetup.FitToPagesWide = 1
+        $ws.PageSetup.FitToPagesTall = $false
+
+        $wb.SaveAs($xlsxPath, 51)          # 51 = xlsx
+        Write-Host "明細書: $xlsxPath" -ForegroundColor Cyan
+    }
+    catch {
+        $xlsxPath = $null
+        Write-Host ("[注意] 明細書(Excel)は作れませんでした: {0}" -f $_.Exception.Message) -ForegroundColor Yellow
+        Write-Host '       CSVは出来ているので、そちらを使ってください。' -ForegroundColor Yellow
+    }
+    finally {
+        if ($wb) { $wb.Close($false) | Out-Null }
+        if ($excel) { $excel.Quit(); [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel) }
+    }
+
     Write-Host ''
     $lines | Format-Table 受付番号, 氏名, 年齢, コース, 料金区分, 基本料金, オプション, 調整, 会社請求額, 胃部X線, 便潜血, PSA -AutoSize |
         Out-String -Width 220 | Write-Host
-    Write-Host ("会社請求 合計: {0:N0} 円 (基本 {1:N0} + オプション {2:N0} + 調整 {3:N0})" -f $sumBill, $sumBase, $sumOpt, $sumAdj) -ForegroundColor Green
+    Write-Host ("会社請求 合計: {0:N0} 円 (自己負担 {1:N0} + オプション {2:N0} + 調整 {3:N0})" -f $sumBill, $sumBase, $sumOpt, $sumAdj) -ForegroundColor Green
+    Write-Host '  ※ 協会けんぽのコースは「自己負担」が会社に請求する額です(補助分は協会へ請求済み)。'
+    Write-Host '  ※ 定期健診Aなど補助の無いコースは、金額そのものが会社負担です。' 
     Write-Host ("健保への請求 (参考): {0:N0} 円" -f $sumKenpo)
     Write-Host ''
-    Write-Host "出力: $OutCsv" -ForegroundColor Cyan
+    Write-Host "確認用CSV: $OutCsv" -ForegroundColor Cyan
     if ($chk.Count -gt 0) {
         Write-Host ''
         Write-Host ('【減額になった人 {0} 名】結果がまだ入っていないだけでないか確認してください' -f $chk.Count) -ForegroundColor Yellow

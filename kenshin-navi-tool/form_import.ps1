@@ -319,7 +319,7 @@ function Load-Mapping {
     if (-not (Test-Path $p)) { throw "対応表が見つかりません: $p" }
     Write-Host "[対応表] $([System.IO.Path]::GetFileName($p))" -ForegroundColor DarkGray
     $rows = Import-Csv -Path $p -Encoding UTF8
-    $valid = @('KENNO','KENYMD','NAMEKANJI','NAMEKANA','VALUE','NYOU','CHORYOKU','MONSHIN','VISION','SHOKEN','SHOKEN2','SHOKENCD','SHOKENCD2','NOFRAME','KOJINNO','IGNORE')
+    $valid = @('KENNO','KENYMD','NAMEKANJI','NAMEKANA','VALUE','NYOU','CHORYOKU','MONSHIN','VISION','SHOKEN','SHOKEN2','SHOKENCD','SHOKENCD2','SHOKENCD5','NOFRAME','KOJINNO','IGNORE')
     foreach ($r in $rows) {
         $k = (Normalize-Text $r.Kind).ToUpper()
         if ($k -ne '' -and $valid -notcontains $k) {
@@ -839,8 +839,21 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current, $kojin) {
             $rep.IsDefault = $true
         }
 
-        if ($kind -eq 'SHOKENCD' -or $kind -eq 'SHOKENCD2') {
+        if ($kind -eq 'SHOKENCD' -or $kind -eq 'SHOKENCD2' -or $kind -eq 'SHOKENCD5') {
             # ---- 所見を結果CD(コード)で直接指定する形式 ----
+            # SHOKENCD5 は東振協の5文字コード(部位2文字+所見3文字、疑いは末尾V)を
+            # 1列で受け取る。例 BNG05 = BN(左側肺外) + G05(肋骨骨折・骨折後)
+            $bui5 = ''
+            if ($kind -eq 'SHOKENCD5') {
+                $c5 = (Normalize-Text $raw).ToUpper() -replace '[\s　-]', ''
+                if ($c5 -eq '') { continue }
+                if ($c5.Length -lt 3) {
+                    $rep.Status = "コードが短すぎます($c5)。部位2文字+所見3文字で入れてください"
+                    $rep.New = $c5; $plan += $rep; continue
+                }
+                $bui5 = $c5.Substring(0,2)
+                $raw  = $c5.Substring(2)
+            }
             $shoCode = (Normalize-Text $raw).ToUpper()
             if ($shoCode -ne '') {
                 $cv = Convert-Code $m $shoCode
@@ -858,6 +871,7 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current, $kojin) {
                 [void][int]::TryParse((Normalize-Text $m.Col2), [ref]$col2)
                 if ($col2 -gt 0) { $buiCode = (Normalize-Text (Get-Field $fields $col2)).ToUpper() }
             }
+            elseif ($kind -eq 'SHOKENCD5') { $buiCode = $bui5 }
             if ($shoCode -eq '' -and $buiCode -eq '') { continue }
             if ($komoku -eq '') { $rep.Status = '項目CD未設定'; $rep.New = ($buiCode + ' ' + $shoCode).Trim(); $plan += $rep; continue }
 
@@ -883,7 +897,9 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current, $kojin) {
                 if (-not $hitS) { $rep.Status = "所見CD未登録(${cdSho}:${shoCode})"; $rep.New = $shoCode; $plan += $rep; continue }
                 $buiStr = ''
                 if ($hitB) { $buiStr = [string]$hitB.SYOKEN }
-                $rep.New = (($buiStr + ' ' + [string]$hitS.SYOKEN).Trim())
+                # 健診ナビ自身は部位と所見を区切り無しでつなげている
+                # (実データ「左側肺外肋骨病変　肋骨骨折・骨折後」で確認)
+                $rep.New = ($buiStr + [string]$hitS.SYOKEN).Trim()
                 $rep.KekkaCd = Normalize-Text ([string]$hitS.KEKKA_CD)
                 $rep.Hantei  = Normalize-Text ([string]$hitS.HANTEI_KIGO)
             }

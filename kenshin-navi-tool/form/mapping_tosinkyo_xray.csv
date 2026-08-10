@@ -1,0 +1,12 @@
+﻿Col,Col2,Label,Kind,KOMOKU_CD,SYOKEN_CD,SYOKEN_CD2,CodeMap,IfEmpty,ReqCol,Format,Note
+# DETECT=HEADER:受付NO,胸部X線コード
+# DETECT=HEADER:受付番号,胸部X線コード
+# LABEL=東振協 胸部X線コード一括入力
+# 東振協の5文字コード(部位2文字+所見3文字)を1列で入れる。例 BNG05 / AFA06 / EOM01
+# 部位=ZK020(84種) 所見=ZK021(217種)。どちらも健診ナビのマスタがそのまま東振協のコード表。
+# 疑いは末尾にVが付いて6文字になる(例 AFA06V)。そのまま入れられる。
+# 受診日の列が無いので、GUIの「受診日」欄に実施日を入れること。
+1,,受付番号,KENNO,,,,,,,,受付NO
+2,,胸部X線(所見1),SHOKENCD5,077010A,ZK020,ZK021,,,,,1件目。部位2文字+所見3文字
+3,,胸部X線(所見2),SHOKENCD5,077010B,ZK020,ZK021,,,,,2件目(あれば)
+4,,胸部X線(所見3),SHOKENCD5,077010C,ZK020,ZK021,,,,,3件目(あれば)

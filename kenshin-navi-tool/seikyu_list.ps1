@@ -183,6 +183,11 @@ SELECT LTRIM(RTRIM(KOMOKU_CD)) AS CD, KEKKA FROM T_KENSA WHERE PK_SEQ = @p
         # 便潜血: 1回目=069245 / 2回目=069246
         $benFrame = ((Test-Waku '069245') -or (Test-Waku '069246') -or $benPriced)
         $benCount = @('069245','069246' | Where-Object { Test-Done $_ }).Count
+        # 尿検査(尿蛋白069206 / 尿糖069207 / 尿潜血069211)。1つも結果が無ければ未実施。
+        # 協会は税抜260円(税込286=自己負担80+請求206)を減額する。
+        # 2026/06/26 サンテックの請求明細書で確認。
+        $nyoFrame = @('069206','069207','069211' | Where-Object { Test-Waku $_ }).Count -gt 0
+        $nyoMiss  = ($nyoFrame -and (@('069206','069207','069211' | Where-Object { Test-Done $_ }).Count -eq 0))
 
         # ---- 状態を決めて、基本料金を料金表から引く ----
         # 胃部X線と便潜血は独立に欠けるので、組合せも状態として持つ。
@@ -249,6 +254,7 @@ SELECT LTRIM(RTRIM(KOMOKU_CD)) AS CD, KEKKA FROM T_KENSA WHERE PK_SEQ = @p
                 }
                 '^便潜血未実施$'    { $hit = ($benFrame -and $benCount -eq 0); break }
                 '^便潜血1本のみ$'   { $hit = ($benFrame -and $benCount -eq 1); break }
+                '^尿検査未実施$'    { $hit = $nyoMiss; break }
                 # 汎用: 「実施:項目CD」=その項目に結果がある / 「未実施:項目CD」=枠があるのに結果が無い
                 # 新しい加減算が出てきたら、コードを直さずルール行の追加だけで対応できる。
                 '^実施:(.+)$'      { $hit = (Test-Done $Matches[1].Trim()); break }

@@ -38,6 +38,7 @@ ENTRIES = [
     'restore_backup.ps1',
     'seikyu_list.ps1',
     'kensin_web.ps1',
+    'mask_testdb.ps1',
     'check.ps1', 'check.bat',
     'check2.ps1', 'check2.bat',
     'check3.ps1', 'check3.bat',

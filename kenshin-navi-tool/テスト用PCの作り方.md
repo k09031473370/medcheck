@@ -114,3 +114,52 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0form_import_gui.ps1" ^
 - 本番の最新データの反映（コピーした時点のデータのままです）
 
 新しいデータで試したくなったら、②③をやり直して入れ替えます。
+
+---
+
+## 自分のPCで開発する場合（おすすめ）
+
+事務員PCで作業すると業務を止めてしまいます。**自分のPCにコピーを作って、そこで開発するのが正解です。**
+
+ただし自分のPCに患者データを置くのは避けたいので、**復元したあとに氏名などを架空の値に置き換えます。**
+
+### 手順
+
+1. `C:\HIT\K166_SIBAURAUSER.bak` をUSBで自分のPCへコピー
+2. SQL Server Express に復元（DB名は `K166_SIBAURAUSER` のまま）
+3. **`mask_testdb.ps1` を実行して仮名化する** ← ここが大事
+
+```
+rem まず何が置き換わるか見る (書き換えません)
+powershell -ExecutionPolicy Bypass -File mask_testdb.ps1 ^
+  -ConnectionString "Data Source=localhost\SQLEXPRESS;Initial Catalog=K166_SIBAURAUSER;Integrated Security=True"
+
+rem 実際に置き換える
+powershell -ExecutionPolicy Bypass -File mask_testdb.ps1 ^
+  -ConnectionString "Data Source=localhost\SQLEXPRESS;Initial Catalog=K166_SIBAURAUSER;Integrated Security=True" -Commit
+```
+
+4. 仮名化が終わってから、USBの `.bak` を消す
+
+### 何が置き換わるか
+
+| 置き換える | そのまま残す |
+|---|---|
+| 氏名（「検査0001太郎」の形になります） | 検査結果・判定 |
+| 生年月日（年はそのまま、月日は1/1に） | コース・料金・事業所名 |
+| 住所・電話・メール・保険証番号 | 受診日・受付番号 |
+| 社員番号・カルテNo | 検査枠の構成 |
+| 変更履歴ログ（氏名が残るため削除） | |
+
+**取込・請求・帳票の試験はそのままできます。**個人が特定できる情報だけが消えます。
+
+### 安全装置
+
+`mask_testdb.ps1` は**サーバー名に `KNSV` が含まれていたら実行を拒否します。**
+本番で誤って走ることはありません。さらに実行時にはサーバー名の入力を求めます。
+
+### 注意
+
+- 仮名化すると、**リアンの実ファイルとの氏名照合テストはできなくなります**（名前が変わるため）。
+  照合の試験だけは、クリニック内のテストPC（仮名化しない版）で行ってください
+- 仮名化しても**受診データそのもの**は残ります。念のため自分のPCも暗号化しておいてください

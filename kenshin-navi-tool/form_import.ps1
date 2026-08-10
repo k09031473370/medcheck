@@ -409,8 +409,26 @@ function Convert-FormValue([hashtable]$valueMap, [string]$kind, [string]$raw) {
 # DB
 # ============================================================================
 
+# 接続先の決め方 (上から優先)
+#   1. -ConnectionString で直接指定
+#   2. スクリプトと同じ場所の 接続先.txt   ← 開発用PC はこれを置く
+#   3. \\KNSV\KenshinNavi\SQLSV\SQLServerConnect.txt (本番)
+# 2 は配布zipに含めない。開発PCにだけ置くことで、本番の設定を汚さずに向き先を変えられる。
+function Get-LocalConnFile {
+    foreach ($n in @('接続先.txt', 'local_conn.txt')) {
+        $p = Join-Path $PSScriptRoot $n
+        if (Test-Path $p) { return $p }
+    }
+    return $null
+}
+
 function Resolve-ConnectionString {
     if ($ConnectionString) { return $ConnectionString }
+    $local = Get-LocalConnFile
+    if ($local) {
+        $script:UsingLocalConn = $local
+        $ConnFile = $local
+    }
     if (Test-Path $ConnFile) {
         $txt = Get-Content -Path $ConnFile -Raw
         $lines = @($txt -split "`r?`n" | Where-Object { (Normalize-Text $_) -ne '' })
@@ -454,9 +472,16 @@ function Resolve-ConnectionString {
 }
 
 function Open-Db {
+    $script:UsingLocalConn = $null
     $cs = Resolve-ConnectionString
     $masked = $cs -replace '(?i)(password|pwd)\s*=\s*[^;]*', '$1=***'
-    Write-Host "[DB] 接続先: $masked" -ForegroundColor DarkGray
+    if ($script:UsingLocalConn) {
+        # 開発用の向き先を使っている。本番と取り違えないよう目立たせる
+        Write-Host "[開発用の接続先を使っています] $(Split-Path $script:UsingLocalConn -Leaf)" -ForegroundColor Magenta
+        Write-Host "[DB] 接続先: $masked" -ForegroundColor Magenta
+    } else {
+        Write-Host "[DB] 接続先: $masked" -ForegroundColor DarkGray
+    }
     $conn = New-Object System.Data.SqlClient.SqlConnection $cs
     $conn.Open()
     return $conn

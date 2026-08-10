@@ -1,0 +1,6 @@
+このファイルを「接続先.txt」という名前にコピーすると、開発用PCのDBを見るようになります。
+配布zipには入らないので、本番の設定は変わりません。
+
+下の1行だけを書いたファイルにしてください(この説明は消す)。
+
+Data Source=localhost\SQLEXPRESS;Initial Catalog=K166_SIBAURAUSER;Integrated Security=True

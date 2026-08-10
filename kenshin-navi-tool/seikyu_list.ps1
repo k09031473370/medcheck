@@ -185,15 +185,25 @@ SELECT LTRIM(RTRIM(KOMOKU_CD)) AS CD, KEKKA FROM T_KENSA WHERE PK_SEQ = @p
         $benCount = @('069245','069246' | Where-Object { Test-Done $_ }).Count
 
         # ---- 状態を決めて、基本料金を料金表から引く ----
+        # 胃部X線と便潜血は独立に欠けるので、組合せも状態として持つ。
+        # 例: 「胃部X線未実施+便潜血未実施」。料金表にその行があればそれを使い、
+        #     無ければ胃部X線だけの行へ落として警告を出す。
         $state = '通常'
-        if ($ixMiss -and $benFrame -and $benCount -eq 0) {
-            # 胃も便も無しの組合せ料金は料金表に無い。胃欠を採用して確認を促す
-            $state = '胃部X線未実施'
-            $warn += ("{0} {1}: 胃部X線と便潜血の両方が未実施です。胃欠の料金にしていますが、正しい額を確認してください" -f $uke, $name)
+        $benState = ''
+        if ($benFrame -and $benCount -eq 0) { $benState = '便潜血未実施' }
+        elseif ($benFrame -and $benCount -eq 1) { $benState = '便潜血1本のみ' }
+
+        if ($ixMiss -and $benState -ne '') {
+            $combo = '胃部X線未実施+' + $benState
+            if (Find-Price $dantaiMei $course $combo) {
+                $state = $combo
+            } else {
+                $state = '胃部X線未実施'
+                $warn += ("{0} {1}: 胃部X線と便潜血の両方が未実施です。「{2}」の料金が seikyu_prices.csv に無いため胃欠の料金にしています" -f $uke, $name, $combo)
+            }
         }
-        elseif ($ixMiss)                          { $state = '胃部X線未実施' }
-        elseif ($benFrame -and $benCount -eq 0)   { $state = '便潜血未実施' }
-        elseif ($benFrame -and $benCount -eq 1)   { $state = '便潜血1本のみ' }
+        elseif ($ixMiss)        { $state = '胃部X線未実施' }
+        elseif ($benState -ne '') { $state = $benState }
 
         # 減額になる人は金額が変わるので、必ず一覧に出して目視確認してもらう。
         # 「結果がまだ入っていないだけ」を「受けなかった」と取り違えると請求を誤る。

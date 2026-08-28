@@ -21,6 +21,9 @@
   # 様式と人数と出力先を指定
   powershell -ExecutionPolicy Bypass -File make_testdata.ps1 -Ymd 2026/06/26 -Mapping mapping_rian.csv -Max 10 -Out C:\temp\test.csv
 
+  # 受付番号を指定 (本番で試験用受診者だけを対象にする)
+  powershell -ExecutionPolicy Bypass -File make_testdata.ps1 -Ymd 2026/08/21 -KenNo 901,902
+
   # どの日に何人いるか一覧を出す
   powershell -ExecutionPolicy Bypass -File make_testdata.ps1 -List
 #>
@@ -30,6 +33,7 @@ param(
     [string]$Mapping = 'mapping_shibaura_ai2.csv', # どの様式で作るか
     [string]$Out,                                  # 出力先。省略時はデスクトップ
     [int]$Max = 0,                                 # 人数の上限 (0=全員)
+    [string]$KenNo,                                # 受付番号を指定 (例 901,902)。本番で試すときは必ず指定する
     [switch]$List,                                 # 受診日の一覧を出して終わる
     [string]$ConnFile = '\\KNSV\KenshinNavi\SQLSV\SQLServerConnect.txt',
     [string]$ConnectionString
@@ -138,14 +142,39 @@ ORDER BY LEN(LTRIM(RTRIM(g.KEN_NO))), g.KEN_NO
     }
 
     $rows = @($people.Rows)
+
+    # 受付番号の指定があれば、その人だけに絞る。
+    # 本番で試すときに、実在の受診者を巻き込まないための安全装置。
+    if ($KenNo) {
+        $want = @{}
+        foreach ($n in ($KenNo -split '[,、\s]+')) {
+            $n = Normalize-KenNo $n
+            if ($n -ne '') { $want[$n] = 1 }
+        }
+        $rows = @($rows | Where-Object { $want.ContainsKey((Normalize-KenNo ([string]$_.KEN_NO))) })
+        $miss = @($want.Keys | Where-Object { $n = $_; -not ($rows | Where-Object { (Normalize-KenNo ([string]$_.KEN_NO)) -eq $n }) })
+        if ($miss.Count -gt 0) {
+            Write-Host ("[注意] この受診日に見つからない受付番号: {0}" -f ($miss -join ', ')) -ForegroundColor Yellow
+        }
+        if ($rows.Count -eq 0) { throw "指定した受付番号の人がいません: $KenNo" }
+    }
     if ($Max -gt 0 -and $rows.Count -gt $Max) { $rows = $rows[0..($Max - 1)] }
 
     Write-Host ''
     Write-Host '=== 取込の練習データを作る ===' -ForegroundColor Cyan
+    if (-not $script:UsingLocalConn) {
+        Write-Host '  【本番のDBを見ています】作るファイル自体は無害ですが、' -ForegroundColor Red
+        Write-Host '   取り込むときは実在の受診者に書き込まないよう -KenNo で対象を絞ってください。' -ForegroundColor Red
+    }
     Write-Host ("  受診日 : {0}" -f $y)
     Write-Host ("  人数   : {0} 人" -f $rows.Count)
     Write-Host ("  様式   : {0} ({1} 列)" -f (Split-Path $mapPath -Leaf), $nCol)
     Write-Host '  ※ DBは読むだけです。値はそれらしい乱数で、医学的な整合はありません。' -ForegroundColor DarkGray
+
+    Write-Host '  対象:' -ForegroundColor DarkGray
+    foreach ($p in $rows) {
+        Write-Host ("    受付 {0,-5} {1}" -f (Normalize-KenNo ([string]$p.KEN_NO)), (Normalize-Text ([string]$p.KANJI_SIMEI))) -ForegroundColor DarkGray
+    }
 
     # ---- 見出し行 ----
     $head = @()

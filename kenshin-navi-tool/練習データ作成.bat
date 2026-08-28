@@ -10,19 +10,15 @@ set "Y="
 set /p Y=Exam date (blank = list dates) : 
 if "%Y%"=="" (
   powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0make_testdata.ps1" -List
-) else (
-  set "M="
-  set /p M=Max people (blank = all) : 
-  call :run
+  goto :done
 )
-goto :done
-:run
-if "%M%"=="" (
+set "N="
+set /p N=Uketsuke No, comma separated (blank = all) : 
+if "%N%"=="" (
   powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0make_testdata.ps1" -Ymd "%Y%"
 ) else (
-  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0make_testdata.ps1" -Ymd "%Y%" -Max %M%
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0make_testdata.ps1" -Ymd "%Y%" -KenNo "%N%"
 )
-goto :eof
 :done
 echo.
 pause

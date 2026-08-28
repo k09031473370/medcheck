@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 配布用 excel_tools.zip を作る。
 
@@ -39,6 +39,9 @@ ENTRIES = [
     'seikyu_list.ps1',
     'kensin_web.ps1',
     'mask_testdb.ps1',
+    'export_testdb.ps1',
+    'clinic_swap.ps1',
+    'テストDB書き出し.bat',
     'clinic_swap.ps1',
     'check.ps1', 'check.bat',
     'check2.ps1', 'check2.bat',
@@ -54,12 +57,15 @@ ENTRIES = [
     'check12.ps1', 'check12.bat',
     'check13.ps1', 'check13.bat',
     'check14.ps1', 'check14.bat',
+    'check15.ps1', 'check15.bat',
+    'check16.ps1', 'check16.bat',
     'start.bat',
     '心電図取込.bat',
     '元に戻す.bat',
     '請求一覧.bat',
     '東振協X線取込.bat',
     '健診ビューア.bat',
+    'クリニック名差替.bat',
     'クリニック名差替.bat',
     '組合名差替.bat',
     'USBで使うときは.txt',

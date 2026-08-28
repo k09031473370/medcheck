@@ -6,8 +6,9 @@
   健診ナビと同じDBを読んで、ブラウザで見られる画面を出す。
   インストールは要らない。Windowsに元から入っている機能だけで動く。
 
-  この版は「読むだけ」。DBには一切書き込まない。
-  使い勝手を確かめてから、書き込む画面を足していく。
+  一覧・個人の閲覧に加えて、個人画面から結果を入力して保存できる。
+  保存は変更した欄だけを UPDATE し、書込前に backup フォルダへ控えを取る。
+  判定・総合所見は計算しない (健診ナビの「自動判定」で行う)。
 
   安全のため 127.0.0.1 (自分のPC) からしか繋がらないようにしてある。
   他のPCから見えることはない。
@@ -37,7 +38,12 @@ function Get-Part([string]$from, [string]$to) {
 }
 Invoke-Expression (Get-Part 'function Normalize-Text' 'function Normalize-KenNo')
 Invoke-Expression (Get-Part 'function Normalize-Ymd' 'function Parse-CsvText')
-Invoke-Expression (Get-Part 'function Resolve-ConnectionString' 'function Get-CurrentKensa')
+Invoke-Expression (Get-Part 'function Get-LocalConnFile' 'function Get-CurrentKensa')
+Invoke-Expression (Get-Part 'function Backup-Kensa' 'function Backup-Kojin1')
+Invoke-Expression (Get-Part 'function Acquire-AppLock' 'function Commit-Plan')
+
+# バックアップの置き場 (form_import.ps1 と同じ)
+$BackupDir = Join-Path $PSScriptRoot 'backup'
 
 # ============================================================================
 # HTML の部品
@@ -79,6 +85,9 @@ a { color:#1f4e79; }
 .err { background:#fbdada; border:1px solid #e0a0a0; padding:12px; border-radius:6px; }
 .note { font-size:12px; color:#666; margin-top:10px; line-height:1.7; }
 .wrap { max-height:calc(100vh - 230px); overflow:auto; border:1px solid #d7dde3; border-radius:6px; }
+td input[type=text], td select { padding:3px 5px; border:1px solid #bcc6d0; border-radius:3px; font-size:13px; font-family:inherit; }
+td input[type=text]:focus, td select:focus { outline:2px solid #2d6ca2; border-color:#2d6ca2; }
+.saved { background:#e2efda; border:1px solid #a9c48c; color:#375623; padding:10px 12px; border-radius:6px; margin-bottom:12px; }
 </style>
 '@
 
@@ -96,6 +105,20 @@ function Page([string]$title, [string]$body, [string]$nav, [string]$envLabel) {
 # ============================================================================
 # 画面
 # ============================================================================
+
+# DBの版によって列の有無が違うので、あるかどうかを一度だけ調べて覚えておく
+$script:ColCache = @{}
+function Test-DbColumn($conn, [string]$table, [string]$col) {
+    $key = "$table.$col"
+    if ($script:ColCache.ContainsKey($key)) { return $script:ColCache[$key] }
+    $dt = Invoke-DbQuery $conn @'
+SELECT COUNT(*) AS N FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = @t AND COLUMN_NAME = @c
+'@ @{ t = $table; c = $col }
+    $has = ([int]$dt.Rows[0].N -gt 0)
+    $script:ColCache[$key] = $has
+    return $has
+}
 
 function Render-List($conn, [string]$ymd, [string]$kw) {
     $where = @('s.F_TORIKESI = 0')
@@ -168,11 +191,11 @@ ORDER BY s.D_KENSIN DESC, LEN(LTRIM(RTRIM(s.UKE_NO_KENSA))), s.UKE_NO_KENSA
     [void]$sb.Append('</tr></thead><tbody>')
     [void]$sb.Append($rows.ToString())
     [void]$sb.Append('</tbody></table></div>')
-    [void]$sb.Append('<p class="note">「入力」は 結果が入っている項目数 / その人の検査枠の数 です。<br>氏名をクリックすると、その人の検査項目が見られます。<br>この画面は読むだけです。健診ナビのデータは変わりません。</p>')
+    [void]$sb.Append('<p class="note">「入力」は 結果が入っている項目数 / その人の検査枠の数 です。<br>氏名をクリックすると、その人の結果を入力できます。</p>')
     return $sb.ToString()
 }
 
-function Render-Person($conn, [int]$pk) {
+function Render-Person($conn, [int]$pk, [string]$msg) {
     $h = Invoke-DbQuery $conn @'
 SELECT TOP 1 s.PK_SEQ, s.D_KENSIN, s.UKE_NO_KENSA, j.KANJI_SIMEI, j.KANA_SIMEI, j.D_SEINEN,
        j.SEIBETU, j.KOJIN_NO, d.MEISYO1 AS DANTAI, c1.MEISYO AS COURSE_MEI, s.D_JIDOHANTEI
@@ -185,13 +208,38 @@ WHERE s.PK_SEQ = @p
     if ($h.Rows.Count -eq 0) { return '<p class="err">その受診者が見つかりません。</p>' }
     $p0 = $h.Rows[0]
 
-    $k = Invoke-DbQuery $conn @'
-SELECT LTRIM(RTRIM(k.KOMOKU_CD)) AS CD, km.MEISYO1 AS 項目名, k.KEKKA, k.KEKKA_CD, k.HANTEI_KIGO
+    # 単位・所見コードの列はDBの版で有無が違うので、あるものだけ読む
+    $selTani = if (Test-DbColumn $conn 'T_KOMOKU' 'TANI') { 'km.TANI' } else { "''" }
+    $selSho  = if (Test-DbColumn $conn 'T_KOMOKU' 'SYOKEN_CD') { "LTRIM(RTRIM(ISNULL(km.SYOKEN_CD,'')))" } else { "''" }
+    $k = Invoke-DbQuery $conn @"
+SELECT LTRIM(RTRIM(k.KOMOKU_CD)) AS CD, km.MEISYO1 AS 項目名, $selTani AS 単位,
+       $selSho AS SYOKEN_CD,
+       k.KEKKA, k.KEKKA_CD, k.HANTEI_KIGO
 FROM T_KENSA k
 LEFT JOIN T_KOMOKU km ON LTRIM(RTRIM(km.KOMOKU_CD)) = LTRIM(RTRIM(k.KOMOKU_CD))
 WHERE k.PK_SEQ = @p
 ORDER BY k.KOMOKU_CD
-'@ @{ p = $pk }
+"@ @{ p = $pk }
+
+    # この人が使う選択肢だけをまとめて引く (所見コード表 T_SYOKEN2)
+    $choices = @{}
+    $shoCds = @($k.Rows | ForEach-Object { Normalize-Text ([string]$_.SYOKEN_CD) } |
+                Where-Object { $_ -ne '' } | Sort-Object -Unique)
+    if ($shoCds.Count -gt 0) {
+        $inList = ($shoCds | ForEach-Object { "'" + $_.Replace("'", "''") + "'" }) -join ','
+        $sh = Invoke-DbQuery $conn @"
+SELECT LTRIM(RTRIM(SYOKEN_CD)) AS SC, SYOKEN, KEKKA_CD
+FROM T_SYOKEN2 WHERE LTRIM(RTRIM(SYOKEN_CD)) IN ($inList)
+ORDER BY SYOKEN_CD, KEKKA_CD
+"@ $null
+        foreach ($r in $sh.Rows) {
+            $sc = [string]$r.SC
+            $txt = Normalize-Text ([string]$r.SYOKEN)
+            if ($txt -eq '') { continue }
+            if (-not $choices.ContainsKey($sc)) { $choices[$sc] = @() }
+            $choices[$sc] += @{ SYOKEN = $txt; KEKKA_CD = Normalize-Text ([string]$r.KEKKA_CD) }
+        }
+    }
 
     $sex = switch (Normalize-Text ([string]$p0.SEIBETU)) { '1' {'男'} '2' {'女'} default {''} }
     $sb = New-Object System.Text.StringBuilder
@@ -212,27 +260,105 @@ ORDER BY k.KOMOKU_CD
 </div>
 "@)
 
+    if ($msg -ne '') { [void]$sb.Append("<div class='saved'>$(HtmlEnc $msg)</div>") }
+
+    # ---- 入力欄。選択肢のある項目はプルダウンにする ----
     $filled = 0
     $rows = New-Object System.Text.StringBuilder
     foreach ($r in $k.Rows) {
+        $cd = [string]$r.CD
         $v = Normalize-Text ([string]$r.KEKKA)
         if ($v -ne '') { $filled++ }
         $nm = Normalize-Text ([string]$r.項目名)
+        $tani = Normalize-Text ([string]$r.単位)
+        $sid = HtmlEnc $cd
+
+        $sho = Normalize-Text ([string]$r.SYOKEN_CD)
+        if ($sho -ne '' -and $choices.ContainsKey($sho)) {
+            # 所見・選択式の項目 → プルダウン
+            $opt = New-Object System.Text.StringBuilder
+            [void]$opt.Append('<option value=""></option>')
+            $hit = $false
+            foreach ($c in $choices[$sho]) {
+                $sel = if ($c.SYOKEN -eq $v) { $hit = $true; ' selected' } else { '' }
+                [void]$opt.Append("<option value=""$(HtmlEnc $c.SYOKEN)""$sel>$(HtmlEnc $c.SYOKEN)</option>")
+            }
+            # マスタに無い値が既に入っている場合も消さずに残す
+            if (-not $hit -and $v -ne '') {
+                [void]$opt.Append("<option value=""$(HtmlEnc $v)"" selected>$(HtmlEnc $v)</option>")
+            }
+            $cell = "<select name=""v_$sid"">$($opt.ToString())</select>"
+        }
+        else {
+            $cell = "<input type=""text"" name=""v_$sid"" value=""$(HtmlEnc $v)"" size=""14"">"
+        }
+
         [void]$rows.Append(@"
 <tr>
-<td class="muted">$(HtmlEnc ([string]$r.CD))</td>
+<td class="muted">$(HtmlEnc $cd)</td>
 <td>$(HtmlEnc $nm)</td>
-<td>$(if ($v -eq '') { '<span class="muted">-</span>' } else { HtmlEnc $v })</td>
+<td>$cell</td>
+<td class="muted">$(HtmlEnc $tani)</td>
 <td class="muted">$(HtmlEnc (Normalize-Text ([string]$r.KEKKA_CD)))</td>
 <td>$(HtmlEnc (Normalize-Text ([string]$r.HANTEI_KIGO)))</td>
 </tr>
 "@)
     }
     [void]$sb.Append("<p class='count'>検査枠 $($k.Rows.Count) / 結果あり $filled</p>")
-    [void]$sb.Append('<div class="wrap"><table><thead><tr><th>項目CD</th><th>項目名</th><th>結果</th><th>結果CD</th><th>判定</th></tr></thead><tbody>')
+    [void]$sb.Append("<form method='post' action='/save'><input type='hidden' name='pk' value='$pk'>")
+    [void]$sb.Append('<div class="wrap"><table><thead><tr><th>項目CD</th><th>項目名</th><th>結果</th><th>単位</th><th>結果CD</th><th>判定</th></tr></thead><tbody>')
     [void]$sb.Append($rows.ToString())
     [void]$sb.Append('</tbody></table></div>')
+    [void]$sb.Append(@"
+<div class="bar" style="margin-top:12px">
+  <button type="submit">保存する</button>
+  <span class="muted">変更した欄だけ書き込みます。書き込む前に backup フォルダへ自動で控えを取ります。</span>
+</div></form>
+<p class="note">保存しても<b>自動判定は動きません</b>。判定・総合所見は健診ナビ側で「自動判定」を実行してください。<br>
+元に戻したいときは <b>元に戻す.bat</b> で、backup フォルダの控えから戻せます。</p>
+"@)
     return $sb.ToString()
+}
+
+# 入力された結果を T_KENSA に書き戻す。
+# 変更のあった項目だけ UPDATE する (触っていない欄は上書きしない)。
+function Save-Person($conn, [int]$pk, [hashtable]$posted) {
+    $cur = Invoke-DbQuery $conn @'
+SELECT LTRIM(RTRIM(KOMOKU_CD)) AS CD, KEKKA FROM T_KENSA WHERE PK_SEQ = @p
+'@ @{ p = $pk }
+    if ($cur.Rows.Count -eq 0) { throw "その受診者の検査枠がありません (PK_SEQ=$pk)" }
+
+    $changes = @()
+    foreach ($r in $cur.Rows) {
+        $cd = [string]$r.CD
+        if (-not $posted.ContainsKey($cd)) { continue }      # 画面に無かった項目は触らない
+        $new = Normalize-Text $posted[$cd]
+        $old = Normalize-Text ([string]$r.KEKKA)
+        if ($new -eq $old) { continue }
+        $changes += @{ CD = $cd; Old = $old; New = $new }
+    }
+    if ($changes.Count -eq 0) { return '変更はありませんでした。' }
+
+    [void](Backup-Kensa $conn $pk)
+
+    $tran = $conn.BeginTransaction()
+    try {
+        [void](Acquire-AppLock $conn $tran "T_KENSA:$pk")
+        foreach ($c in $changes) {
+            $n = Invoke-DbExec $conn $tran `
+                'UPDATE T_KENSA SET KEKKA = @k WHERE PK_SEQ = @p AND KOMOKU_CD = @cd' `
+                @{ k = $c.New; p = $pk; cd = $c.CD }
+            if ($n -ne 1) { throw "項目 $($c.CD) の更新で $n 行が対象になりました。中止します。" }
+        }
+        $tran.Commit()
+    }
+    catch { $tran.Rollback(); throw }
+
+    Write-Host ("[保存] PK_SEQ={0} {1} 項目" -f $pk, $changes.Count) -ForegroundColor Green
+    foreach ($c in $changes) {
+        Write-Host ("    {0}: 「{1}」→「{2}」" -f $c.CD, $c.Old, $c.New) -ForegroundColor DarkGray
+    }
+    return ("{0} 項目を保存しました。" -f $changes.Count)
 }
 
 # ============================================================================
@@ -256,7 +382,7 @@ Write-Host '=== 健診ビューア ===' -ForegroundColor Cyan
 Write-Host "  $prefix" -ForegroundColor Green
 Write-Host "  $envLabel" -ForegroundColor DarkGray
 Write-Host ''
-Write-Host '  この画面は読むだけです。健診ナビのデータは変わりません。' -ForegroundColor DarkGray
+Write-Host '  個人画面で結果を入力して保存できます。書込前に backup へ控えを取ります。' -ForegroundColor DarkGray
 Write-Host '  終わるときは、この黒い画面で Ctrl+C を押すか、ウィンドウを閉じてください。' -ForegroundColor Yellow
 Write-Host ''
 
@@ -266,11 +392,13 @@ $nav = '<a href="/list" class="on">受診者一覧</a>'
 
 try {
     while ($listener.IsListening) {
-        $ctx = $listener.GetContext()
+        try { $ctx = $listener.GetContext() }
+        catch { Write-Host "[受付できませんでした] $($_.Exception.Message)" -ForegroundColor DarkYellow; continue }
         $req = $ctx.Request; $res = $ctx.Response
         $path = $req.Url.AbsolutePath
         $html = ''
         $conn = $null
+        $sent = $false      # レスポンスを自前で返した (リダイレクト等) 場合に立てる
         try {
             if ($path -eq '/favicon.ico') { $res.StatusCode = 404; $res.Close(); continue }
             $conn = Open-Db
@@ -278,7 +406,30 @@ try {
                 '^/person$' {
                     $pk = 0
                     [void][int]::TryParse(($req.QueryString['pk']), [ref]$pk)
-                    $html = Page '受診者' (Render-Person $conn $pk) $nav $envLabel
+                    $msg = Normalize-Text ($req.QueryString['msg'])
+                    $html = Page '受診者' (Render-Person $conn $pk $msg) $nav $envLabel
+                    break
+                }
+                '^/save$' {
+                    if ($req.HttpMethod -ne 'POST') { $res.StatusCode = 405; $sent = $true; break }
+                    $rdr = New-Object System.IO.StreamReader($req.InputStream, $req.ContentEncoding)
+                    $body = $rdr.ReadToEnd(); $rdr.Close()
+                    $posted = @{}
+                    $pk = 0
+                    foreach ($pair in ($body -split '&')) {
+                        if ($pair -eq '') { continue }
+                        $eq = $pair.IndexOf('=')
+                        if ($eq -lt 0) { continue }
+                        $nameRaw = [System.Uri]::UnescapeDataString(($pair.Substring(0, $eq)).Replace('+', ' '))
+                        $valRaw  = [System.Uri]::UnescapeDataString(($pair.Substring($eq + 1)).Replace('+', ' '))
+                        if ($nameRaw -eq 'pk') { [void][int]::TryParse($valRaw, [ref]$pk); continue }
+                        if ($nameRaw -like 'v_*') { $posted[$nameRaw.Substring(2)] = $valRaw }
+                    }
+                    $done = Save-Person $conn $pk $posted
+                    # 二重送信を防ぐため、保存後は GET に戻す
+                    $res.StatusCode = 303
+                    $res.RedirectLocation = "/person?pk=$pk&msg=" + [System.Uri]::EscapeDataString($done)
+                    $sent = $true
                     break
                 }
                 default {
@@ -295,16 +446,30 @@ try {
             }
         }
         catch {
-            $msg = HtmlEnc ($_.Exception.Message)
-            $html = Page 'エラー' "<div class='err'><b>エラーが起きました</b><br><pre>$msg</pre></div>" $nav $envLabel
+            # 画面にも黒い画面にも出す。何があってもサーバーは止めない。
+            $emsg = $_.Exception.Message
+            $where = $_.InvocationInfo.PositionMessage
+            Write-Host "[エラー] $path : $emsg" -ForegroundColor Red
+            if ($where) { Write-Host $where -ForegroundColor DarkGray }
+            $html = Page 'エラー' ("<div class='err'><b>エラーが起きました</b><br><pre>{0}</pre><pre class='muted'>{1}</pre></div>" -f (HtmlEnc $emsg), (HtmlEnc $where)) $nav $envLabel
+            $sent = $false
         }
         finally { if ($conn) { $conn.Close() } }
 
-        $bytes = [System.Text.Encoding]::UTF8.GetBytes($html)
-        $res.ContentType = 'text/html; charset=utf-8'
-        $res.ContentLength64 = $bytes.Length
-        $res.OutputStream.Write($bytes, 0, $bytes.Length)
-        $res.OutputStream.Close()
+        try {
+            if ($sent) { $res.Close() }
+            else {
+                $bytes = [System.Text.Encoding]::UTF8.GetBytes($html)
+                $res.ContentType = 'text/html; charset=utf-8'
+                $res.ContentLength64 = $bytes.Length
+                $res.OutputStream.Write($bytes, 0, $bytes.Length)
+                $res.OutputStream.Close()
+            }
+        }
+        catch {
+            # ブラウザ側が先に切った場合など。ここで止まる理由はない。
+            Write-Host "[送信できませんでした] $($_.Exception.Message)" -ForegroundColor DarkYellow
+        }
     }
 }
 finally {

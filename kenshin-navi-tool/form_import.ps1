@@ -415,8 +415,13 @@ function Convert-FormValue([hashtable]$valueMap, [string]$kind, [string]$raw) {
 #   3. \\KNSV\KenshinNavi\SQLSV\SQLServerConnect.txt (本番)
 # 2 は配布zipに含めない。開発PCにだけ置くことで、本番の設定を汚さずに向き先を変えられる。
 function Get-LocalConnFile {
+    # 他のスクリプトが Invoke-Expression でこの関数を借りると、
+    # 関数の中の $PSScriptRoot は空になる。その場合は呼び出し元スクリプトの値を使う。
+    $base = $PSScriptRoot
+    if (-not $base) { $base = $script:PSScriptRoot }
+    if (-not $base) { return $null }
     foreach ($n in @('接続先.txt', 'local_conn.txt')) {
-        $p = Join-Path $PSScriptRoot $n
+        $p = Join-Path $base $n
         if (Test-Path $p) { return $p }
     }
     return $null
@@ -424,7 +429,9 @@ function Get-LocalConnFile {
 
 function Resolve-ConnectionString {
     if ($ConnectionString) { return $ConnectionString }
-    $local = Get-LocalConnFile
+    # 借用元が Get-LocalConnFile を取り込んでいない場合でも動くようにしておく
+    $local = $null
+    if (Get-Command Get-LocalConnFile -ErrorAction SilentlyContinue) { $local = Get-LocalConnFile }
     if ($local) {
         $script:UsingLocalConn = $local
         $ConnFile = $local

@@ -1,11 +1,14 @@
-﻿﻿<#
+﻿<#
 .SYNOPSIS
-  帳票のクリニック名を別のクリニックに差し替える (clinic_swap.ps1)
+  帳票の名前まわりを差し替える (clinic_swap.ps1)
 
 .DESCRIPTION
-  健診ナビが出した帳票(Excel)を読み、クリニック欄だけを
-  別のクリニックの情報に置き換えた「別ファイル」を作る。
+  健診ナビが出した帳票(Excel)を読み、名前の欄だけを書き換えた「別ファイル」を作る。
   結果票でも受診表でも、同じように使える。
+
+    -Clinic  クリニック名・法人名・住所・TEL/FAX を別のクリニックに差し替える
+    -Kumiai  「事業所コード」の行を「組合名」に差し替え、「団体名」の見出しを
+             「会社名」に変える。組合名と会社名が別々の行で出る。
 
   - 健診ナビも帳票テンプレートも一切触らない
   - 元のファイルも書き換えない (必ず別名で保存する)
@@ -24,11 +27,15 @@
 
   # フォルダごとまとめて
   powershell -ExecutionPolicy Bypass -File clinic_swap.ps1 -In "C:\...\出力フォルダ" -Clinic 〇〇クリニック -Commit
+
+  # 組合名を足す (健診ナビもテンプレートも触らない)
+  powershell -ExecutionPolicy Bypass -File clinic_swap.ps1 -In "C:\...\出力フォルダ" -Kumiai 横浜石工連合組合 -Commit
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$In,   # 帳票のファイル、またはフォルダ
     [string]$Clinic,                             # clinics.csv の Key (省略すると一覧を出す)
+    [string]$Kumiai,                             # 組合名。指定すると「事業所コード」の行を「組合名」に差し替える
     [string]$OutDir,                             # 出力先 (省略すると元と同じ場所)
     [switch]$Commit                              # 付けると実際に書き出す
 )
@@ -69,7 +76,7 @@ $clinics = @(Read-CsvJp (Join-Path $MapDir 'clinics.csv') |
 $layouts = @(Read-CsvJp (Join-Path $MapDir 'clinic_cells.csv') |
              Where-Object { ([string]$_.Layout).Trim() -ne '' })
 
-if (-not $Clinic) {
+if (-not $Clinic -and -not $Kumiai) {
     Write-Host ''
     Write-Host '=== 使えるクリニック ===' -ForegroundColor Cyan
     foreach ($c in $clinics) {
@@ -81,8 +88,11 @@ if (-not $Clinic) {
     return
 }
 
-$to = $clinics | Where-Object { $_.Key -eq $Clinic } | Select-Object -First 1
-if (-not $to) { throw "clinics.csv に「$Clinic」がありません。-Clinic を付けずに実行すると一覧が出ます。" }
+$to = $null
+if ($Clinic) {
+    $to = $clinics | Where-Object { $_.Key -eq $Clinic } | Select-Object -First 1
+    if (-not $to) { throw "clinics.csv に「$Clinic」がありません。-Clinic を付けずに実行すると一覧が出ます。" }
+}
 
 # ---- xlsx の中の1セルを書き換える ----
 # 共有文字列(sharedStrings)は他のセルと使い回されているため、そこは触らない。
@@ -211,6 +221,34 @@ function Write-Entry([System.IO.Compression.ZipArchive]$zip, [string]$name, [str
     $sw.Write($text); $sw.Close()
 }
 
+# 「事業所コード」「団体名」の見出しを手がかりに、組合名を出す場所を決める。
+# 帳票では 見出しセル と 値セル が離れているので、同じ行で右にある最初の中身入りセルを値とみなす。
+function Find-KumiaiCells($cells) {
+    $labelCode = @('事業所コード', '事業所ｺｰﾄﾞ')
+    $labelName = @('団体名')
+    $r = @{}
+    foreach ($ref in $cells.Keys) {
+        $t = $cells[$ref]
+        # 見出しにはふりがなが付いていることがあるので、前方一致で見る
+        foreach ($L in $labelCode) { if ($t.StartsWith($L)) { $r['コード見出し'] = $ref } }
+        foreach ($L in $labelName) { if ($t.StartsWith($L)) { $r['団体名見出し'] = $ref } }
+    }
+    if (-not $r.ContainsKey('コード見出し')) { return $null }
+
+    $a = Split-Ref $r['コード見出し']
+    $best = $null; $bestCol = 9999
+    foreach ($ref in $cells.Keys) {
+        $p = Split-Ref $ref
+        if (-not $p) { continue }
+        if ($p.Row -ne $a.Row) { continue }
+        if ($p.Col -le $a.Col) { continue }
+        if ($p.Col -lt $bestCol) { $bestCol = $p.Col; $best = $ref }
+    }
+    if (-not $best) { return $null }
+    $r['コード値'] = $best
+    return $r
+}
+
 # ---- 対象ファイルを集める ----
 if (-not (Test-Path $In)) { throw "見つかりません: $In" }
 $targets = @()
@@ -224,7 +262,8 @@ if ($targets.Count -eq 0) { throw "xlsx が1つもありません: $In" }
 
 Write-Host ''
 Write-Host '=== 結果票のクリニック名を差し替える ===' -ForegroundColor Cyan
-Write-Host ("  差し替え先 : {0} / {1}" -f $to.法人名, $to.クリニック名) -ForegroundColor Green
+if ($to)     { Write-Host ("  クリニック : {0} / {1}" -f $to.法人名, $to.クリニック名) -ForegroundColor Green }
+if ($Kumiai) { Write-Host ("  組合名     : {0}  (「事業所コード」の行に出します)" -f $Kumiai) -ForegroundColor Green }
 Write-Host ("  対象       : {0} 件" -f $targets.Count)
 if (-not $Commit) { Write-Host '  ※ いまは確認だけです。書き出しません。' -ForegroundColor Yellow }
 Write-Host ''
@@ -232,6 +271,7 @@ Write-Host ''
 $done = 0; $skip = 0
 foreach ($f in $targets) {
     # --- どの帳票かを判別する ---
+    $hit = $null; $kum = $null; $kumSheet = $null; $kumCells = $null; $cellsOf = @{}
     $zip = [System.IO.Compression.ZipFile]::OpenRead($f.FullName)
     try {
         $shared = Get-Shared $zip
@@ -252,22 +292,37 @@ foreach ($f in $targets) {
             }
         }
 
-        # 登録が無い帳票 (受診表など) は、クリニック名を手がかりに自動で探す
-        if (-not $hit) {
-            foreach ($e in $zip.Entries) {
-                if ($e.FullName -notmatch '^xl/worksheets/sheet\d+\.xml$') { continue }
-                $xml = Read-Entry $zip $e.FullName
-                if (-not $xml) { continue }
-                $cells = Get-AllCells $xml $shared
+        # 登録が無い帳票 (受診表など) は、クリニック名を手がかりに自動で探す。
+        # あわせて、組合名を出す場所も探しておく。
+        foreach ($e in $zip.Entries) {
+            if ($e.FullName -notmatch '^xl/worksheets/sheet\d+\.xml$') { continue }
+            $xml = Read-Entry $zip $e.FullName
+            if (-not $xml) { continue }
+            $cells = Get-AllCells $xml $shared
+            if (-not $hit) {
                 $blk = Find-ClinicBlock $cells $clinics
-                if ($blk) {
-                    $hit = @{ Name = '自動判別'; Sheet = $e.FullName; From = $blk.From; Cells = $blk.Cells }
-                    break
-                }
+                if ($blk) { $hit = @{ Name = '自動判別'; Sheet = $e.FullName; From = $blk.From; Cells = $blk.Cells } }
             }
+            if ($Kumiai -and -not $kum) {
+                $kc = Find-KumiaiCells $cells
+                if ($kc) { $kum = $kc; $kumSheet = $e.FullName; $kumCells = $cells }
+            }
+            if ($hit -and (-not $Kumiai -or $kum)) { break }
         }
     }
     finally { $zip.Dispose() }
+
+    if ($Kumiai) {
+        if (-not $kum) {
+            Write-Host ("  [とばす] {0} … 「事業所コード」の欄が見つかりませんでした" -f $f.Name) -ForegroundColor DarkYellow
+            $skip++
+            continue
+        }
+        if (-not $hit) { $hit = @{ Name = '組合名のみ'; Sheet = $kumSheet; From = $null; Cells = @{} } }
+        $hit.Kumiai = $kum
+        $hit.KumiaiSheet = $kumSheet
+        $cellsOf = $kumCells
+    }
 
     if (-not $hit) {
         Write-Host ("  [とばす] {0}" -f $f.Name) -ForegroundColor DarkYellow
@@ -275,28 +330,38 @@ foreach ($f in $targets) {
         $skip++
         continue
     }
-    if ($hit.From.Key -eq $to.Key) {
+    if ($to -and $hit.From -and $hit.From.Key -eq $to.Key -and -not $Kumiai) {
         Write-Host ("  [とばす] {0} … すでに {1} です" -f $f.Name, $to.クリニック名) -ForegroundColor DarkYellow
         $skip++
         continue
     }
 
     Write-Host ("  {0}" -f $f.Name) -ForegroundColor White
-    Write-Host ("      帳票 {0} / {1} → {2}" -f $hit.Name, $hit.From.クリニック名, $to.クリニック名) -ForegroundColor DarkGray
+    $whatTo = if ($to) { "{0} → {1}" -f $hit.From.クリニック名, $to.クリニック名 } else { "組合名 {0} を追加" -f $Kumiai }
+    Write-Host ("      帳票 {0} / {1}" -f $hit.Name, $whatTo) -ForegroundColor DarkGray
 
     # --- 出力先を決める。元のファイルには絶対に書かない ---
     $dir = if ($OutDir) { $OutDir } else { $f.DirectoryName }
     if (-not (Test-Path $dir)) { [void](New-Item -ItemType Directory -Path $dir) }
-    $outFile = Join-Path $dir ("{0}_差替_{1}{2}" -f [IO.Path]::GetFileNameWithoutExtension($f.Name), $to.Key, $f.Extension)
+    $sufx = if ($to) { $to.Key } else { '組合名' }
+    $outFile = Join-Path $dir ("{0}_差替_{1}{2}" -f [IO.Path]::GetFileNameWithoutExtension($f.Name), $sufx, $f.Extension)
     if ((Resolve-Path $f.FullName).Path -eq $outFile) { throw "出力先が元ファイルと同じです: $outFile" }
 
     if (-not $Commit) {
-        foreach ($fld in $FIELDS) {
+        foreach ($fld in $(if ($to) { $FIELDS } else { @() })) {
             if (-not $hit.Cells.ContainsKey($fld)) {
                 Write-Host ("        {0,-12} (この帳票には無い)" -f $fld) -ForegroundColor DarkGray
                 continue
             }
             Write-Host ("        {0,-12} {1,-5} 「{2}」→「{3}」" -f $fld, $hit.Cells[$fld], $hit.From.$fld, $to.$fld) -ForegroundColor DarkGray
+        }
+        if ($Kumiai -and $hit.Kumiai) {
+            $k = $hit.Kumiai
+            Write-Host ("        {0,-12} {1,-5} 「{2}」→「組合名」" -f '見出し', $k['コード見出し'], $cellsOf[$k['コード見出し']]) -ForegroundColor DarkGray
+            Write-Host ("        {0,-12} {1,-5} 「{2}」→「{3}」" -f '組合名', $k['コード値'], $cellsOf[$k['コード値']], $Kumiai) -ForegroundColor DarkGray
+            if ($k.ContainsKey('団体名見出し')) {
+                Write-Host ("        {0,-12} {1,-5} 「{2}」→「会社名」" -f '見出し', $k['団体名見出し'], $cellsOf[$k['団体名見出し']]) -ForegroundColor DarkGray
+            }
         }
         Write-Host ("        書き出し先: {0}" -f $outFile) -ForegroundColor DarkGray
         $done++
@@ -308,7 +373,7 @@ foreach ($f in $targets) {
     try {
         $xml = Read-Entry $zip $hit.Sheet
         $n = 0
-        foreach ($fld in $FIELDS) {
+        foreach ($fld in $(if ($to) { $FIELDS } else { @() })) {
             if (-not $hit.Cells.ContainsKey($fld)) { continue }
             $cell = $hit.Cells[$fld]
             $r = Set-CellText $xml $cell ([string]$to.$fld)
@@ -317,6 +382,16 @@ foreach ($f in $targets) {
                 continue
             }
             $xml = $r.Xml; $n++
+        }
+        if ($Kumiai -and $hit.Kumiai) {
+            $k = $hit.Kumiai
+            $kx = Read-Entry $zip $hit.KumiaiSheet
+            $r1 = Set-CellText $kx $k['コード見出し'] '組合名'      ; if ($r1.Ok) { $kx = $r1.Xml; $n++ }
+            $r2 = Set-CellText $kx $k['コード値']    $Kumiai        ; if ($r2.Ok) { $kx = $r2.Xml; $n++ }
+            if ($k.ContainsKey('団体名見出し')) {
+                $r3 = Set-CellText $kx $k['団体名見出し'] '会社名'   ; if ($r3.Ok) { $kx = $r3.Xml; $n++ }
+            }
+            if ($hit.KumiaiSheet -eq $hit.Sheet) { $xml = $kx } else { Write-Entry $zip $hit.KumiaiSheet $kx }
         }
         Write-Entry $zip $hit.Sheet $xml
     }

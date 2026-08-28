@@ -60,6 +60,7 @@ ENTRIES = [
     'check15.ps1', 'check15.bat',
     'check16.ps1', 'check16.bat',
     'check17.ps1', 'check17.bat',
+    'check18.ps1', 'check18.bat',
     'start.bat',
     '心電図取込.bat',
     '元に戻す.bat',

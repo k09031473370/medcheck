@@ -225,7 +225,11 @@ function Split-HeaderData($rows, $idCols) {
         return @{ Header = $h; Data = $rows }
     }
     if ($rows.Count -lt 2) { throw '見出し行だけでデータがありません。2行目以降に内容を入力してください。' }
-    return @{ Header = $rows[0]; Data = @($rows[1..($rows.Count - 1)]) }
+    # データが1行だけのとき $rows[1..1] は「行」ではなく中身のセルに展開されてしまう。
+    # 1件ずつ , を付けて足し、必ず「行の配列」にする。
+    $data = @()
+    for ($i = 1; $i -lt $rows.Count; $i++) { $data += , $rows[$i] }
+    return @{ Header = $rows[0]; Data = $data }
 }
 
 function Get-Field($fields, [int]$col) {

@@ -42,7 +42,9 @@ function Get-Part([string]$from, [string]$to) {
     return $src.Substring($i, $j - $i)
 }
 # Invoke-Expression は呼んだ場所のスコープに定義されるので、必ずスクリプト直下で実行する
-Invoke-Expression (Get-Part 'function Normalize-Text' 'function Normalize-KenNo')
+# 終わりの目印にした関数そのものは含まれない。
+# 受付番号を戻すのに Normalize-KenNo も要るので、その次の Normalize-Ymd までを取る。
+Invoke-Expression (Get-Part 'function Normalize-Text' 'function Normalize-Ymd')
 Invoke-Expression (Get-Part 'function Resolve-ConnectionString' 'function Get-CurrentKensa')
 Invoke-Expression (Get-Part 'function Test-Locked' 'function Commit-Plan')
 

@@ -1387,7 +1387,10 @@ if ($SetUkeNo) {
         throw 'mapping.csv に NAMEKANJI または NAMEKANA の列(氏名)を設定してください。'
     }
     if ($idCols.KenNo -le 0) { throw 'mapping.csv の KENNO 行に列番号を設定してください。' }
-    $rowsSel = if ($Only) { Select-TargetRows $data $idCols } else { $data }
+    # if を式として代入すると、1行だけの配列が中身のセルに展開されてしまう。
+    # 単純な代入なら展開されないので、この形にしておく。
+    $rowsSel = $data
+    if ($Only) { $rowsSel = Select-TargetRows $data $idCols }
     $conn = Open-Db
     try {
         $cache = @{}

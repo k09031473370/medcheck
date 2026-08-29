@@ -51,7 +51,7 @@ if ($List -or -not $File) {
     if (-not (Test-Path $BackupDir)) { throw "backup フォルダがありません: $BackupDir" }
     Write-Host "=== backup フォルダの中身 (新しい順) ===" -ForegroundColor Cyan
     Get-ChildItem $BackupDir -File |
-        Where-Object { $_.Name -like 'T_KENSA_*.csv' -or $_.Name -like 'T_KOJIN1_*.csv' } |
+        Where-Object { $_.Name -like 'T_KENSA_*.csv' -or $_.Name -like 'T_KOJIN1_*.csv' -or $_.Name -like 'UKE_NO_*.csv' } |
         Sort-Object LastWriteTime -Descending |
         Select-Object -First 40 @{n='保存日時';e={$_.LastWriteTime}}, @{n='ファイル';e={$_.Name}}, @{n='サイズ';e={$_.Length}} |
         Format-Table -AutoSize | Out-String -Width 200 | Write-Host
@@ -106,6 +106,57 @@ if ($cols -contains 'KOJIN_ID' -and $cols -notcontains 'KOMOKU_CD') {
             if ($n -ne 1) { throw ("UPDATE影響行数が {0} でした。ロールバックします。" -f $n) }
             $tran.Commit()
             Write-Host ("[復元完了] 社員番号を元に戻しました (KOJIN_ID={0})" -f $kojinId) -ForegroundColor Green
+        }
+        catch { $tran.Rollback(); throw }
+    }
+    finally { $conn.Close() }
+    return
+}
+
+# ---- 受付番号(UKE_NO_*.csv)のバックアップなら、そちらの手順で戻して終わり ----
+# 「受付番号を設定」で書いた T_KENSIN.UKE_NO_KENSA を、設定前の値に戻す。
+# 設定前が空欄だった人は空欄に戻す。
+if ($cols -contains 'PkSeq' -and $cols -contains '現在の番号') {
+    $conn = Open-Db
+    try {
+        $plan = @()
+        foreach ($r in $rows) {
+            $pk = Normalize-Text $r.PkSeq
+            if ($pk -eq '') { continue }
+            $before = Normalize-KenNo ([string]$r.'現在の番号')      # 設定前の値
+            $dt = Invoke-DbQuery $conn 'SELECT UKE_NO_KENSA, D_KENSIN FROM T_KENSIN WHERE PK_SEQ = @p' @{ p = $pk }
+            if ($dt.Rows.Count -eq 0) { Write-Warning "受診が見つかりません (PK_SEQ=$pk)"; continue }
+            $now = Normalize-KenNo ([string]$dt.Rows[0].UKE_NO_KENSA)
+            if ($now -eq $before) { continue }                        # すでに元どおり
+            $plan += [pscustomobject]@{
+                PkSeq = $pk; 受診日 = [string]$dt.Rows[0].D_KENSIN
+                氏名 = [string]$r.氏名; いまの番号 = $now
+                戻す番号 = $(if ($before -eq '') { '(空欄)' } else { $before })
+                Before = $before
+            }
+        }
+        if ($plan.Count -eq 0) {
+            Write-Host 'すでに元の状態です。戻すものはありません。' -ForegroundColor Green
+            return
+        }
+        Write-Host ''
+        Write-Host '=== 受付番号を元に戻す ===' -ForegroundColor Cyan
+        $plan | Select-Object 受診日, 氏名, いまの番号, 戻す番号, PkSeq |
+            Format-Table -AutoSize | Out-String -Width 200 | Write-Host
+        if (-not $Commit) {
+            Write-Host '※ 表示のみです。実際に戻すには -Commit を付けて再実行してください。' -ForegroundColor Yellow
+            return
+        }
+        $tran = $conn.BeginTransaction()
+        try {
+            foreach ($t in $plan) {
+                $v = $(if ($t.Before -eq '') { [DBNull]::Value } else { $t.Before })
+                $n = Invoke-DbExec $conn $tran 'UPDATE T_KENSIN SET UKE_NO_KENSA = @no WHERE PK_SEQ = @p' `
+                     @{ no = $v; p = $t.PkSeq }
+                if ($n -ne 1) { throw ("UPDATE影響行数が {0} でした (PK_SEQ={1})。ロールバックします。" -f $n, $t.PkSeq) }
+            }
+            $tran.Commit()
+            Write-Host ("[復元完了] {0} 人の受付番号を元に戻しました。" -f $plan.Count) -ForegroundColor Green
         }
         catch { $tran.Rollback(); throw }
     }

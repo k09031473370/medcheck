@@ -1,9 +1,9 @@
 ﻿Col,Col2,Label,Kind,KOMOKU_CD,SYOKEN_CD,SYOKEN_CD2,CodeMap,IfEmpty,ReqCol,Format,Note
-# DETECT=HEADER:受診日,受付NO,Q1,!氏名
-# DETECT=HEADER:日付,受付NO,Q1,!氏名
-# DETECT=HEADER:実施日,受付NO,Q1,!氏名
-# DETECT=COLS:47-47
-# LABEL=芝浦巡回AIデータ (47列・A列に受診日)
+# DETECT=HEADER:受診日,受付NO,Q1,氏名
+# DETECT=HEADER:日付,受付NO,Q1,氏名
+# DETECT=HEADER:実施日,受付NO,Q1,氏名
+# DETECT=COLS:49-49
+# LABEL=当日フォーム・氏名つき (49列)
 # 芝浦巡回AIデータのA列に「受診日」を挿入した推奨レイアウト。
 # 元の46列(mapping_shibaura_ai.csv)を+1しただけで、中身は同じ。
 # A列に日付を入れておけば、GUIの受診日欄への入力(と打ち間違い)が要らなくなる。
@@ -54,3 +54,5 @@
 45,,他覚所見1(診察),SHOKENCD,017101A,SHIN,,,,,,★実データは全員1。プレビューで「1」が何と表示されるかを必ず確かめること
 46,,胸部X線所見1,SHOKENCD,077010A,ZK020,,,,,,★同上。リアンは所見CD+部位CDの2列だが芝浦は1列なので所見CDのみ
 47,,心電図所見1,SHOKENCD,067112A,ZK011,,,,,,★同上。ZK011の結果CD 1 は「正常範囲」
+48,,氏名(漢字),NAMEKANJI,,,,,,,,取り違え防止の照合に使う。健診ナビ側の氏名と突き合わせる
+49,,氏名(カナ),NAMEKANA,,,,,,,,半角カナ。漢字より優先して照合される (旧字体の差を避けるため)

@@ -27,7 +27,11 @@ echo.
 echo ================== 復元 ==================
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0restore_backup.ps1" -File "%~dp0backup\%FN%" -Commit
 echo.
-echo 健診ナビで「自動判定」をやり直してください。
+if errorlevel 1 (
+  echo 戻せませんでした。何も変わっていません。上の赤い文字を読んでください。
+) else (
+  echo 健診ナビで「自動判定」をやり直してください。
+)
 
 :end
 echo.

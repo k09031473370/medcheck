@@ -225,14 +225,16 @@ try {
         return
     }
 
+    # 先に編集中かどうかを見る。中止するのに控えだけ残ると、
+    # 次に戻すファイルを選ぶときの一覧が紛らわしくなるため。
+    $lock = Test-Locked $conn $pkSeq
+    if ($lock) { throw "この受診者は健診ナビの結果入力画面で編集中です ($lock)。画面を閉じてから再実行してください。" }
+
     # 戻す前の状態も保存しておく (やり直せるように)
     $safety = Join-Path $BackupDir ("T_KENSA_{0}_{1}_before_restore.csv" -f $pkSeq, (Get-Date -Format 'yyyyMMdd_HHmmss'))
     (Invoke-DbQuery $conn 'SELECT * FROM T_KENSA WHERE PK_SEQ = @p' @{ p = $pkSeq }) |
         Export-Csv -Path $safety -NoTypeInformation -Encoding UTF8
     Write-Host "[バックアップ] 戻す前の状態: $safety" -ForegroundColor DarkGray
-
-    $lock = Test-Locked $conn $pkSeq
-    if ($lock) { throw "この受診者は健診ナビの結果入力画面で編集中です ($lock)。画面を閉じてから再実行してください。" }
 
     $tran = $conn.BeginTransaction()
     try {

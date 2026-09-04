@@ -185,7 +185,12 @@ foreach ($m in $map) {
 }
 
 if ($colKenNo -eq 0) {
-    Write-Host '  ★ 対応表に受付番号(KENNO)の列がありません。' -ForegroundColor Red
+    if ($colKanji -gt 0 -or $colKana -gt 0) {
+        Write-Host '  受付番号の列 : ありません → 氏名で健診ナビの受診者を探して書き込みます。' -ForegroundColor Green
+    }
+    else {
+        Write-Host '  ★ 受付番号の列も氏名の列もありません。誰の結果か特定できません。' -ForegroundColor Red
+    }
 }
 else {
     $nos = @()
@@ -409,7 +414,7 @@ Write-Host ("  レイアウト : {0}" -f (Split-Path $mapPath -Leaf))
 Write-Host ("  人数       : {0} 人" -f $data.Count)
 $ng = @()
 if ($needMax -gt $maxCols) { $ng += 'ファイルの列が足りない (レイアウト違いの疑い)' }
-if ($colKenNo -eq 0)       { $ng += '受付番号の列が無い' }
+if ($colKenNo -eq 0 -and $colKanji -le 0 -and $colKana -le 0) { $ng += '受付番号も氏名も無く、誰の結果か特定できない' }
 if ($script:dupCount -gt 0){ $ng += '受付番号が重複している' }
 if ($bad.Count -gt 0)      { $ng += ('変換表に無い値が {0} 件' -f $bad.Count) }
 if ($ng.Count -eq 0) {

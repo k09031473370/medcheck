@@ -544,6 +544,39 @@ function Resolve-PkSeq($conn, [string]$ymd, [string]$kenNo) {
     return $dt.Rows[0].PK_SEQ
 }
 
+# 受付番号が無いファイル用: 氏名で受診者を探す
+#   東振協データ送信フォーマットのように受付番号の列が無いファイルで使う。
+#   カナを優先して比べる (漢字は旧字体・異体字で違うことがあるため)。
+#   戻り値: @{ PkSeq=..; Status='OK'|'NOTFOUND'|'AMBIGUOUS'; Count=見つかった人数 }
+$script:NaviByYmd = @{}
+function Resolve-PkSeqByName($conn, [string]$ymd, [string]$kanji, [string]$kana) {
+    if (-not $script:NaviByYmd.ContainsKey($ymd)) {
+        $script:NaviByYmd[$ymd] = Invoke-DbQuery $conn @'
+SELECT s.PK_SEQ, k.KANJI_SIMEI, k.KANA_SIMEI
+FROM T_KENSIN s LEFT JOIN T_KOJIN1 k ON k.KOJIN_ID = s.KOJIN_ID
+WHERE s.D_KENSIN = @ymd AND s.F_TORIKESI = 0
+'@ @{ ymd = $ymd }
+    }
+    $navi = $script:NaviByYmd[$ymd].Rows
+    $nk = Normalize-Name $kanji
+    $na = Normalize-Name $kana
+
+    $hits = @()
+    if ($na -ne '') { $hits = @($navi | Where-Object { (Normalize-Name ([string]$_.KANA_SIMEI)) -eq $na }) }
+    if ($hits.Count -eq 0 -and $nk -ne '') {
+        $hits = @($navi | Where-Object { (Normalize-Name ([string]$_.KANJI_SIMEI)) -eq $nk })
+    }
+    elseif ($hits.Count -gt 1 -and $nk -ne '') {
+        # カナが同じ人が複数いたら、漢字で絞る
+        $narrow = @($hits | Where-Object { (Normalize-Name ([string]$_.KANJI_SIMEI)) -eq $nk })
+        if ($narrow.Count -eq 1) { $hits = $narrow }
+    }
+
+    if ($hits.Count -eq 0) { return @{ PkSeq = $null; Status = 'NOTFOUND';  Count = 0 } }
+    if ($hits.Count -gt 1) { return @{ PkSeq = $null; Status = 'AMBIGUOUS'; Count = $hits.Count } }
+    return @{ PkSeq = $hits[0].PK_SEQ; Status = 'OK'; Count = 1 }
+}
+
 # 対象者の現在の T_KENSA 行 (KOMOKU_CD → 行) を取得
 # PK_SEQ から健診ナビ側の氏名を引く (取り違え防止の照合に使う)
 function Get-NaviName($conn, $pkSeq) {
@@ -1515,7 +1548,38 @@ try {
     foreach ($fields in $targets) {
         $kenNo = Normalize-KenNo (Get-Field $fields $idCols.KenNo)
         $ymd = Resolve-RowYmd $fields $idCols
-        $pk = Resolve-PkSeq $conn $ymd $kenNo
+        $byName = $false
+        if ($kenNo -ne '') {
+            $pk = Resolve-PkSeq $conn $ymd $kenNo
+        }
+        else {
+            # 受付番号の列が無いファイル(東振協データ送信など)は氏名で探す
+            $byName = $true
+            $nmK = if ($idCols.Kanji -gt 0) { Normalize-Text (Get-Field $fields $idCols.Kanji) } else { '' }
+            $nmA = if ($idCols.Kana  -gt 0) { Normalize-Text (Get-Field $fields $idCols.Kana)  } else { '' }
+            if ($nmK -eq '' -and $nmA -eq '') {
+                Write-Warning "受付番号も氏名も無い行があります (受診日=$ymd) → スキップ"
+                $hadError = $true
+                $notFoundNos += '(氏名なし)'
+                continue
+            }
+            $nameLabel = (@($nmK, $nmA) | Where-Object { $_ -ne '' }) -join ' / '
+            $found = Resolve-PkSeqByName $conn $ymd $nmK $nmA
+            $pk = $found.PkSeq
+            if ($found.Status -eq 'AMBIGUOUS') {
+                Write-Warning ("同名が {0} 人いて特定できません ({1} / 受診日 {2}) → スキップ" -f $found.Count, $nameLabel, $ymd)
+                $hadError = $true
+                $notFoundNos += $nameLabel
+                continue
+            }
+            if ($null -eq $pk) {
+                Write-Warning "受診者が見つかりません (受診日=$ymd, 氏名=$nameLabel) → スキップ"
+                $hadError = $true
+                $notFoundNos += $nameLabel
+                continue
+            }
+            $kenNo = "氏名照合"
+        }
         if ($null -eq $pk) {
             Write-Warning "受診者が見つかりません (KEN_YMD=$ymd, KEN_NO=$kenNo) → スキップ"
             $hadError = $true

@@ -25,3 +25,11 @@ CHORYOKU,異常あり,所見あり
 CHORYOKU,なし,所見なし
 CHORYOKU,あり,所見あり
 CHORYOKU,正常,所見なし
+NYOU,（－）,(-)
+NYOU,（＋－）,(+-)
+NYOU,（±）,(+-)
+NYOU,（＋）,(+)
+NYOU,（２＋）,(2+)
+NYOU,（３＋）,(3+)
+CHORYOKU,所見無し,所見なし
+CHORYOKU,所見有り,所見あり

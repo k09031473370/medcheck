@@ -30,7 +30,7 @@ if (-not (Test-Path $tool)) { W "db_tool.ps1 がありません: $dir"; notepad 
 # ---------------------------------------------------------------- ①
 Q '--- ①-1 項目コードを探す (尿素窒素・総蛋白・総ビリルビン・ALB・LAP・ALP) ---' @"
 SELECT LTRIM(RTRIM(KOMOKU_CD)) AS 項目CD, MEISYO1 AS 項目名,
-       LTRIM(RTRIM(ISNULL(TANI,''))) AS 単位
+       LTRIM(RTRIM(ISNULL(TAN_I,''))) AS 単位
 FROM T_KOMOKU
 WHERE MEISYO1 LIKE N'%尿素窒素%' OR MEISYO1 LIKE N'%BUN%' OR MEISYO1 LIKE N'%ﾌﾞﾄﾞｳ%'
    OR MEISYO1 LIKE N'%総蛋白%'   OR MEISYO1 LIKE N'%総ﾀﾝﾊﾟｸ%' OR MEISYO1 LIKE N'%TP%'

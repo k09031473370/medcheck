@@ -1598,13 +1598,16 @@ try {
         $fileKanji = if ($idCols.Kanji -gt 0) { Normalize-Text (Get-Field $fields $idCols.Kanji) } else { '' }
         $fileKana  = if ($idCols.Kana  -gt 0) { Normalize-Text (Get-Field $fields $idCols.Kana)  } else { '' }
         if ($navi -and ($fileKanji -ne '' -or $fileKana -ne '')) {
-            # カナを優先して比べる (漢字は旧字体で違うことがあるため)
-            if ($fileKana -ne '' -and $navi.Kana -ne '') {
-                $nameNg = (Normalize-Name $fileKana) -ne (Normalize-Name $navi.Kana)
-            }
-            elseif ($fileKanji -ne '' -and $navi.Kanji -ne '') {
-                $nameNg = (Normalize-Name $fileKanji) -ne (Normalize-Name $navi.Kanji)
-            }
+            # カナと漢字のどちらか一方でも一致すれば同一人物とみなす。
+            #   漢字は旧字体・異体字で違うことがあり、
+            #   カナは読み違い(「清崎」を ｷﾖｻｷ / ｷﾉｻｷ など)で違うことがある。
+            #   両方とも食い違ったときだけ「氏名が一致しません」とする。
+            $kanaOk  = $null
+            $kanjiOk = $null
+            if ($fileKana -ne ''  -and $navi.Kana  -ne '') { $kanaOk  = (Normalize-Name $fileKana)  -eq (Normalize-Name $navi.Kana) }
+            if ($fileKanji -ne '' -and $navi.Kanji -ne '') { $kanjiOk = (Normalize-Name $fileKanji) -eq (Normalize-Name $navi.Kanji) }
+            if ($kanaOk -eq $true -or $kanjiOk -eq $true) { $nameNg = $false }
+            elseif ($null -ne $kanaOk -or $null -ne $kanjiOk) { $nameNg = $true }
         }
 
         $current = Get-CurrentKensa $conn $pk

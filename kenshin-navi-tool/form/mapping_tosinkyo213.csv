@@ -1,5 +1,5 @@
 ﻿Col,Col2,Label,Kind,KOMOKU_CD,SYOKEN_CD,SYOKEN_CD2,CodeMap,IfEmpty,ReqCol,Format,Note
-# DETECT=HEADER:受診年月日,事業所管理番号,漢字氏名,カナ氏名
+# DETECT=HEADER:受診年月日,事業所管理番号,漢字氏名,カナ氏名,!胸部フィルム№
 # DETECT=COLS:213-213
 # LABEL=東振協データ送信 (213列・計測と血液が1ファイル)
 # 受付番号の列が無いので、氏名(カナ優先)で健診ナビの受診者を探して書き込む。
@@ -47,9 +47,9 @@
 41,,便潜血（１回目）,MONSHIN,069245,,,BENSEN,,,,
 42,,便潜血（２回目）,MONSHIN,069246,,,BENSEN,,,,
 43,,★便潜血判定,IGNORE,,,,,,,,判定は健診ナビの自動判定が出す
-44,,他覚所見①,SHOKENCD,017101A,,,,,,,
-45,,他覚所見②,SHOKENCD,017101B,,,,,,,
-46,,他覚所見③,SHOKENCD,017101C,,,,,,,
+44,,他覚所見①,SHOKENCD,017101A,SHIN,,,,,,
+45,,他覚所見②,SHOKENCD,017101B,SHIN,,,,,,
+46,,他覚所見③,SHOKENCD,017101C,SHIN,,,,,,
 47,,他覚所見判定,IGNORE,,,,,,,,
 48,,判：他覚所見判定,IGNORE,,,,,,,,判定は健診ナビの自動判定が出す
 49,,採血番号,IGNORE,,,,,,,,検体番号

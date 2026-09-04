@@ -55,7 +55,7 @@ WHERE LTRIM(RTRIM(KOMOKU_CD)) IN ($CDS)
 ORDER BY KOMOKU_CD
 "@ 60
 
-Q '--- 3. 未確定の項目コードを探す (尿素窒素・総蛋白・総ビリルビン・ペプシノゲン・ピロリ・PSA) ---' @"
+Q '--- 3. 未確定の項目コードを探す (血液・腫瘍マーカーなど) ---' @"
 SELECT LTRIM(RTRIM(KOMOKU_CD)) AS 項目CD, MEISYO1 AS 項目名
 FROM T_KOMOKU
 WHERE MEISYO1 LIKE N'%尿素窒素%' OR MEISYO1 LIKE N'%BUN%'
@@ -65,8 +65,45 @@ WHERE MEISYO1 LIKE N'%尿素窒素%' OR MEISYO1 LIKE N'%BUN%'
    OR MEISYO1 LIKE N'%ﾋﾟﾛﾘ%'    OR MEISYO1 LIKE N'%ピロリ%'
    OR MEISYO1 LIKE N'%PSA%'     OR MEISYO1 LIKE N'%前立腺%'
    OR MEISYO1 LIKE N'%会話%'
+   OR MEISYO1 LIKE N'%ｱﾙﾌﾞﾐﾝ%' OR MEISYO1 LIKE N'%アルブミン%' OR MEISYO1 LIKE N'%ALB%'
+   OR MEISYO1 LIKE N'%ALP%'     OR MEISYO1 LIKE N'%LAP%'
+   OR MEISYO1 LIKE N'%AFP%'     OR MEISYO1 LIKE N'%CA19%'  OR MEISYO1 LIKE N'%CEA%'
+   OR MEISYO1 LIKE N'%CA125%'   OR MEISYO1 LIKE N'%CA15%'  OR MEISYO1 LIKE N'%SCC%'
+   OR MEISYO1 LIKE N'%FSH%'     OR MEISYO1 LIKE N'%ｴｽﾄﾗ%'  OR MEISYO1 LIKE N'%エストラ%'
 ORDER BY KOMOKU_CD
-"@ 100
+"@ 150
+
+Q '--- 3b. 胃部X線(上部消化管)の項目 ---' @"
+SELECT LTRIM(RTRIM(KOMOKU_CD)) AS 項目CD, MEISYO1 AS 項目名,
+       LTRIM(RTRIM(ISNULL(SYOKEN_CD,''))) AS 所見リスト
+FROM T_KOMOKU
+WHERE MEISYO1 LIKE N'%胃部%' OR MEISYO1 LIKE N'%上部消化管%'
+   OR MEISYO1 LIKE N'%胃ﾚ%'  OR MEISYO1 LIKE N'%胃X%' OR MEISYO1 LIKE N'%胃Ｘ%'
+ORDER BY KOMOKU_CD
+"@ 80
+
+Q '--- 3c. 胸部X線・心電図・他覚所見の枠と、使う所見リスト ---' @"
+SELECT LTRIM(RTRIM(KOMOKU_CD)) AS 項目CD, MEISYO1 AS 項目名,
+       LTRIM(RTRIM(ISNULL(SYOKEN_CD,''))) AS 所見リスト
+FROM T_KOMOKU
+WHERE LTRIM(RTRIM(KOMOKU_CD)) LIKE '077010%'
+   OR LTRIM(RTRIM(KOMOKU_CD)) LIKE '067112%'
+   OR LTRIM(RTRIM(KOMOKU_CD)) LIKE '017101%'
+ORDER BY KOMOKU_CD
+"@ 60
+
+Q '--- 3d. ファイルに出てくる所見が、健診ナビの所見リストにあるか ---' @"
+SELECT LTRIM(RTRIM(SYOKEN_CD)) AS リスト, LTRIM(RTRIM(KEKKA_CD)) AS 結果CD,
+       SYOKEN AS 所見, LTRIM(RTRIM(ISNULL(HANTEI_KIGO,''))) AS 判定
+FROM T_SYOKEN2
+WHERE SYOKEN IN (N'所見なし', N'異常なし', N'瘢痕像', N'心陰影拡大あり',
+                 N'脈拍異常', N'甲状腺腫大', N'貧血症状',
+                 N'陰性Ｔ', N'洞性徐脈', N'Ｒ波増高不良', N'平低Ｔ波',
+                 N'心室性期外収縮', N'二相性Ｔ波',
+                 N'慢性胃炎', N'透亮像', N'陰影斑',
+                 N'左上肺野', N'胃体部', N'穹隆部', N'前庭部')
+ORDER BY SYOKEN_CD, KEKKA_CD
+"@ 200
 
 Q '--- 4. 既往歴・自覚症状の枠 (東振協は20病名ぶん送ってくる) ---' @"
 SELECT LTRIM(RTRIM(KOMOKU_CD)) AS 項目CD, MEISYO1 AS 項目名

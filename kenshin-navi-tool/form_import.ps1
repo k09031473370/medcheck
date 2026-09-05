@@ -307,16 +307,40 @@ function Load-Mapping {
         $p = Detect-MappingPath
         if ($p) { Write-Host "[自動判別] $([System.IO.Path]::GetFileName($p))" -ForegroundColor DarkGray }
         else {
-            $d = Join-Path $MapDir 'mapping.csv'
-            if (Test-Path $d) { $p = $d }
+            $cand = @(Get-ChildItem -Path $MapDir -Filter 'mapping*.csv' -File -ErrorAction SilentlyContinue | Sort-Object Name)
+            if ($cand.Count -eq 0) { throw "対応表(mapping*.csv)が $MapDir にありません。" }
+            # ファイルを使わないモード(枠一覧・所見マスタ)では対応表の中身を使わないので、判別できなくてよい
+            if (-not $Csv) {
+                $d = Join-Path $MapDir 'mapping.csv'
+                $p = if (Test-Path $d) { $d } else { $cand[0].FullName }
+            }
             else {
-                $cand = @(Get-ChildItem -Path $MapDir -Filter 'mapping*.csv' -File -ErrorAction SilentlyContinue | Sort-Object Name)
-                if ($cand.Count -eq 0) { throw "対応表(mapping*.csv)が $MapDir にありません。" }
-                # ファイルを使わないモード(枠一覧・所見マスタ)では対応表の中身を使わないので、判別できなくてよい
-                if (-not $Csv) { $p = $cand[0].FullName }
-                else {
-                    throw ("レイアウトを自動判別できませんでした。GUIの「レイアウト」で選んでください。候補: " + (($cand | ForEach-Object { $_.Name }) -join ' / '))
-                }
+                # 判別できないまま既定の mapping.csv で読むと、別レイアウトとして
+                # 取り込んでしまい原因の分かりにくいエラーになる。ここで止める。
+                $info = ''
+                try {
+                    $enc = if ($CsvEncoding -eq 'UTF8') { New-Object System.Text.UTF8Encoding($false) } else { [System.Text.Encoding]::GetEncoding(932) }
+                    $ext = [System.IO.Path]::GetExtension($Csv).ToLower()
+                    if ($ext -eq '.xlsx' -or $ext -eq '.xlsm') {
+                        $r1 = (Read-Xlsx $Csv)[0]
+                        $info = "{0} 列 / 1行目: {1}" -f $r1.Count, (($r1 | Select-Object -First 6) -join ',')
+                    }
+                    else {
+                        $sr = New-Object System.IO.StreamReader($Csv, $enc)
+                        $ln = $sr.ReadLine(); $sr.Close()
+                        if ($ln -and $ln.Length -gt 0 -and $ln[0] -eq [char]0xFEFF) { $ln = $ln.Substring(1) }
+                        $f = @($ln -split ',')
+                        $info = "{0} 列 / 1行目: {1}" -f $f.Count, (($f | Select-Object -First 6) -join ',')
+                    }
+                } catch { }
+                $msg = @(
+                    'レイアウトを自動判別できませんでした。',
+                    "  このファイル: $info",
+                    '  対応表が form フォルダに入っているか確認してください。',
+                    '  それでも駄目なときは、GUIの「レイアウト」で手で選んでください。',
+                    ('  いま form フォルダにある対応表: ' + (($cand | ForEach-Object { $_.Name }) -join ' / '))
+                ) -join [Environment]::NewLine
+                throw $msg
             }
         }
     }
@@ -1532,7 +1556,12 @@ WHERE s.D_KENSIN = @ymd AND s.F_TORIKESI = 0
 # ---- 通常モード: プレビュー / 書込 ----
 $targets = Select-TargetRows $data $idCols
 if ($idCols.KenNo -le 0) {
-    throw "mapping.csv の KENNO 行に列番号(Col)が設定されていません。まず -Inspect で確認してください。"
+    # 受付番号の列が無いファイル(東振協データ送信など)は氏名で受診者を探す。
+    # 氏名の列も無ければ、誰の結果か決めようがないので止める。
+    if ($idCols.Kanji -le 0 -and $idCols.Kana -le 0) {
+        throw "対応表に受付番号(KENNO)の列も氏名(NAMEKANJI/NAMEKANA)の列もありません。どちらかが無いと、誰の結果か特定できません。"
+    }
+    Write-Host '[氏名照合] 受付番号の列が無いので、氏名で健診ナビの受診者を探します。' -ForegroundColor DarkGray
 }
 
 $conn = Open-Db

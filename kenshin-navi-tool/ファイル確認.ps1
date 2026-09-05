@@ -123,7 +123,7 @@ else {
 }
 if (-not (Test-Path $mapPath)) { throw "対応表が見つかりません: $mapPath" }
 
-$map = @(Import-Csv -Path $mapPath -Encoding UTF8)
+$map = @(Import-Csv -Path $mapPath -Encoding UTF8 | Where-Object { (Normalize-Text $_.Col) -notlike '#*' })
 $mapUse = @($map | Where-Object {
     (Normalize-Text $_.Col) -ne '' -and (Normalize-Text $_.Kind).ToUpper() -ne 'IGNORE'
 })

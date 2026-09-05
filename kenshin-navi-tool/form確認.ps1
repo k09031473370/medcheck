@@ -42,7 +42,7 @@ Write-Host ('  {0,-30} {1,5} {2,7} {3,7} {4}' -f '対応表', '行数', '氏名�
 Line
 foreach ($f in (Get-ChildItem -Path $MapDir -Filter 'mapping*.csv' -File | Sort-Object Name)) {
     $rows = @()
-    try { $rows = @(Import-Csv -Path $f.FullName -Encoding UTF8) } catch { }
+    try { $rows = @(Import-Csv -Path $f.FullName -Encoding UTF8 | Where-Object { ($_.Col -as [string]).Trim() -notlike '#*' }) } catch { }
     $kanji = @($rows | Where-Object { ($_.Kind -as [string]).Trim().ToUpper() -eq 'NAMEKANJI' }).Count
     $kana  = @($rows | Where-Object { ($_.Kind -as [string]).Trim().ToUpper() -eq 'NAMEKANA' }).Count
     $kenno = @($rows | Where-Object { ($_.Kind -as [string]).Trim().ToUpper() -eq 'KENNO' }).Count
@@ -66,8 +66,18 @@ else {
     Write-Host ('  サイズ  : {0:N0} バイト' -f $fi.Length)
     Write-Host ('  更新日時: {0}' -f $fi.LastWriteTime)
     $rows = @()
-    try { $rows = @(Import-Csv -Path $p -Encoding UTF8) } catch { Write-Host "  ★読み込みに失敗: $_" -ForegroundColor Red }
-    Write-Host ('  行数    : {0}   (250 が正しい)' -f $rows.Count)
+    try { $rows = @(Import-Csv -Path $p -Encoding UTF8 | Where-Object { ($_.Col -as [string]).Trim() -notlike '#*' }) } catch { Write-Host "  ★読み込みに失敗: $_" -ForegroundColor Red }
+    Write-Host ('  行数    : {0}' -f $rows.Count)
+    # 見出し行(Col,Col2,...)がファイルの1行目にあるか。
+    # 8行目などにあると Windows PowerShell 5.1 の Import-Csv が
+    # コメント行を見出しと誤読して、Kind列が丸ごと消える。
+    $head1 = (Get-Content $p -TotalCount 1 -Encoding UTF8) -replace "^\uFEFF", ''
+    if ($head1 -notlike 'Col,Col2,Label,Kind*') {
+        Write-Host '  ★NG  見出し行(Col,Col2,Label,Kind...)が1行目にありません' -ForegroundColor Red
+        Write-Host ('        1行目: {0}' -f $head1) -ForegroundColor Red
+    } else {
+        Write-Host '  OK   見出し行が1行目にあります' -ForegroundColor Green
+    }
     $kinds = @($rows | ForEach-Object { ($_.Kind -as [string]).Trim().ToUpper() } |
                Where-Object { $_ -ne '' } | Group-Object | Sort-Object Name |
                ForEach-Object { '{0}×{1}' -f $_.Name, $_.Count })
@@ -85,7 +95,7 @@ else {
         }
     }
     Write-Host ''
-    if ($ng -eq 0 -and $rows.Count -eq 250) {
+    if ($ng -eq 0 -and $head1 -like 'Col,Col2,Label,Kind*') {
         Write-Host '  ★ この対応表は正しいものです。取込に進めます。' -ForegroundColor Green
     } else {
         Write-Host '  ★ 対応表が古いか壊れています。送り直したものに差し替えてください。' -ForegroundColor Red

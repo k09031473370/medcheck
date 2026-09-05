@@ -384,7 +384,13 @@ function Load-Mapping {
     if (-not (Test-Path $p)) { throw "対応表が見つかりません: $p" }
     $script:MappingPathUsed = $p
     Write-Host "[対応表] $([System.IO.Path]::GetFileName($p))" -ForegroundColor DarkGray
-    $rows = Import-Csv -Path $p -Encoding UTF8
+    $rows = @(Import-Csv -Path $p -Encoding UTF8)
+    # 対応表の先頭に書いた # のコメント行が、データ行として読まれることがある。
+    # (Windows PowerShell 5.1 の Import-Csv は # 行を読み飛ばさない)
+    # Col が # で始まる行はコメントなので落とす。落とさないと
+    # 「# DETECT=HEADER:受付NO,Q1,!受診日」のような行の3つ目が Kind として
+    # 読まれてしまい、「Kind が不正です」で止まる。
+    $rows = @($rows | Where-Object { (Normalize-Text $_.Col) -notlike '#*' })
     $valid = @('KENNO','KENYMD','NAMEKANJI','NAMEKANA','VALUE','NYOU','CHORYOKU','MONSHIN','VISION','SHOKEN','SHOKEN2','SHOKENCD','SHOKENCD2','SHOKENCD5','NOFRAME','KOJINNO','IGNORE')
     foreach ($r in $rows) {
         $k = (Normalize-Text $r.Kind).ToUpper()

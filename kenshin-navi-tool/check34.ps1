@@ -30,7 +30,7 @@ SELECT CASE WHEN x.件数 > 0 THEN N'値あり' ELSE N'値なし' END AS 区分,
 FROM (
   SELECT s.PK_SEQ,
          (SELECT COUNT(*) FROM T_KENSA k
-           WHERE k.PK_SEQ = s.PK_SEQ AND LTRIM(RTRIM(ISNULL(k.KEKKA,''))) <> '') AS 件数
+           WHERE k.PK_SEQ = s.PK_SEQ AND LTRIM(RTRIM(ISNULL(k.KEKKA,''))) NOT IN ('', '#')) AS 件数
   FROM T_KENSIN s
   WHERE s.D_KENSIN = '$Ymd' AND s.F_TORIKESI = 0
 ) x
@@ -44,7 +44,7 @@ SELECT COUNT(*) AS 値の総数,
 FROM T_KENSA k
 JOIN T_KENSIN s ON s.PK_SEQ = k.PK_SEQ
 WHERE s.D_KENSIN = '$Ymd' AND s.F_TORIKESI = 0
-  AND LTRIM(RTRIM(ISNULL(k.KEKKA,''))) <> ''
+  AND LTRIM(RTRIM(ISNULL(k.KEKKA,''))) NOT IN ('', '#')
 "@ 10
 
 Q '--- 3. 項目ごとの人数 (多い順) ---' @"
@@ -55,7 +55,7 @@ FROM T_KENSA k
 JOIN T_KENSIN s ON s.PK_SEQ = k.PK_SEQ
 LEFT JOIN T_KOMOKU m ON LTRIM(RTRIM(m.KOMOKU_CD)) = LTRIM(RTRIM(k.KOMOKU_CD))
 WHERE s.D_KENSIN = '$Ymd' AND s.F_TORIKESI = 0
-  AND LTRIM(RTRIM(ISNULL(k.KEKKA,''))) <> ''
+  AND LTRIM(RTRIM(ISNULL(k.KEKKA,''))) NOT IN ('', '#')
 GROUP BY LTRIM(RTRIM(k.KOMOKU_CD))
 ORDER BY COUNT(*) DESC, 1
 "@ 200
@@ -66,16 +66,16 @@ FROM T_KENSIN s
 LEFT JOIN T_KOJIN1 g ON g.KOJIN_ID = s.KOJIN_ID
 WHERE s.D_KENSIN = '$Ymd' AND s.F_TORIKESI = 0
   AND NOT EXISTS (SELECT 1 FROM T_KENSA k
-                   WHERE k.PK_SEQ = s.PK_SEQ AND LTRIM(RTRIM(ISNULL(k.KEKKA,''))) <> '')
+                   WHERE k.PK_SEQ = s.PK_SEQ AND LTRIM(RTRIM(ISNULL(k.KEKKA,''))) NOT IN ('', '#'))
 ORDER BY g.KANA_SIMEI
 "@ 40
 
 Q '--- 5. 1人あたりの件数の散らばり (極端に少ない人がいないか) ---' @"
-SELECT x.件数 AS 1人あたりの件数, COUNT(*) AS 人数
+SELECT x.件数 AS 件数, COUNT(*) AS 人数
 FROM (
   SELECT s.PK_SEQ,
          (SELECT COUNT(*) FROM T_KENSA k
-           WHERE k.PK_SEQ = s.PK_SEQ AND LTRIM(RTRIM(ISNULL(k.KEKKA,''))) <> '') AS 件数
+           WHERE k.PK_SEQ = s.PK_SEQ AND LTRIM(RTRIM(ISNULL(k.KEKKA,''))) NOT IN ('', '#')) AS 件数
   FROM T_KENSIN s
   WHERE s.D_KENSIN = '$Ymd' AND s.F_TORIKESI = 0
 ) x

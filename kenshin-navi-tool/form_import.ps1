@@ -963,6 +963,18 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current, $kojin) {
                 $col2 = 0
                 [void][int]::TryParse((Normalize-Text $m.Col2), [ref]$col2)
                 if ($col2 -gt 0) { $buiCode = (Normalize-Text (Get-Field $fields $col2)).ToUpper() }
+                # 部位も所見と同じ変換表を通す。東振協は「穹隆部」、健診ナビは「胃穹窿部」の
+                # ように綴りが違うことがあるため。変換表を使わない対応表では素通りする。
+                if ($buiCode -ne '') {
+                    $cvB = Convert-Code $m $buiCode
+                    if ($cvB.Status -eq 'DROP') {
+                        $rep.Status = "取込対象外(変換表で除外: $buiCode)"; $rep.New = $buiCode; $plan += $rep; continue
+                    }
+                    if ($cvB.Status -eq 'NOMAP') {
+                        $rep.Status = "変換表に無い部位($buiCode)"; $rep.New = $buiCode; $plan += $rep; continue
+                    }
+                    $buiCode = $cvB.Code
+                }
             }
             elseif ($kind -eq 'SHOKENCD5') { $buiCode = $bui5 }
             if ($shoCode -eq '' -and $buiCode -eq '') { continue }

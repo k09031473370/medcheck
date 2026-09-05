@@ -352,10 +352,11 @@ foreach ($m in $map) {
 
         # 変換表(code_map.csv)を使う項目
         if ($cmName -ne '' -and $codeMap) {
+            # Convert-Code は失敗しても $null ではなく Status='NOMAP' を返す
             $conv = $null
             try { $conv = Convert-Code $m $v } catch { $conv = $null }
-            if ($null -eq $conv) {
-                $bad += ("{0}列 {1}: 「{2}」 (変換表 {3})" -f $ci, $label, $v, $cmName)
+            if ($null -eq $conv -or $conv.Status -eq 'NOMAP') {
+                $bad += ("{0}列 {1}: 「{2}」 (変換表 {3} に無い)" -f $ci, $label, $v, $cmName)
             }
             continue
         }

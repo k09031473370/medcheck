@@ -382,6 +382,7 @@ function Load-Mapping {
         }
     }
     if (-not (Test-Path $p)) { throw "対応表が見つかりません: $p" }
+    $script:MappingPathUsed = $p
     Write-Host "[対応表] $([System.IO.Path]::GetFileName($p))" -ForegroundColor DarkGray
     $rows = Import-Csv -Path $p -Encoding UTF8
     $valid = @('KENNO','KENYMD','NAMEKANJI','NAMEKANA','VALUE','NYOU','CHORYOKU','MONSHIN','VISION','SHOKEN','SHOKEN2','SHOKENCD','SHOKENCD2','SHOKENCD5','NOFRAME','KOJINNO','IGNORE')
@@ -1608,7 +1609,19 @@ if ($idCols.KenNo -le 0) {
     # 受付番号の列が無いファイル(東振協データ送信など)は氏名で受診者を探す。
     # 氏名の列も無ければ、誰の結果か決めようがないので止める。
     if ($idCols.Kanji -le 0 -and $idCols.Kana -le 0) {
-        throw "対応表に受付番号(KENNO)の列も氏名(NAMEKANJI/NAMEKANA)の列もありません。どちらかが無いと、誰の結果か特定できません。"
+        # 対応表の中身を出す。差し替え忘れや壊れたファイルをすぐ見分けられるように。
+        $kinds = @($mapRows | ForEach-Object { (Normalize-Text $_.Kind).ToUpper() } |
+                   Where-Object { $_ -ne '' } | Group-Object | Sort-Object Name |
+                   ForEach-Object { '{0}×{1}' -f $_.Name, $_.Count })
+        $m = @(
+            '対応表に受付番号(KENNO)の列も氏名(NAMEKANJI/NAMEKANA)の列もありません。',
+            '  どちらかが無いと、誰の結果か特定できません。',
+            ("  読んだ対応表: {0}" -f $MappingPathUsed),
+            ("  行数: {0}" -f $mapRows.Count),
+            ("  種類: {0}" -f $(if ($kinds.Count -gt 0) { $kinds -join ' / ' } else { '(Kind列が空。ファイルが壊れている可能性)' })),
+            '  対応表が古いままかもしれません。form フォルダの中身を確認してください。'
+        )
+        throw ($m -join [Environment]::NewLine)
     }
     Write-Host '[氏名照合] 受付番号の列が無いので、氏名で健診ナビの受診者を探します。' -ForegroundColor DarkGray
 }

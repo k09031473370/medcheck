@@ -56,6 +56,31 @@ param(
 
 $ErrorActionPreference = 'Stop'
 if (-not $MapDir) { $MapDir = Join-Path $PSScriptRoot 'form' }
+
+# 指定されたファイルが実在するかを最初に確かめる。
+# 無いまま進むと「レイアウトを自動判別できませんでした」という
+# 分かりにくいエラーになってしまうため。
+if ($Csv) {
+    if (-not (Test-Path -LiteralPath $Csv)) {
+        $csvDir = Split-Path -Parent $Csv
+        $near = @()
+        if ($csvDir -and (Test-Path -LiteralPath $csvDir)) {
+            $near = @(Get-ChildItem -LiteralPath $csvDir -File -ErrorAction SilentlyContinue |
+                      Where-Object { $_.Extension -in '.csv', '.xlsx', '.xlsm' } |
+                      Sort-Object LastWriteTime -Descending | Select-Object -First 8 |
+                      ForEach-Object { '    {0}  ({1:N0} バイト, {2})' -f $_.Name, $_.Length, $_.LastWriteTime.ToString('MM/dd HH:mm') })
+        }
+        $m = @("ファイルが見つかりません: $Csv")
+        if ($near.Count -gt 0) { $m += '  同じフォルダにあるファイル:'; $m += $near }
+        else { $m += '  フォルダ自体が見つからないか、中にファイルがありません。' }
+        $m += '  「参照...」で選び直してください。'
+        throw ($m -join [Environment]::NewLine)
+    }
+    try { $probe = [System.IO.File]::Open($Csv, 'Open', 'Read', 'ReadWrite'); $probe.Dispose() }
+    catch { throw ("ファイルを開けません: $Csv" + [Environment]::NewLine +
+                   '  Excelなどで開いたままになっていないか確認してください。' + [Environment]::NewLine +
+                   '  ' + $_.Exception.Message) }
+}
 $BackupDir = Join-Path $PSScriptRoot 'backup'
 
 # --- SJIS(cp932) が使えるようにする (PowerShell 7 対策。5.1では最初から使える) ---
@@ -99,6 +124,20 @@ function Normalize-Ymd([string]$s) {
 }
 
 # CSVテキストをパース (ダブルクォート・カンマ・改行入りフィールド対応)
+# Excelなどで開かれたままのファイルも読めるようにする
+#   File.ReadAllText / StreamReader(path) は共有指定が厳しく、
+#   Excelで開いているCSVを読もうとすると失敗する。
+#   FileShare.ReadWrite で開けば、開いたままでも読める。
+function Read-TextShared([string]$path, $enc) {
+    $fs = New-Object System.IO.FileStream($path, [System.IO.FileMode]::Open,
+              [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+    try {
+        $sr = New-Object System.IO.StreamReader($fs, $enc)
+        try { return $sr.ReadToEnd() } finally { $sr.Close() }
+    }
+    finally { $fs.Dispose() }
+}
+
 function Parse-CsvText([string]$text) {
     $rows = New-Object System.Collections.ArrayList
     $cur  = New-Object System.Collections.ArrayList
@@ -191,7 +230,7 @@ function Read-FormCsv([string]$path, [string]$encName) {
     else {
         $enc = if ($encName -eq 'UTF8') { New-Object System.Text.UTF8Encoding($false) }
                else { [System.Text.Encoding]::GetEncoding(932) }
-        $text = [System.IO.File]::ReadAllText($path, $enc)
+        $text = Read-TextShared $path $enc
         # UTF-8 BOM除去
         if ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) { $text = $text.Substring(1) }
         $rows = Parse-CsvText $text
@@ -259,9 +298,8 @@ function Detect-MappingPath([string]$path) {
     else {
         $enc = if ($CsvEncoding -eq 'UTF8') { New-Object System.Text.UTF8Encoding($false) } else { [System.Text.Encoding]::GetEncoding(932) }
         try {
-            $sr = New-Object System.IO.StreamReader($path, $enc)
-            $first = $sr.ReadLine()
-            $sr.Close()
+            $all = Read-TextShared $path $enc
+            $first = ($all -split "`r?`n")[0]
         } catch { return $null }
         if ($null -eq $first) { return $null }
         if ($first.Length -gt 0 -and $first[0] -eq [char]0xFEFF) { $first = $first.Substring(1) }
@@ -326,8 +364,7 @@ function Load-Mapping {
                         $info = "{0} 列 / 1行目: {1}" -f $r1.Count, (($r1 | Select-Object -First 6) -join ',')
                     }
                     else {
-                        $sr = New-Object System.IO.StreamReader($Csv, $enc)
-                        $ln = $sr.ReadLine(); $sr.Close()
+                        $ln = ((Read-TextShared $Csv $enc) -split "`r?`n")[0]
                         if ($ln -and $ln.Length -gt 0 -and $ln[0] -eq [char]0xFEFF) { $ln = $ln.Substring(1) }
                         $f = @($ln -split ',')
                         $info = "{0} 列 / 1行目: {1}" -f $f.Count, (($f | Select-Object -First 6) -join ',')

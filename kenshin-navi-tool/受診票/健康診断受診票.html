@@ -171,6 +171,7 @@
   .urine .u1 .prev{display:inline-block;margin:0 0 0 3px}
   td.vt .prev{display:none}          /* 縦書きの「視力」「聴力」には出さない */
   td:has(>input.fc) .prev{text-align:center}
+  td.c .prev{text-align:center;font-size:7.8px;letter-spacing:-.02em}
   .prevhd{font-size:11px;color:#5c6773;margin-left:8px;font-weight:400}
 
   /* ── 印刷 ──────────────────────────────── */
@@ -392,8 +393,8 @@
       </div>
 
       <!-- 視力 -->
-      <table class="grid">
-        <colgroup><col style="width:28px"><col style="width:36px"><col style="width:32%"><col></colgroup>
+      <table class="grid shiryoku">
+        <colgroup><col style="width:28px"><col style="width:52px"><col style="width:28%"><col></colgroup>
         <tr><td class="lead" colspan="4">
           種別: 1=裸眼 ／ 2=メガネ ／ 3=コンタクト　<span class="red-t" style="white-space:nowrap">※0.1未満は0.0と記入</span>
         </td></tr>
@@ -401,21 +402,21 @@
           <td class="vt" rowspan="4"><span>視力</span></td>
           <td></td><th class="c" style="text-align:center">種別</th><th class="c" style="text-align:center">視力</th>
         </tr>
-        <tr><td class="c">右</td><td><input class="f fc" id="shiryoku_r_k"></td><td data-prev="shiryoku_r_v"><input class="f fc" id="shiryoku_r_v"></td></tr>
-        <tr><td class="c">左</td><td><input class="f fc" id="shiryoku_l_k"></td><td data-prev="shiryoku_l_v"><input class="f fc" id="shiryoku_l_v"></td></tr>
+        <tr><td class="c" data-prev="shiryoku_r_v">右</td><td><input class="f fc" id="shiryoku_r_k"></td><td><input class="f fc" id="shiryoku_r_v"></td></tr>
+        <tr><td class="c" data-prev="shiryoku_l_v">左</td><td><input class="f fc" id="shiryoku_l_k"></td><td><input class="f fc" id="shiryoku_l_v"></td></tr>
         <tr><td class="c">備考</td><td colspan="2"><input class="f" id="shiryoku_note"></td></tr>
       </table>
 
       <!-- 聴力 -->
-      <table class="grid">
-        <colgroup><col style="width:28px"><col style="width:36px"><col style="width:32%"><col></colgroup>
+      <table class="grid chouryoku">
+        <colgroup><col style="width:28px"><col style="width:52px"><col style="width:28%"><col></colgroup>
         <tr><td class="lead" colspan="4">1=所見なし ／ 2=所見あり</td></tr>
         <tr>
           <td class="vt" rowspan="4"><span>聴力</span></td>
           <td></td><th class="c" style="text-align:center">1000Hz</th><th class="c" style="text-align:center">4000Hz</th>
         </tr>
-        <tr><td class="c">右</td><td data-prev="chouryoku_r_1k"><input class="f fc" id="chouryoku_r_1k"></td><td data-prev="chouryoku_r_4k"><input class="f fc" id="chouryoku_r_4k"></td></tr>
-        <tr><td class="c">左</td><td data-prev="chouryoku_l_1k"><input class="f fc" id="chouryoku_l_1k"></td><td data-prev="chouryoku_l_4k"><input class="f fc" id="chouryoku_l_4k"></td></tr>
+        <tr><td class="c" data-prev="chouryoku_r_1k/chouryoku_r_4k">右</td><td><input class="f fc" id="chouryoku_r_1k"></td><td><input class="f fc" id="chouryoku_r_4k"></td></tr>
+        <tr><td class="c" data-prev="chouryoku_l_1k/chouryoku_l_4k">左</td><td><input class="f fc" id="chouryoku_l_1k"></td><td><input class="f fc" id="chouryoku_l_4k"></td></tr>
         <tr><td class="c">備考</td><td colspan="2"><input class="f" id="chouryoku_note"></td></tr>
       </table>
     </div>

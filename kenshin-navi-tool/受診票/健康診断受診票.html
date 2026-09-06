@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>健康診断受診票 入力・印刷</title>
+<style>
+  :root{
+    --ink:#14181d;
+    --line:#2b3440;          /* 罫線（太）*/
+    --line2:#7d8794;         /* 罫線（細）*/
+    --accent:#0b5fa5;        /* 見出し帯 */
+    --red:#c0392b;           /* 太枠・注意書き */
+    --gray:#5c6773;          /* 凡例 */
+    --field:#0b3d66;         /* 入力文字色（画面のみ）*/
+    --field-bg:#eef5fb;      /* 入力欄の下地（画面のみ）*/
+    --field-bg-focus:#fff7df;
+    --fs:11px;               /* 入力欄の文字サイズ */
+    --paper:#fff;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#cfd4da;color:var(--ink);
+    font-family:"Yu Gothic","Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif}
+
+  /* ── 画面上のツールバー ───────────────────── */
+  .bar{position:sticky;top:0;z-index:50;display:flex;gap:8px;align-items:center;
+    padding:10px 16px;background:#1f2a36;color:#fff;flex-wrap:wrap}
+  .bar h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.02em}
+  .bar .sp{flex:1}
+  .bar button{font:inherit;font-size:13px;padding:7px 14px;border-radius:7px;border:0;
+    cursor:pointer;background:#3a8dde;color:#fff;font-weight:600}
+  .bar button.ghost{background:#46566a}
+  .bar button:hover{filter:brightness(1.08)}
+  .bar .grp{display:inline-flex;align-items:center;gap:4px;background:#46566a;
+    border-radius:7px;padding:3px 8px;font-size:13px}
+  .bar .grp button{font-size:12px;padding:4px 9px}
+  .hint{font-size:12px;color:#b9c4d2;width:100%;margin-top:2px}
+
+  /* ── A4用紙 ────────────────────────────── */
+  .sheet{background:var(--paper);width:210mm;min-height:297mm;margin:16px auto;
+    padding:9mm 10mm 8mm;box-shadow:0 4px 18px rgba(0,0,0,.25);
+    font-size:10.5px;line-height:1.45;color:var(--ink)}
+  #sheet1{font-size:13.5px}
+
+  /* 見出し帯 */
+  .head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+  .doctitle{font-size:19px;font-weight:700;letter-spacing:.10em;color:#fff;
+    background:var(--accent);padding:5px 16px 6px;border-radius:2px}
+  .headmeta{display:flex;flex-direction:column;gap:14px;padding-top:2px}
+  .headmeta .m{display:flex;align-items:baseline;gap:6px;font-size:13px;font-weight:600}
+  .headmeta .m span{white-space:nowrap}
+
+  .courserow{display:flex;align-items:center;gap:10px;margin:5px 0 4px}
+  .courserow .cl{font-size:.95em;font-weight:600;white-space:nowrap}
+  .cbox{border:1.4px solid var(--line);padding:4px 6px}
+  .courserow .cbox{width:150px}
+  .notes{margin:0 0 6px;font-size:.8em;color:var(--gray);line-height:1.6}
+
+  /* 2段組み */
+  .cols{display:grid;grid-template-columns:1fr 0.78fr;gap:5mm;align-items:start}
+  .colL>*+*,.colR>*+*{margin-top:12px}
+
+  /* 枠 */
+  .box{border:1.1px solid var(--line);padding:9px 11px}
+  .box.red{border:2.8px solid var(--red);padding:9px 11px}
+  .box.inner{border:1px solid var(--line2);padding:8px 10px;margin-top:7px}
+  .sect>h3{margin:0 0 5px;font-size:1em;font-weight:700;letter-spacing:.02em;
+    display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+  .ttl{font-size:.94em;font-weight:600;margin-bottom:5px}
+  .legend{font-size:.82em;color:var(--gray);line-height:1.55}
+  .legend.tight{line-height:1.4}
+  /* 凡例：項目の途中で改行させない（ラベルにぶら下げて整列）*/
+  .legend .it{display:inline-block;white-space:nowrap}
+  .legend.codes{display:flex;align-items:baseline;gap:.15em}
+  .legend.codes .ttl2{white-space:nowrap;font-weight:600}
+  .legend.codes .items{flex:1;display:flex;flex-wrap:wrap;column-gap:.9em;row-gap:2px}
+  .legend.note{padding-left:1em;text-indent:-1em}
+  .red-t{color:var(--red);font-weight:700}
+  .row{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .row.nowrap{flex-wrap:nowrap}
+  .row+.row{margin-top:8px}
+  .lbl2{font-size:.95em;font-weight:600;white-space:nowrap}
+  .lbl3{font-size:.92em;white-space:nowrap}
+
+  /* ── 入力欄 ────────────────────────────── */
+  input.f,textarea.f{font:inherit;font-size:var(--fs);color:var(--field);
+    background:var(--field-bg);border:0;border-radius:2px;width:100%;
+    padding:1px 4px;outline:none;resize:none}
+  textarea.f{line-height:1.55;overflow:hidden}
+  input.f:focus,textarea.f:focus{background:var(--field-bg-focus)}
+  .fc{text-align:center}
+  /* 下線欄 */
+  input.u{border-bottom:1px solid var(--line2);border-radius:0}
+  /* 四角い記入マス */
+  input.bx{width:34px;height:24px;border:1.2px solid var(--line);border-radius:0;
+    text-align:center;flex:0 0 auto;font-weight:600}
+  #sheet1 input.bx{width:48px;height:36px}
+  input.bx.w{width:62px}
+  .mini{font-size:.87em;white-space:nowrap;color:#333}
+
+  /* 保険証ブロック */
+  table.kv{width:100%;border-collapse:collapse}
+  table.kv th{width:74px;text-align:left;font-size:.92em;font-weight:600;
+    padding:7px 0;vertical-align:middle;white-space:nowrap}
+  table.kv td{padding:7px 0}
+  table.kv td .line{display:flex;align-items:center;gap:6px}
+  table.kv td .line input.u{flex:1 1 auto}
+  .name input.u{font-size:1.15em;font-weight:600}
+
+  /* 女性のみ */
+  .female{display:flex;gap:10px;align-items:stretch}
+  .femlbl{color:var(--red);font-size:.82em;font-weight:700;line-height:1.4;
+    white-space:nowrap;display:flex;align-items:center}
+  .femq{flex:1}
+  .femq .q{display:flex;align-items:center;gap:6px}
+  .femq .q+.q{margin-top:7px}
+  .femq .q span{flex:1;font-size:.92em}
+  .femq .legend{text-align:right}
+
+  /* 尿検査 */
+  .urine{display:flex;gap:16px;align-items:center}
+  .urine .u1{display:flex;align-items:center;gap:7px;font-size:.95em;font-weight:600}
+
+  /* ── 右段：表 ──────────────────────────── */
+  .panel{border:1.1px solid var(--line)}
+  .panelhd{font-size:.95em;font-weight:700;padding:4px 7px;border-bottom:1px solid var(--line)}
+  .panelbd{padding:3px 4px}
+  .panelbd textarea.f{min-height:96px}
+
+  table.grid{width:100%;border-collapse:collapse;table-layout:fixed}
+  table.grid th,table.grid td{border:1.1px solid var(--line);padding:7px 6px;
+    font-size:.9em;font-weight:400;vertical-align:middle}
+  table.grid th{font-weight:600;text-align:left;background:#f5f7f9}
+  table.grid td.c{text-align:center}
+  table.grid .unit{text-align:right;font-size:.8em;color:var(--gray);width:26px}
+  table.grid .cap{width:70px;font-weight:600}
+  table.grid .no{width:32px;font-size:.82em;color:var(--gray);text-align:center}
+  table.grid input.f{background:var(--field-bg)}
+  .grid-t{font-size:.95em;font-weight:700;margin:0 0 4px}
+
+  .bp .unit{width:46px;padding-left:2px;padding-right:4px}
+  .bp .sep{display:inline-block;width:12px;text-align:center;color:var(--gray)}
+  .bp td.v{padding:1px 4px}
+  .bp .pair{display:flex;align-items:center;gap:2px}
+  .bp .pair input{text-align:center}
+
+  table.grid td.vt{width:28px;text-align:center;font-weight:600;padding:2px 1px}
+  .vt span{writing-mode:vertical-rl;text-orientation:upright;letter-spacing:.14em}
+  .lead{font-size:.75em;color:var(--gray);padding:3px 6px;line-height:1.4}
+
+  /* ── 2ページ目：問診 ───────────────────── */
+  .qhead{border:2.8px solid var(--red);padding:6px 10px;margin-bottom:8px}
+  .qhead b{color:var(--red);font-size:13.5px;letter-spacing:.02em}
+  .qhead span{font-size:10.5px}
+  .qhead u{text-decoration-thickness:1px}
+
+  table.q{width:100%;border-collapse:collapse;table-layout:fixed}
+  table.q th,table.q td{border:1.05px solid var(--line);padding:5px 7px;vertical-align:middle}
+  table.q thead th{background:#eef2f6;font-size:11px;font-weight:700;text-align:center;padding:4px}
+  table.q tbody tr:nth-child(even){background:#fafbfc}
+  table.q .n{width:26px;text-align:center;font-size:11.6px;font-weight:700;color:#39424c}
+  table.q .qt{font-size:11.6px;line-height:1.5}
+  table.q .qt small{display:block;font-size:9px;color:var(--gray);line-height:1.45;margin-top:1px}
+  table.q .a{width:270px}
+  table.q .achoice{display:flex;align-items:center;gap:9px}
+  table.q .achoice .ch{font-size:10.2px;color:var(--gray);line-height:1.5;flex:1}
+  table.q .achoice .ch .c{padding-left:1.15em;text-indent:-1.15em}
+  table.q .achoice .ch .c+.c{margin-top:1px}
+
+  /* ── 前回値（項目名の枠の中に小さく出す）──────────── */
+  .prev{display:block;font-size:8.4px;font-weight:400;color:#8b98a5;
+    line-height:1.25;margin-top:1px;white-space:nowrap;letter-spacing:0}
+  .prev b{font-weight:600;color:#66727e}
+  .urine .u1 .prev{display:inline-block;margin:0 0 0 3px}
+  td.vt .prev{display:none}          /* 縦書きの「視力」「聴力」には出さない */
+  td:has(>input.fc) .prev{text-align:center}
+  .prevhd{font-size:11px;color:#5c6773;margin-left:8px;font-weight:400}
+
+  /* ── 印刷 ──────────────────────────────── */
+  @media print{
+    @page{size:A4;margin:0}
+    html,body{background:#fff;margin:0}
+    .bar{display:none}
+    .sheet{box-shadow:none;margin:0;width:210mm;min-height:0;height:297mm;
+      page-break-after:always;break-after:page;transform-origin:top left}
+    .sheet:last-of-type{page-break-after:auto;break-after:auto}
+    input.f,textarea.f{background:transparent!important;color:#000!important}
+    input.f::placeholder,textarea.f::placeholder{color:transparent!important}
+    .prev{color:#666!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .barsel{display:none}
+    table.q tbody tr:nth-child(even){background:transparent}
+    table.q thead th,table.grid th{background:#f0f2f4!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .doctitle{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  }
+</style>
+
+<div class="bar">
+  <h1>健康診断受診票</h1>
+  <span class="sp"></span>
+  <span class="grp">
+    文字サイズ
+    <button class="ghost" onclick="changeFS(-0.5)">－</button>
+    <span id="fsval" style="min-width:30px;text-align:center;font-weight:600">11</span>
+    <button class="ghost" onclick="changeFS(0.5)">＋</button>
+  </span>
+  <button onclick="window.print()">印刷 / PDF保存</button>
+  <button class="ghost" onclick="saveData()">入力を保存</button>
+  <button class="ghost" onclick="loadData()">保存を読込</button>
+  <button onclick="loadRoster()">名簿を読込</button>
+  <span class="grp barsel" id="rosterbox" style="display:none">
+    <select id="personSel" style="font:inherit;font-size:13px;padding:4px 6px;border-radius:5px;border:0;max-width:260px"></select>
+    <button class="ghost" onclick="stepPerson(-1)">◀</button>
+    <button class="ghost" onclick="stepPerson(1)">▶</button>
+    <span id="personPos" style="min-width:52px;text-align:center"></span>
+  </span>
+  <button class="ghost" onclick="clearAll()">全消去</button>
+  <div class="hint">枠内をクリックして記入できます。空欄のまま印刷すれば手書き用の白紙になります（入力欄の下地は印刷されません）。</div>
+</div>
+
+<!-- ══════════ 1ページ目：受診票 ══════════ -->
+<div class="sheet" id="sheet1">
+  <div class="head">
+    <div class="doctitle">健康診断受診票</div>
+    <div class="headmeta">
+      <div class="m"><span>受診日：</span><input class="f u" id="jushinbi" style="width:130px"></div>
+      <div class="m"><span>受付NO：</span><input class="f u fc" id="uketsuke_no" style="width:130px"></div>
+    </div>
+  </div>
+
+  <div class="courserow">
+    <div class="cl">健診コース</div>
+    <div class="cbox"><input class="f" id="course"></div>
+  </div>
+
+  <p class="notes">
+    ※ 太枠内の空欄部分を記入してください。<br>
+    ※ 食事時間は、受診前に食後何時間経過しているかを○で囲んでください。
+  </p>
+
+  <div class="cols">
+    <!-- ─────────── 左段 ─────────── -->
+    <div class="colL">
+
+      <!-- 受診者情報 -->
+      <div class="box red">
+        <table class="kv">
+          <tr><th>保険証</th>
+            <td><div class="line">
+              <span class="mini">記号</span><input class="f u" id="hoken_kigou" style="width:86px">
+              <span class="mini">番号</span><input class="f u" id="hoken_bangou" style="width:86px">
+            </div></td></tr>
+          <tr><th>事業所</th><td><input class="f u" id="jigyousho"></td></tr>
+          <tr><th>フリガナ</th><td><input class="f u" id="furigana"></td></tr>
+          <tr class="name"><th>氏名</th><td><input class="f u" id="shimei"></td></tr>
+          <tr><th>生年月日</th>
+            <td><div class="line">
+              <input class="f u" id="seinengappi" style="width:104px;flex:0 0 auto">
+              <span class="mini">年度末年齢</span><input class="f u fc" id="nenrei" style="width:34px;flex:0 0 auto">
+              <span class="mini">性別</span>
+              <input class="f u fc" id="seibetsu" style="width:46px;flex:0 0 auto">
+            </div></td></tr>
+        </table>
+      </div>
+
+      <!-- 食事時間 -->
+      <div class="box red">
+        <div class="row">
+          <div class="lbl2">食事時間</div>
+          <input class="f bx" id="shokuji">
+          <div class="legend" style="flex:1">
+            <span class="it">1=食後10時間以上</span> ／
+            <span class="it">2=食後3.5〜10時間未満</span> ／
+            <span class="it">3=食後3.5時間未満</span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- 女性のみ回答 -->
+      <div class="box red">
+        <div class="female">
+          <div class="femlbl">※女性のみ<br>回答ください</div>
+          <div class="femq">
+            <div class="q"><span>妊娠中または可能性がある</span><input class="f bx" id="ninshin"></div>
+            <div class="legend">1=はい ／ 2=いいえ</div>
+            <div class="q" style="margin-top:5px"><span>現在生理中である</span><input class="f bx" id="seiri"></div>
+            <div class="legend">1=はい ／ 2=いいえ</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 診察 -->
+      <div class="sect">
+        <h3>【診察】</h3>
+
+        <div class="box">
+          <div class="row">
+            <div class="lbl2">所見なし</div>
+            <input class="f bx" id="shoken_nashi">
+            <div class="legend">（該当する場合は「1」と記入）</div>
+          </div>
+
+          <div class="box inner">
+            <div class="ttl">所見ありの場合、必ず下記に記載</div>
+            <div class="row nowrap">
+              <span class="lbl3">所見コード</span><input class="f bx" id="shoken_code">
+              <span class="lbl3" style="margin-left:5px">その他所見等</span>
+              <input class="f u" id="shoken_other" style="width:auto;flex:1 1 0;min-width:0">
+            </div>
+            <div class="legend codes" style="margin-top:4px">
+              <span class="ttl2">所見コード：</span>
+              <span class="items">
+                <span class="it">1=呼吸音異常</span><span class="it">2=心雑音</span
+                ><span class="it">3=不整脈</span><span class="it">4=頻脈</span
+                ><span class="it">5=貧血</span><span class="it">6=甲状腺腫脹</span
+                ><span class="it">9=その他</span>
+              </span>
+            </div>
+            <div class="legend note" style="margin-top:2px">
+              <span class="it">※所見コードで「9=その他」を記入の場合、</span><span class="it">その他所見等に具体的な所見を記載してください</span>
+            </div>
+            <div class="row" style="margin-top:5px">
+              <span class="lbl3">判定コード</span><input class="f bx" id="hantei_code">
+            </div>
+            <div class="legend codes" style="margin-top:4px">
+              <span class="ttl2">判定コード：</span>
+              <span class="items">
+                <span class="it">B=軽度異常</span><span class="it">C3=経過観察3ヶ月</span
+                ><span class="it">C6=経過観察6ヶ月</span><span class="it">C12=経過観察12ヶ月</span
+                ><span class="it">D=要精密検査</span><span class="it">E=要医療</span
+                ><span class="it">F=治療中</span>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:5px">
+          <div class="lbl2">診察医</div>
+          <div class="cbox" style="width:170px"><input class="f" id="ishi"></div>
+        </div>
+      </div>
+
+      <!-- 尿検査 -->
+      <div class="sect">
+        <h3>【尿検査】<span class="legend">1=−(所見なし) ／ 2=± ／ 3=+ ／ 4=++ ／ 5=+++</span></h3>
+        <div class="box urine">
+          <div class="u1" data-prev="u_tanpaku">蛋白<input class="f bx" id="u_tanpaku"></div>
+          <div class="u1" data-prev="u_tou">糖<input class="f bx" id="u_tou"></div>
+          <div class="u1" data-prev="u_senketsu">潜血<input class="f bx" id="u_senketsu"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─────────── 右段 ─────────── -->
+    <div class="colR">
+
+      <!-- オプション等 -->
+      <div class="panel">
+        <div class="panelhd">オプション等</div>
+        <div class="panelbd"><textarea class="f" id="option" rows="3"></textarea></div>
+      </div>
+
+      <!-- 撮影・採血番号 -->
+      <table class="grid">
+        <colgroup><col style="width:34%"><col style="width:22%"><col></colgroup>
+        <tr><th>胸部</th><td class="no">NO.</td><td><input class="f fc" id="no_kyoubu"></td></tr>
+        <tr><th>胃部</th><td class="no">NO.</td><td><input class="f fc" id="no_ibu"></td></tr>
+        <tr><th>採血</th><td class="no">NO.</td><td><input class="f fc" id="no_saiketsu"></td></tr>
+        <tr><th>心電図</th><td class="no">NO.</td><td><input class="f fc" id="no_shindenzu"></td></tr>
+      </table>
+
+      <!-- 身体計測 -->
+      <div>
+        <div class="grid-t">【身体計測】</div>
+        <table class="grid">
+          <colgroup><col style="width:34%"><col><col style="width:26px"></colgroup>
+          <tr><th data-prev="shinchou">身長</th><td><input class="f fc" id="shinchou"></td><td class="unit">cm</td></tr>
+          <tr><th data-prev="taijuu">体重</th><td><input class="f fc" id="taijuu"></td><td class="unit">kg</td></tr>
+          <tr><th data-prev="fukui">腹囲</th><td><input class="f fc" id="fukui"></td><td class="unit">cm</td></tr>
+        </table>
+      </div>
+
+      <!-- 血圧 -->
+      <div>
+        <div class="grid-t">【血圧】</div>
+        <table class="grid bp">
+          <colgroup><col style="width:30%"><col><col style="width:46px"></colgroup>
+          <tr><th data-prev="bp1_h/bp1_l">1回目</th>
+            <td class="v"><div class="pair"><input class="f" id="bp1_h"><span class="sep">/</span><input class="f" id="bp1_l"></div></td>
+            <td class="unit">mmHg</td></tr>
+          <tr><th data-prev="bp2_h/bp2_l">2回目</th>
+            <td class="v"><div class="pair"><input class="f" id="bp2_h"><span class="sep">/</span><input class="f" id="bp2_l"></div></td>
+            <td class="unit">mmHg</td></tr>
+        </table>
+      </div>
+
+      <!-- 視力 -->
+      <table class="grid">
+        <colgroup><col style="width:28px"><col style="width:36px"><col style="width:32%"><col></colgroup>
+        <tr><td class="lead" colspan="4">
+          種別: 1=裸眼 ／ 2=メガネ ／ 3=コンタクト　<span class="red-t" style="white-space:nowrap">※0.1未満は0.0と記入</span>
+        </td></tr>
+        <tr>
+          <td class="vt" rowspan="4"><span>視力</span></td>
+          <td></td><th class="c" style="text-align:center">種別</th><th class="c" style="text-align:center">視力</th>
+        </tr>
+        <tr><td class="c">右</td><td><input class="f fc" id="shiryoku_r_k"></td><td data-prev="shiryoku_r_v"><input class="f fc" id="shiryoku_r_v"></td></tr>
+        <tr><td class="c">左</td><td><input class="f fc" id="shiryoku_l_k"></td><td data-prev="shiryoku_l_v"><input class="f fc" id="shiryoku_l_v"></td></tr>
+        <tr><td class="c">備考</td><td colspan="2"><input class="f" id="shiryoku_note"></td></tr>
+      </table>
+
+      <!-- 聴力 -->
+      <table class="grid">
+        <colgroup><col style="width:28px"><col style="width:36px"><col style="width:32%"><col></colgroup>
+        <tr><td class="lead" colspan="4">1=所見なし ／ 2=所見あり</td></tr>
+        <tr>
+          <td class="vt" rowspan="4"><span>聴力</span></td>
+          <td></td><th class="c" style="text-align:center">1000Hz</th><th class="c" style="text-align:center">4000Hz</th>
+        </tr>
+        <tr><td class="c">右</td><td data-prev="chouryoku_r_1k"><input class="f fc" id="chouryoku_r_1k"></td><td data-prev="chouryoku_r_4k"><input class="f fc" id="chouryoku_r_4k"></td></tr>
+        <tr><td class="c">左</td><td data-prev="chouryoku_l_1k"><input class="f fc" id="chouryoku_l_1k"></td><td data-prev="chouryoku_l_4k"><input class="f fc" id="chouryoku_l_4k"></td></tr>
+        <tr><td class="c">備考</td><td colspan="2"><input class="f" id="chouryoku_note"></td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ 2ページ目：問診 ══════════ -->
+<div class="sheet" id="sheet2">
+  <div class="qhead">
+    <b>下記のすべての質問にお答えください。</b>
+    <span>当てはまる番号を右の枠に<u>数字のみ</u>で記入してください。</span>
+  </div>
+
+  <table class="q">
+    <colgroup><col style="width:26px"><col><col style="width:270px"></colgroup>
+    <thead>
+      <tr><th colspan="2">質問項目</th><th>回答　<span style="color:var(--red);font-size:9.5px">（数字で答えてください）</span></th></tr>
+    </thead>
+    <tbody id="qbody"></tbody>
+  </table>
+</div>
+
+<script>
+const STORE = "kenshin_jushinhyo_v1";
+
+/* ── 問診22問の定義（choices が無ければ 1=はい/2=いいえ）───────── */
+const YN = "1=はい／2=いいえ";
+const QUESTIONS = [
+  {t:"現在、血圧を下げる薬を使用している"},
+  {t:"現在、血糖を下げる薬、またはインスリン注射を使用している"},
+  {t:"現在、コレステロールや中性脂肪を下げる薬を使用している"},
+  {t:"医師から、脳卒中にかかっているといわれたり、治療を受けたことがある"},
+  {t:"医師から、心臓病にかかっているといわれたり、治療を受けたことがある"},
+  {t:"医師から、慢性の腎不全等で治療（人工透析など）を受けたことがある"},
+  {t:"医師から、貧血と言われたことがある"},
+  {t:"現在、たばこを習慣的に吸っていますか",
+   c:["1. はい（吸っている）","2. 以前は吸っていたが、最近1ヶ月は吸っていない","3. いいえ（吸わない）"]},
+  {t:"20歳の時の体重から10kg以上増加している"},
+  {t:"1回30分以上の運動を週2日以上、1年以上実施"},
+  {t:"日常生活で歩行又は同等の身体活動を1日1時間以上実施"},
+  {t:"同年齢の同性と比較して歩く速度が速い"},
+  {t:"食事をかんで食べる時の状態はどれにあてはまりますか",
+   c:["1. 何でもかんで食べることができる",
+      "2. 歯や歯ぐき、かみ合わせなど気になる部分があり、かみにくいことがある",
+      "3. ほとんどかめない"]},
+  {t:"人と比較して食べる速度が速い", c:["1. 速い　　2. ふつう　　3. 遅い"]},
+  {t:"就寝前2h以内に夕食をとることが週3回以上ある"},
+  {t:"朝昼夕の3食以外に間食や甘い飲み物を摂取することがあるか",
+   c:["1. 毎日　　2. 時々　　3. ほとんど摂取しない　　4. その他"]},
+  {t:"朝食を抜くことが週に3回以上ある"},
+  {t:"お酒（日本酒、焼酎、ビール、洋酒など）を飲む頻度",
+   c:["1. 毎日　　2. 週5〜6日　　3. 週3〜4日　　4. 週1〜2日",
+      "5. 月1〜3日　　6. 月に1日以下　　7. やめた",
+      "8. 飲まない（飲めない）"]},
+  {t:"飲酒日の1日当たりの飲酒量",
+   s:"（日本酒1合=180mlの目安: ビール約500ml ／ 焼酎約110ml ／ ウイスキー約60ml ／ ワイン約180ml）",
+   c:["1. 1合未満　　2. 1〜2合未満　　3. 2〜3合未満",
+      "4. 3〜5合未満　　5. 5合以上"]},
+  {t:"睡眠で休養が十分とれている"},
+  {t:"運動や食生活等の生活習慣を改善してみようと思いますか",
+   c:["1. 改善するつもりはない",
+      "2. 改善するつもりである（概ね6か月以内）",
+      "3. 近いうちに（概ね1か月以内）改善するつもりであり、少しずつ始めている",
+      "4. すでに改善に取り組んでいる（6か月未満）",
+      "5. すでに改善に取り組んでいる（6か月以上）"]},
+  {t:"これまでに特定保健指導を受けたことがある"},
+];
+
+const qbody = document.getElementById("qbody");
+QUESTIONS.forEach((q,i)=>{
+  const n=i+1;
+  const choices = (q.c || [YN]).map(c=>'<div class="c">'+c+'</div>').join("");
+  const tr=document.createElement("tr");
+  tr.innerHTML =
+    '<td class="n">'+n+'</td>'+
+    '<td class="qt">'+q.t+(q.s?'<small>'+q.s+'</small>':'')+'</td>'+
+    '<td class="a"><div class="achoice">'+
+      '<input class="f bx" id="q'+n+'">'+
+      '<div class="ch">'+choices+'</div>'+
+    '</div></td>';
+  qbody.appendChild(tr);
+});
+
+/* ── textarea 自動高さ ───────────────────────── */
+function autoGrow(t){ t.style.height="auto"; t.style.height=t.scrollHeight+"px"; }
+document.addEventListener("input",e=>{
+  if(e.target.tagName==="TEXTAREA") autoGrow(e.target);
+  persistSoft();
+});
+
+/* ── 入力値の収集・復元 ──────────────────────── */
+function collect(){
+  const data={inputs:{},fs:baseFS()};
+  document.querySelectorAll("input.f,textarea.f").forEach(el=>{
+    if(el.id) data.inputs[el.id]=el.value;
+  });
+  if(curPrev && Object.keys(curPrev).length){ data.prev=curPrev; data.prev_ymd=curPrevYmd; }
+  return data;
+}
+function apply(data){
+  if(!data) return;
+  if(data.fs) document.documentElement.style.setProperty("--fs",data.fs+"px");
+  Object.entries(data.inputs||{}).forEach(([id,v])=>{
+    const el=document.getElementById(id);
+    if(el){ el.value=v; if(el.tagName==="TEXTAREA") autoGrow(el); }
+  });
+  if(data.prev) renderPrev(data.prev, data.prev_ymd||"");
+  updateFS();
+}
+
+/* ── 前回値 ─────────────────────────────────
+   受診票データ作成.ps1 が作った JSON を読み、
+   項目名の枠の中に「前回 172.0」と小さく出す。
+   入力欄には一切書かない（前回値がそのまま今年の結果として
+   印刷されるのを防ぐため）。
+──────────────────────────────────────────── */
+let curPrev={}, curPrevYmd="";
+function clearPrev(){
+  document.querySelectorAll(".prev").forEach(el=>el.remove());
+  const h=document.getElementById("prevhd"); if(h) h.remove();
+  curPrev={}; curPrevYmd="";
+}
+function renderPrev(prev, ymd){
+  clearPrev();
+  prev = prev || {};
+  curPrev = prev; curPrevYmd = ymd || "";
+  document.querySelectorAll("[data-prev]").forEach(cell=>{
+    // data-prev="bp1_h/bp1_l" のように / でつなぐと「128/78」と並べて出す
+    const ids=cell.getAttribute("data-prev").split("/");
+    const vals=ids.map(id=>{
+      const v=prev[id];
+      return (v===undefined||v===null||String(v).trim()==="")?null:String(v).trim();
+    });
+    if(vals.every(v=>v===null)) return;      // 全部空なら何も出さない
+    const txt=vals.map(v=>v===null?"—":v).join("/");
+    const s=document.createElement("span");
+    s.className="prev";
+    s.appendChild(document.createTextNode("前回 "));
+    const b=document.createElement("b"); b.textContent=txt; s.appendChild(b);
+    cell.appendChild(s);
+  });
+  // 受診日の横に「前回 2025/08/22」と出す
+  if(ymd){
+    const m=document.getElementById("jushinbi");
+    const host=m?m.parentNode:null;
+    if(host){
+      const h=document.createElement("span");
+      h.className="prevhd"; h.id="prevhd";
+      h.textContent="前回 "+ymd;
+      host.appendChild(h);
+    }
+  }
+}
+
+/* ── 名簿（受診票データ_YYYYMMDD.json）─────────── */
+let roster=[], rosterIdx=-1;
+function loadRoster(){
+  const inp=document.createElement("input"); inp.type="file"; inp.accept=".json";
+  inp.onchange=()=>{
+    const f=inp.files[0]; if(!f) return;
+    const r=new FileReader();
+    r.onload=()=>{
+      let d;
+      try{ d=JSON.parse(r.result); }
+      catch(e){ alert("読み込めませんでした。受診票データ作成.bat が作ったファイルを選んでください。"); return; }
+      if(d && Array.isArray(d.people)) setRoster(d.people);
+      else if(d && d.inputs){ apply(d); persistSoft(); }   // 1人分のファイル
+      else alert("受診者の名簿が入っていません。受診票データ作成.bat が作ったファイルを選んでください。");
+    };
+    r.readAsText(f);
+  };
+  inp.click();
+}
+function setRoster(people){
+  roster=people;
+  const sel=document.getElementById("personSel");
+  sel.innerHTML="";
+  people.forEach((p,i)=>{
+    const o=document.createElement("option");
+    o.value=i; o.textContent=(i+1)+". "+(p.label||"");
+    sel.appendChild(o);
+  });
+  sel.onchange=()=>showPerson(parseInt(sel.value,10));
+  document.getElementById("rosterbox").style.display=people.length?"inline-flex":"none";
+  if(people.length) showPerson(0);
+}
+function showPerson(i){
+  if(i<0||i>=roster.length) return;
+  rosterIdx=i;
+  const p=roster[i];
+  document.querySelectorAll("input.f,textarea.f").forEach(el=>el.value="");
+  apply({inputs:p.inputs||{}, prev:p.prev||{}, prev_ymd:p.prev_ymd||""});
+  document.getElementById("personSel").value=String(i);
+  document.getElementById("personPos").textContent=(i+1)+" / "+roster.length;
+  document.querySelectorAll("textarea.f").forEach(autoGrow);
+  persistSoft();
+}
+function stepPerson(d){
+  if(!roster.length) return;
+  showPerson(Math.min(roster.length-1, Math.max(0, rosterIdx+d)));
+}
+
+/* ── 自動保存（ブラウザ内）─────────────────────── */
+let canStore=true;
+try{ localStorage.setItem("_t","1"); localStorage.removeItem("_t"); }catch(e){ canStore=false; }
+function persistSoft(){ if(canStore){ try{ localStorage.setItem(STORE, JSON.stringify(collect())); }catch(e){} } }
+
+function saveData(){
+  const no=(document.getElementById("uketsuke_no").value||"").trim();
+  const blob=new Blob([JSON.stringify(collect(),null,2)],{type:"application/json"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="受診票_"+(no?no:"入力データ")+".json";
+  a.click();
+}
+function loadData(){
+  const inp=document.createElement("input"); inp.type="file"; inp.accept=".json";
+  inp.onchange=()=>{
+    const f=inp.files[0]; if(!f) return;
+    const r=new FileReader();
+    r.onload=()=>{ try{ apply(JSON.parse(r.result)); persistSoft(); }
+                   catch(e){ alert("読み込めませんでした"); } };
+    r.readAsText(f);
+  };
+  inp.click();
+}
+function clearAll(){
+  if(!confirm("入力内容をすべて消去しますか？")) return;
+  document.querySelectorAll("input.f,textarea.f").forEach(el=>el.value="");
+  clearPrev();
+  document.querySelectorAll("textarea.f").forEach(autoGrow);
+  persistSoft();
+}
+
+/* ── 文字サイズ ─────────────────────────────── */
+function baseFS(){ return parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--fs"))||11; }
+function updateFS(){ document.getElementById("fsval").textContent=baseFS(); }
+function changeFS(d){
+  const cur=Math.min(20,Math.max(7, baseFS()+d));
+  document.documentElement.style.setProperty("--fs",cur+"px");
+  document.querySelectorAll("textarea.f").forEach(autoGrow);
+  updateFS(); persistSoft();
+}
+
+/* ── 印刷時：各ページをA4に収める ────────────────── */
+function fitForPrint(){
+  document.querySelectorAll(".sheet").forEach(s=>{
+    s.style.transform="none";
+    const mm = s.getBoundingClientRect().height/96*25.4;
+    if(mm>293) s.style.transform="scale("+(293/mm).toFixed(3)+")";
+  });
+}
+function unfit(){ document.querySelectorAll(".sheet").forEach(s=>s.style.transform="none"); }
+window.addEventListener("beforeprint", fitForPrint);
+window.addEventListener("afterprint", unfit);
+
+/* ── 起動時 ─────────────────────────────────── */
+if(canStore){ try{ const s=localStorage.getItem(STORE); if(s) apply(JSON.parse(s)); }catch(e){} }
+document.querySelectorAll("textarea.f").forEach(autoGrow);
+updateFS();
+</script>

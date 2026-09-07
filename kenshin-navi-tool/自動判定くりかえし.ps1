@@ -18,9 +18,13 @@
 [CmdletBinding()]
 param(
     [int]$Count = 0,          # 何人分くりかえすか
-    [int]$WaitHantei = 1800,  # 自動判定を押したあと待つ時間(ミリ秒)
-    [int]$WaitToroku = 2200   # 登録を押したあと待つ時間(ミリ秒)
+    [string]$Keys = 'y,y',    # 自動判定のあとに出る確認を消すキー (カンマ区切り)
+    [string]$KeysAfter = '',  # 登録のあとに出る確認を消すキー (出ないなら空)
+    [int]$WaitHantei = 1500,  # 自動判定を押したあと待つ時間(ミリ秒)
+    [int]$WaitKey    = 700,   # 確認キーを押すあいだの待ち時間(ミリ秒)
+    [int]$WaitToroku = 2000   # 登録を押したあと待つ時間(ミリ秒)
 )
+Add-Type -AssemblyName System.Windows.Forms
 $ErrorActionPreference = 'Stop'
 
 Add-Type @'
@@ -49,7 +53,8 @@ Write-Host ('=' * 66) -ForegroundColor Cyan
 Write-Host ' 健診ナビ 自動判定のくりかえし' -ForegroundColor Cyan
 Write-Host ('=' * 66) -ForegroundColor Cyan
 Write-Host ''
-Write-Host '  人がマウスで押すのと同じことを、決めた回数くりかえします。'
+Write-Host '  人が押すのと同じことを、決めた回数くりかえします。'
+Write-Host '    自動判定 → (確認に Y) → (確認に Y) → 登録 → 次の人'
 Write-Host '  データベースには触りません。判定は健診ナビが出したものです。'
 Write-Host ''
 Write-Host '  始める前に、健診ナビの結果入力画面で次を確かめてください。' -ForegroundColor Yellow
@@ -97,11 +102,23 @@ if ($Count -le 0) {
 if ($Count -le 0) { Write-Host '  人数が読み取れませんでした。終わります。'; return }
 if ($Count -gt 200) { Write-Host '  200人までにしてください。'; return }
 
+# 登録のあとにも確認が出る作りなら、そこでも Y を押す
+if ($KeysAfter -eq '') {
+    Write-Host ''
+    Write-Host '  「登録」を押したあとにも確認(はい/いいえ)が出ますか。'
+    $a2 = Read-Host '  出るなら y、出ないなら n'
+    if ((($a2 -as [string]).Trim().ToLower()) -like 'y*') { $KeysAfter = 'y' }
+}
+$keyList  = @($Keys      -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+$keyList2 = @($KeysAfter -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+
 Write-Host ''
 Line
 Write-Host ('  これから {0} 人分くりかえします。' -f $Count) -ForegroundColor Cyan
 Write-Host ('    自動判定 X={0} Y={1}' -f $pHantei.X, $pHantei.Y)
+Write-Host ('    確認キー {0} 回 ({1})' -f $keyList.Count, ($keyList -join ' '))
 Write-Host ('    登録     X={0} Y={1}' -f $pToroku.X, $pToroku.Y)
+if ($keyList2.Count -gt 0) { Write-Host ('    登録後の確認キー {0} 回' -f $keyList2.Count) }
 Write-Host ''
 Write-Host '  健診ナビの画面を前に出して、そのまま触らずに待ってください。' -ForegroundColor Yellow
 Write-Host '  10秒後に始めます。やめるなら今この画面を閉じてください。' -ForegroundColor Yellow
@@ -127,9 +144,19 @@ for ($n = 1; $n -le $Count; $n++) {
     Write-Host ("  {0,3} / {1}  自動判定..." -f $n, $Count) -NoNewline
     [Mouse]::Click($pHantei.X, $pHantei.Y)
     Start-Sleep -Milliseconds $WaitHantei
+    foreach ($kk in $keyList) {
+        Write-Host (' ' + $kk) -NoNewline
+        [System.Windows.Forms.SendKeys]::SendWait($kk)
+        Start-Sleep -Milliseconds $WaitKey
+    }
     Write-Host ' 登録...' -NoNewline
     [Mouse]::Click($pToroku.X, $pToroku.Y)
     Start-Sleep -Milliseconds $WaitToroku
+    foreach ($kk in $keyList2) {
+        Write-Host (' ' + $kk) -NoNewline
+        [System.Windows.Forms.SendKeys]::SendWait($kk)
+        Start-Sleep -Milliseconds $WaitKey
+    }
     $done++
     Write-Host ' 済' -ForegroundColor Green
 }

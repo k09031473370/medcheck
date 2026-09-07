@@ -6,7 +6,8 @@
   結果入力の一覧で受付Noが「未登録」と出るが、自動判定は通っている。
   受付処理は済んでいるはずなのに、どこが空なのかを確かめます。
 
-  くらべる相手として、普通に表示できている院内の日も一緒に出します。
+  「予約No」がどの列かが分かっていないので、候補をまとめて並べます。
+  画面の予約No (85,86,87…) と同じ数字が並んでいる列が正解です。
 #>
 [CmdletBinding()]
 param(
@@ -26,87 +27,90 @@ function Q($title, $sql, $max) {
     & powershell -NoProfile -ExecutionPolicy Bypass -File $tool -Sql $sql -MaxRows $max *>&1 | Out-File $out -Append -Encoding Default
 }
 
+# 予約Noの候補になりそうな列をまとめて出す
+$cand = @"
+       '[' + ISNULL(s.SEQ1, '') + ']'                              AS SEQ1,
+       '[' + ISNULL(CONVERT(varchar(20), s.UKE_NO_KENSA), '') + ']' AS 受付No,
+       '[' + ISNULL(s.S_UKE_NO, '') + ']'                          AS S_UKE_NO,
+       '[' + ISNULL(CONVERT(varchar(20), s.WAKU_NO), '') + ']'      AS WAKU_NO,
+       '[' + ISNULL(CONVERT(varchar(20), s.BAR_CODE), '') + ']'     AS BAR_CODE,
+       '[' + ISNULL(s.JUSIN_KEN_NO, '') + ']'                      AS JUSIN_KEN_NO,
+       '[' + ISNULL(s.OCR_CODE, '') + ']'                          AS OCR_CODE,
+       s.F_UKETUKE AS 受付F,
+       (SELECT COUNT(*) FROM T_KANJA_G q WHERE q.PK_SEQ = s.PK_SEQ) AS 受付行数,
+       (SELECT TOP 1 '[' + ISNULL(q.KEN_NO,'') + ']' FROM T_KANJA_G q WHERE q.PK_SEQ = s.PK_SEQ) AS 受付KEN_NO,
+       '[' + ISNULL(g.KOJIN_NO, '') + ']' AS カルテNo,
+       s.PK_SEQ
+"@
+
 "=== 受付番号まわりの調査 $(Get-Date -Format 'yyyy/MM/dd HH:mm') ===" | Out-File $out -Encoding Default
 if (-not (Test-Path $tool)) { W "db_tool.ps1 がありません: $dir"; notepad $out; return }
 
-Q '--- 1. T_KENSIN の列 (予約Noがどの列かを見る) ---' @"
-SELECT COLUMN_NAME AS 列, DATA_TYPE AS 型
-FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'T_KENSIN'
-ORDER BY ORDINAL_POSITION
-"@ 90
-
-Q '--- 2. ★8/21 の受付まわり (先頭30人) ---' @"
-SELECT TOP 30
-       g.KANJI_SIMEI AS 氏名,
-       '[' + ISNULL(CONVERT(varchar(20), s.YOYAKU_NO), '') + ']'    AS 予約No,
-       '[' + ISNULL(CONVERT(varchar(20), s.UKE_NO_KENSA), '') + ']' AS 受付No,
-       '[' + ISNULL(s.SEQ1, '') + ']'                              AS SEQ1,
-       s.F_UKETUKE AS 受付F,
-       (SELECT COUNT(*) FROM T_KANJA_G q WHERE q.PK_SEQ = s.PK_SEQ) AS 受付行数,
-       (SELECT TOP 1 '[' + ISNULL(q.KEN_NO,'') + ']' FROM T_KANJA_G q WHERE q.PK_SEQ = s.PK_SEQ) AS 受付KEN_NO,
-       '[' + ISNULL(g.KOJIN_NO, '') + ']' AS カルテNo,
-       s.PK_SEQ
+Q "--- 1. ★8/21 ($Ymd) 先頭30人。画面の予約No(1,2,3…)と同じ列を探す ---" @"
+SELECT TOP 30 g.KANJI_SIMEI AS 氏名,
+$cand
 FROM T_KENSIN s
 LEFT JOIN T_KOJIN1 g ON g.KOJIN_ID = s.KOJIN_ID
 WHERE s.D_KENSIN = '$Ymd' AND s.F_TORIKESI = 0
-ORDER BY s.YOYAKU_NO
+ORDER BY s.SEQ1
 "@ 35
 
-Q '--- 3. ★くらべる: 院内の日 ($Ymd2) の同じ並び (先頭15人) ---' @"
-SELECT TOP 15
-       g.KANJI_SIMEI AS 氏名,
-       '[' + ISNULL(CONVERT(varchar(20), s.YOYAKU_NO), '') + ']'    AS 予約No,
-       '[' + ISNULL(CONVERT(varchar(20), s.UKE_NO_KENSA), '') + ']' AS 受付No,
-       '[' + ISNULL(s.SEQ1, '') + ']'                              AS SEQ1,
-       s.F_UKETUKE AS 受付F,
-       (SELECT COUNT(*) FROM T_KANJA_G q WHERE q.PK_SEQ = s.PK_SEQ) AS 受付行数,
-       (SELECT TOP 1 '[' + ISNULL(q.KEN_NO,'') + ']' FROM T_KANJA_G q WHERE q.PK_SEQ = s.PK_SEQ) AS 受付KEN_NO,
-       '[' + ISNULL(g.KOJIN_NO, '') + ']' AS カルテNo,
-       s.PK_SEQ
+Q "--- 2. ★くらべる: 院内の日 ($Ymd2) 先頭15人 ---" @"
+SELECT TOP 15 g.KANJI_SIMEI AS 氏名,
+$cand
 FROM T_KENSIN s
 LEFT JOIN T_KOJIN1 g ON g.KOJIN_ID = s.KOJIN_ID
 WHERE s.D_KENSIN = '$Ymd2' AND s.F_TORIKESI = 0
-ORDER BY s.UKE_NO_KENSA
+ORDER BY s.SEQ1
 "@ 20
 
-Q '--- 4. ★まとめ: 空になっているのはどれか ---' @"
-SELECT CONVERT(varchar(10), s.D_KENSIN, 111) AS 受診日,
-       COUNT(*) AS 人数,
-       SUM(CASE WHEN s.YOYAKU_NO    IS NULL                                  THEN 1 ELSE 0 END) AS 予約No空,
-       SUM(CASE WHEN LTRIM(RTRIM(ISNULL(CONVERT(varchar(20), s.UKE_NO_KENSA),''))) = '' THEN 1 ELSE 0 END) AS 受付No空,
-       SUM(CASE WHEN LTRIM(RTRIM(ISNULL(s.SEQ1,''))) = ''                    THEN 1 ELSE 0 END) AS SEQ1空,
-       SUM(CASE WHEN NOT EXISTS (SELECT 1 FROM T_KANJA_G q WHERE q.PK_SEQ = s.PK_SEQ) THEN 1 ELSE 0 END) AS 受付行なし
-FROM T_KENSIN s
-WHERE s.D_KENSIN IN ('$Ymd', '$Ymd2') AND s.F_TORIKESI = 0
-GROUP BY s.D_KENSIN
+Q '--- 3. ★まとめ: どの列が空か (2日分) ---' @"
+SELECT x.受診日, COUNT(*) AS 人数,
+       SUM(CASE WHEN x.受付No = ''  THEN 1 ELSE 0 END) AS 受付No空,
+       SUM(CASE WHEN x.SEQ1 = ''    THEN 1 ELSE 0 END) AS SEQ1空,
+       SUM(CASE WHEN x.SUKE = ''    THEN 1 ELSE 0 END) AS S_UKE_NO空,
+       SUM(CASE WHEN x.WAKU = ''    THEN 1 ELSE 0 END) AS WAKU_NO空,
+       SUM(CASE WHEN x.受付行数 = 0 THEN 1 ELSE 0 END) AS 受付行なし,
+       SUM(CASE WHEN x.受付KEN = '' THEN 1 ELSE 0 END) AS 受付KEN_NO空
+FROM (
+  SELECT CONVERT(varchar(10), s.D_KENSIN, 111) AS 受診日,
+         LTRIM(RTRIM(ISNULL(CONVERT(varchar(20), s.UKE_NO_KENSA), ''))) AS 受付No,
+         LTRIM(RTRIM(ISNULL(s.SEQ1, '')))                              AS SEQ1,
+         LTRIM(RTRIM(ISNULL(s.S_UKE_NO, '')))                          AS SUKE,
+         LTRIM(RTRIM(ISNULL(CONVERT(varchar(20), s.WAKU_NO), '')))      AS WAKU,
+         (SELECT COUNT(*) FROM T_KANJA_G q WHERE q.PK_SEQ = s.PK_SEQ)   AS 受付行数,
+         LTRIM(RTRIM(ISNULL((SELECT TOP 1 q.KEN_NO FROM T_KANJA_G q WHERE q.PK_SEQ = s.PK_SEQ), ''))) AS 受付KEN
+  FROM T_KENSIN s
+  WHERE s.D_KENSIN IN ('$Ymd', '$Ymd2') AND s.F_TORIKESI = 0
+) x
+GROUP BY x.受診日
 ORDER BY 1
 "@ 10
 
-Q '--- 5. 予約Noと受付Noが違う人はいるか (院内の直近の日で見る) ---' @"
-SELECT TOP 20 CONVERT(varchar(10), s.D_KENSIN, 111) AS 受診日,
-       CONVERT(varchar(20), s.YOYAKU_NO) AS 予約No,
-       CONVERT(varchar(20), s.UKE_NO_KENSA) AS 受付No,
-       COUNT(*) AS 件数
-FROM T_KENSIN s
-WHERE s.F_TORIKESI = 0 AND s.D_KENSIN >= '2026/08/01'
-  AND s.UKE_NO_KENSA IS NOT NULL
-  AND CONVERT(varchar(20), s.YOYAKU_NO) <> CONVERT(varchar(20), s.UKE_NO_KENSA)
-GROUP BY s.D_KENSIN, s.YOYAKU_NO, s.UKE_NO_KENSA
-ORDER BY 1 DESC, 2
-"@ 25
+Q '--- 4. 受付済みの人の T_KANJA_G の中身 (8/21 先頭10人) ---' @"
+SELECT TOP 10 g.KANJI_SIMEI AS 氏名,
+       '[' + ISNULL(q.KEN_NO, '') + ']'  AS KEN_NO,
+       '[' + ISNULL(q.KEN_YMD, '') + ']' AS KEN_YMD,
+       q.PK_SEQ
+FROM T_KANJA_G q
+JOIN T_KENSIN s   ON s.PK_SEQ = q.PK_SEQ
+LEFT JOIN T_KOJIN1 g ON g.KOJIN_ID = s.KOJIN_ID
+WHERE s.D_KENSIN = '$Ymd' AND s.F_TORIKESI = 0
+ORDER BY q.KEN_NO
+"@ 15
 
 W ''
 W '=== 読み方 ==='
-W '  2 の「受付No」が [] で、「受付行数」が 1 なら、'
-W '     健診ナビの受付処理は済んでいるが T_KENSIN の受付番号だけが空、ということです。'
+W '  1 で、画面の予約No (85,86,87…) と同じ数字が並んでいる列が「予約No」です。'
+W '     SEQ1 は 受診日8桁+予約No4桁 なので、SEQ1 の末尾4桁でも見当がつきます。'
+W ''
+W '  「受付No」が [] で「受付行数」が 1 なら、'
+W '     受付処理は済んでいるが T_KENSIN の受付番号だけが空、ということです。'
 W '     その場合は予約Noを入れても筋が通ります。'
 W ''
-W '  2 の「受付KEN_NO」に値が入っているなら、健診ナビはそちらを本物として持っています。'
+W '  「受付KEN_NO」に値が入っているなら、健診ナビはそちらを本物として持っています。'
 W '     T_KENSIN だけ書き換えると食い違うので、両方そろえる必要があります。'
 W ''
-W '  3 の院内の日とくらべて、どの列が埋まっていれば「正常」なのかを見ます。'
-W ''
-W '  5 に行が出れば、予約Noと受付Noは別物として運用されているということです。'
-W '     何も出なければ、この健診ナビでは実質同じ番号を使っています。'
+W '  2 の院内の日とくらべて、どの列が埋まっていれば「正常」なのかを見ます。'
 
 notepad $out

@@ -30,7 +30,7 @@ function Q($title, $sql, $max) {
 "=== 誤入力の探索 $(Get-Date -Format 'yyyy/MM/dd HH:mm') ===" | Out-File $out -Encoding Default
 if (-not (Test-Path $tool)) { W "db_tool.ps1 がありません: $dir"; notepad $out; return }
 
-Q "--- 1. ★★$Ymd で、結果が英字1文字だけの行 (y / n など) ---" @"
+Q "--- 1. ★★$Ymd で、結果に英字が混ざっている行 (y / n など) ---" @"
 SELECT g.KANJI_SIMEI AS 氏名, g.KANA_SIMEI AS カナ,
        LTRIM(RTRIM(k.KOMOKU_CD)) AS 項目CD, m.MEISYO1 AS 項目名,
        '[' + LTRIM(RTRIM(k.KEKKA)) + ']'               AS 結果,
@@ -42,12 +42,11 @@ JOIN T_KENSIN s      ON s.PK_SEQ   = k.PK_SEQ
 LEFT JOIN T_KOJIN1 g ON g.KOJIN_ID = s.KOJIN_ID
 LEFT JOIN T_KOMOKU m ON LTRIM(RTRIM(m.KOMOKU_CD)) = LTRIM(RTRIM(k.KOMOKU_CD))
 WHERE s.D_KENSIN = '$Ymd' AND s.F_TORIKESI = 0
-  AND LEN(LTRIM(RTRIM(k.KEKKA))) = 1
-  AND LTRIM(RTRIM(k.KEKKA)) LIKE '[a-zA-Z]'
+  AND k.KEKKA LIKE '%[a-zA-Z]%'
 ORDER BY k.KOMOKU_CD, g.KANA_SIMEI
 "@ 60
 
-Q "--- 2. ★$From 以降の全部の日で、結果が英字1文字だけの行 ---" @"
+Q "--- 2. ★$From 以降の全部の日で、結果に英字が混ざっている行 ---" @"
 SELECT CONVERT(varchar(10), s.D_KENSIN, 111) AS 受診日,
        g.KANJI_SIMEI AS 氏名,
        LTRIM(RTRIM(k.KOMOKU_CD)) AS 項目CD, m.MEISYO1 AS 項目名,
@@ -58,8 +57,7 @@ JOIN T_KENSIN s      ON s.PK_SEQ   = k.PK_SEQ
 LEFT JOIN T_KOJIN1 g ON g.KOJIN_ID = s.KOJIN_ID
 LEFT JOIN T_KOMOKU m ON LTRIM(RTRIM(m.KOMOKU_CD)) = LTRIM(RTRIM(k.KOMOKU_CD))
 WHERE s.D_KENSIN >= '$From' AND s.F_TORIKESI = 0
-  AND LEN(LTRIM(RTRIM(k.KEKKA))) = 1
-  AND LTRIM(RTRIM(k.KEKKA)) LIKE '[a-zA-Z]'
+  AND k.KEKKA LIKE '%[a-zA-Z]%'
 ORDER BY s.D_KENSIN DESC, k.KOMOKU_CD
 "@ 80
 
@@ -102,9 +100,12 @@ ORDER BY k.KOMOKU_CD, g.KANA_SIMEI
 
 W ''
 W '=== 読み方 ==='
-W '  1 に出る行が、結果欄に英字1文字だけが入っているものです。'
-W '     健診の結果に「y」や「n」だけ、という値は普通ありません。'
+W '  1 に出る行が、結果欄に英字(a〜z)が混ざっているものです。'
+W '     健診の結果はふつう 数字・(-)(+)・日本語なので、英字はまず出ません。'
+W '     「y」だけの行はもちろん、「172.4y」のようにくっついた行も拾います。'
 W '     すでに分かっている尿蛋白の3人以外に出たら、それも直す対象です。'
+W '     ごくまれに、もともと英字を含む正しい値が出ることがあります。'
+W '     その場合は値を見れば区別が付きます。'
 W ''
 W '  2 は8月以降の全部の日を見ます。他の日にも飛び火していないかの確認です。'
 W ''

@@ -391,7 +391,7 @@ function Load-Mapping {
     # 「# DETECT=HEADER:受付NO,Q1,!受診日」のような行の3つ目が Kind として
     # 読まれてしまい、「Kind が不正です」で止まる。
     $rows = @($rows | Where-Object { (Normalize-Text $_.Col) -notlike '#*' })
-    $valid = @('KENNO','KENYMD','NAMEKANJI','NAMEKANA','VALUE','NYOU','CHORYOKU','MONSHIN','VISION','SHOKEN','SHOKEN2','SHOKENCD','SHOKENCD2','SHOKENCD5','NOFRAME','KOJINNO','IGNORE')
+    $valid = @('KENNO','KENYMD','NAMEKANJI','NAMEKANA','VALUE','NYOU','CHORYOKU','MONSHIN','VISION','SHOKEN','SHOKEN2','SHOKENCD','SHOKENCD2','SHOKENCD5','HANTEI','NOFRAME','KOJINNO','IGNORE')
     foreach ($r in $rows) {
         $k = (Normalize-Text $r.Kind).ToUpper()
         if ($k -ne '' -and $valid -notcontains $k) {
@@ -941,6 +941,41 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current, $kojin) {
                 Sql   = 'UPDATE T_KOJIN1 SET KOJIN_NO = @v WHERE KOJIN_ID = @kid'
                 P     = @{ v = $v; kid = $kojin.KojinId }
                 Table = 'T_KOJIN1'
+            }
+            $plan += $rep
+            continue
+        }
+
+        # ---- 判定だけを書く (HANTEI) ----
+        # 所見マスタ(T_SYOKEN2)に判定記号が登録されているのは
+        # 「正常範囲」「所見なし」といった正常側だけ、ということがある。
+        # その場合、異常所見の人は所見だけ入って判定が空のままになる。
+        # 東振協のファイルには判定(A/B/C/D)の列があるので、それを判定欄に直接書く。
+        #   Col = 判定の列 / KOMOKU_CD = 判定を書く項目 (所見と同じ項目)
+        # 結果(KEKKA)・結果CDには触らない。判定欄だけを上書きする。
+        if ($kind -eq 'HANTEI') {
+            $hv = (Normalize-Text $raw).ToUpper()
+            if ($hv -ne '') {
+                $cvH = Convert-Code $m $hv
+                if ($cvH.Status -eq 'DROP') {
+                    $rep.Status = "取込対象外(変換表で除外: $hv)"; $rep.New = $hv; $plan += $rep; continue
+                }
+                if ($cvH.Status -eq 'NOMAP') {
+                    $rep.Status = "変換表に無い判定($hv)"; $rep.New = $hv; $plan += $rep; continue
+                }
+                $hv = $cvH.Code
+            }
+            if ($hv -eq '') { continue }
+            if ($komoku -eq '') { $rep.Status = '項目CD未設定'; $rep.New = $hv; $plan += $rep; continue }
+            if (-not $current.ContainsKey($komoku)) { $rep.Status = '枠なし'; $rep.New = $hv; $plan += $rep; continue }
+            $rep.New    = $hv
+            $rep.Hantei = $hv
+            $rep.Now    = Normalize-Text ([string]$current[$komoku].HANTEI_KIGO)
+            if ($rep.Now -eq $hv) { $rep.Status = '設定済み(変更なし)'; $plan += $rep; continue }
+            $rep.Status = 'OK'
+            $rep.Update = @{
+                Sql = 'UPDATE T_KENSA SET HANTEI_KIGO = @h WHERE PK_SEQ = @p AND KOMOKU_CD = @cd'
+                P   = @{ h = $hv; cd = $komoku }
             }
             $plan += $rep
             continue

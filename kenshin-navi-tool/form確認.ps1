@@ -104,5 +104,66 @@ else {
     }
 }
 
+# ---- 4. 判定の変換表が入っているか ----
+# 東振協の判定(C/D)と健診ナビの判定記号(D/F)は別物。
+# code_map.csv の TOS_HANTEI と、対応表の CodeMap 列がそろっていないと
+# 誤った判定がそのまま書き込まれる。
+Write-Host ''
+Write-Host '4. 判定の変換 (東振協C→健診ナビD / 東振協D→健診ナビF)' -ForegroundColor White
+Line
+$cm = Join-Path $MapDir 'code_map.csv'
+$cmOk = $false
+if (-not (Test-Path $cm)) {
+    Write-Host '  ★NG  code_map.csv がありません' -ForegroundColor Red
+} else {
+    $rules = @()
+    try { $rules = @(Import-Csv -Path $cm -Encoding UTF8 |
+                     Where-Object { ($_.MapName -as [string]).Trim().ToUpper() -eq 'TOS_HANTEI' }) } catch { }
+    if ($rules.Count -eq 0) {
+        Write-Host '  ★NG  code_map.csv に TOS_HANTEI がありません (古いファイルです)' -ForegroundColor Red
+    } else {
+        $map = @{}
+        foreach ($r in $rules) { $map[($r.FromCode -as [string]).Trim()] = ($r.ToCode -as [string]).Trim() }
+        $want = @{ 'A' = 'A'; 'B' = 'B'; 'C' = 'D'; 'D' = 'F' }
+        $ng = 0
+        foreach ($k in ($want.Keys | Sort-Object)) {
+            if ($map.ContainsKey($k) -and $map[$k] -eq $want[$k]) {
+                Write-Host ('  OK   {0} → {1}' -f $k, $want[$k]) -ForegroundColor Green
+            } else {
+                $ng++
+                $now = if ($map.ContainsKey($k)) { $map[$k] } else { '(無し)' }
+                Write-Host ('  ★NG  {0} → {1} のはずが {2}' -f $k, $want[$k], $now) -ForegroundColor Red
+            }
+        }
+        if ($ng -eq 0) { $cmOk = $true }
+    }
+}
+# 対応表の判定4行に CodeMap が付いているか
+$pm = Join-Path $MapDir 'mapping_tosinkyo250.csv'
+if (Test-Path $pm) {
+    $mr = @()
+    try { $mr = @(Import-Csv -Path $pm -Encoding UTF8 |
+                  Where-Object { ($_.Col -as [string]).Trim() -notlike '#*' -and
+                                 ($_.Kind -as [string]).Trim().ToUpper() -eq 'HANTEI' }) } catch { }
+    Write-Host ''
+    if ($mr.Count -eq 0) {
+        Write-Host '  ★NG  対応表に判定の行(HANTEI)がありません (古いファイルです)' -ForegroundColor Red
+    } else {
+        $bad = @($mr | Where-Object { ($_.CodeMap -as [string]).Trim().ToUpper() -ne 'TOS_HANTEI' })
+        if ($bad.Count -eq 0) {
+            Write-Host ('  OK   判定の行 {0} 件すべてに CodeMap=TOS_HANTEI が付いています' -f $mr.Count) -ForegroundColor Green
+            if ($cmOk) {
+                Write-Host ''
+                Write-Host '  ★ 判定の変換も正しく入っています。' -ForegroundColor Green
+            }
+        } else {
+            foreach ($b in $bad) {
+                Write-Host ('  ★NG  {0} 列 {1} に CodeMap=TOS_HANTEI がありません' -f $b.Col, $b.Label) -ForegroundColor Red
+            }
+            Write-Host '     古い対応表のままです。送り直したものに差し替えてください。' -ForegroundColor Red
+        }
+    }
+}
+
 Write-Host ''
 Write-Host '何かキーを押すと閉じます...'

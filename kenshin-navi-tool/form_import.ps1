@@ -971,7 +971,10 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current, $kojin) {
             $rep.New    = $hv
             $rep.Hantei = $hv
             $rep.Now    = Normalize-Text ([string]$current[$komoku].HANTEI_KIGO)
-            if ($rep.Now -eq $hv) { $rep.Status = '設定済み(変更なし)'; $plan += $rep; continue }
+            # 値が同じでも必ず書く。
+            # 同じ項目の所見を先に書くとき、判定欄には所見マスタの値(異常なら空)が
+            # 入る。ここで「書込前と同じだから飛ばす」と判断すると、直前に空にされた
+            # ものがそのまま残ってしまう。実際に A・B の判定が消えた。
             $rep.Status = 'OK'
             $rep.Update = @{
                 Sql = 'UPDATE T_KENSA SET HANTEI_KIGO = @h WHERE PK_SEQ = @p AND KOMOKU_CD = @cd'

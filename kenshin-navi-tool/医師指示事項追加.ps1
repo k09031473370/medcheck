@@ -59,13 +59,15 @@ $RULES = @(
     @{ Name = '胃部X線'; Item = '077300A'; D = '75';  F = '69'  }
     @{ Name = '心電図';  Item = '067112A'; D = '58';  F = '68'  }
 )
+# 既にある「【視力】　低下が見られます…」と同じ書き方に揃える。
+# 検査名を【】に出し、本文からは重複を削る。
 $TEXT = @{
-    '308' = '胸部X線検査にて異常所見を認めます。経過観察の必要があります。自覚症状があれば検査を受けて下さい。'
-    '309' = '胸部X線検査にて異常所見を認めます。精密検査の必要があります。'
-    '58'  = '心電図異常があります。経過観察を行い、自覚症状があれば受診して下さい。'
-    '68'  = '心電図異常については、循環器外来を受診し、精査・治療が必要です。'
-    '75'  = '胃部レントゲン検査にて異常所見を認めます。経過観察の必要があります。自覚症状があれば検査を受けて下さい。'
-    '69'  = '胃部レントゲン検査にて異常所見を認めます。精密検査の必要があります。'
+    '308' = '【胸部X線】　異常所見を認めます。経過観察の必要があります。自覚症状があれば検査を受けて下さい。'
+    '309' = '【胸部X線】　異常所見を認めます。精密検査の必要があります。'
+    '58'  = '【心電図】　異常があります。経過観察を行い、自覚症状があれば受診して下さい。'
+    '68'  = '【心電図】　異常については、循環器外来を受診し、精査・治療が必要です。'
+    '75'  = '【胃部X線】　異常所見を認めます。経過観察の必要があります。自覚症状があれば検査を受けて下さい。'
+    '69'  = '【胃部X線】　異常所見を認めます。精密検査の必要があります。'
 }
 # 医師指示事項の枠 (総合判定N(編集))
 $SLOTS = @('11001','11002','11003','11004','11005','11006','11007','11008','11009')
@@ -160,20 +162,29 @@ WHERE s.D_KENSIN = @ymd AND s.F_TORIKESI = 0
             氏名 = [string]$r.氏名; 検査 = $rule.Name; 判定 = $h
             所見 = (Normalize-Text ([string]$r.所見))
             番号 = $no; 枠 = ''; 状態 = ''
-            PkSeq = $pk; 文章 = $body
+            PkSeq = $pk; 文章 = $body; Now = ''
         }
 
         if (-not $cur.ContainsKey($pk)) { $rep.状態 = '医師指示事項の枠がありません'; $plan += $rep; continue }
 
         # すでに同じ番号か同じ文章が入っていないか
-        $dup = $false
+        #   番号が同じで文章も同じ → 何もしない
+        #   番号が同じで文章が違う → その枠の文章を直す (書き方を変えたとき用)
+        $dupSlot = $null; $sameText = $false
         foreach ($sc in $SLOTS) {
             if (-not $cur[$pk].ContainsKey($sc)) { continue }
             $c = $cur[$pk][$sc]
-            if ($c.KekkaCd -eq $no)   { $dup = $true; $rep.枠 = $sc; break }
-            if ($c.Kekka -eq $body)   { $dup = $true; $rep.枠 = $sc; break }
+            if ($c.Kekka -eq $body)  { $dupSlot = $sc; $sameText = $true; break }
+            if ($c.KekkaCd -eq $no)  { $dupSlot = $sc; break }
         }
-        if ($dup) { $rep.状態 = '既に入っています'; $plan += $rep; continue }
+        if ($dupSlot) {
+            $rep.枠 = $dupSlot
+            if ($sameText) { $rep.状態 = '既に入っています'; $plan += $rep; continue }
+            $rep.Now    = $cur[$pk][$dupSlot].Kekka
+            $rep.状態   = '文章を直す'
+            $plan += $rep
+            continue
+        }
 
         # 空いている枠を探す (この実行で使う予定の枠も埋まっているものとして扱う)
         if (-not $used.ContainsKey($pk)) { $used[$pk] = @{} }
@@ -195,21 +206,25 @@ WHERE s.D_KENSIN = @ymd AND s.F_TORIKESI = 0
     # ---- 出す ----
     Write-Host ''
     Write-Host '=== 追加する内容 ===' -ForegroundColor Cyan
-    $plan | Select-Object 氏名, 検査, 判定, 番号, 枠, 状態, 所見 |
-        Format-Table -AutoSize -Wrap | Out-String -Width 200 | Write-Host
+    $plan | Select-Object 氏名, 検査, 判定, 番号, 枠, 状態, 所見, @{n='今の文章';e={$_.Now}} |
+        Format-Table -AutoSize -Wrap | Out-String -Width 220 | Write-Host
 
     Write-Host '=== 入れる文章 ===' -ForegroundColor Cyan
-    foreach ($no in ($plan | Where-Object { $_.状態 -eq 'OK' } | ForEach-Object { $_.番号 } | Sort-Object -Unique)) {
-        $n = @($plan | Where-Object { $_.状態 -eq 'OK' -and $_.番号 -eq $no }).Count
+    $writable = @($plan | Where-Object { $_.状態 -eq 'OK' -or $_.状態 -eq '文章を直す' })
+    foreach ($no in ($writable | ForEach-Object { $_.番号 } | Sort-Object -Unique)) {
+        $n = @($writable | Where-Object { $_.番号 -eq $no }).Count
         Write-Host ("  {0,-4} ({1}件)  {2}" -f $no, $n, $TEXT[$no])
     }
 
-    $ok   = @($plan | Where-Object { $_.状態 -eq 'OK' })
+    $ok   = @($plan | Where-Object { $_.状態 -eq 'OK' -or $_.状態 -eq '文章を直す' })
+    $add  = @($plan | Where-Object { $_.状態 -eq 'OK' })
+    $fix  = @($plan | Where-Object { $_.状態 -eq '文章を直す' })
     $skip = @($plan | Where-Object { $_.状態 -eq '既に入っています' })
-    $err  = @($plan | Where-Object { $_.状態 -notin @('OK', '既に入っています') })
+    $err  = @($plan | Where-Object { $_.状態 -notin @('OK', '文章を直す', '既に入っています') })
     Write-Host ''
     Line
-    Write-Host ("追加: {0} 件 / 既にあり: {1} 件 / 要確認: {2} 件" -f $ok.Count, $skip.Count, $err.Count) `
+    Write-Host ("追加: {0} 件 / 文章を直す: {1} 件 / 既にあり: {2} 件 / 要確認: {3} 件" `
+        -f $add.Count, $fix.Count, $skip.Count, $err.Count) `
         -ForegroundColor $(if ($err.Count -gt 0) { 'Yellow' } else { 'Green' })
     Line
 

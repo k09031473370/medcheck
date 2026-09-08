@@ -55,19 +55,23 @@ $BackupDir = Join-Path $PSScriptRoot 'backup'
 #   Item   … 判定を見る項目 (所見の1枠目)
 #   D / F  … 健診ナビの判定記号ごとの、入れる番号
 $RULES = @(
-    @{ Name = '胸部X線'; Item = '077010A'; D = '308'; F = '309' }
-    @{ Name = '胃部X線'; Item = '077300A'; D = '75';  F = '69'  }
-    @{ Name = '心電図';  Item = '067112A'; D = '58';  F = '68'  }
+    @{ Name = '胸部X線'; Item = '077010A'; D = '308';    F = '309'   }
+    @{ Name = '胃部X線'; Item = '077300A'; D = '75';     F = '69'    }
+    @{ Name = '心電図';  Item = '067112A'; D = '58';     F = '68'    }
+    @{ Name = '診察';    Item = '017101A'; D = 'SIN_D';  F = $null   }
 )
 # 既にある「【視力】　低下が見られます…」と同じ書き方に揃える。
 # 検査名を【】に出し、本文からは重複を削る。
+#   Cd   … 健診ナビのコメント番号。無いものは空にする (過去データにも番号なしの行がある)
+#   Text … 実際に入れる文章
 $TEXT = @{
-    '308' = '【胸部X線】　異常所見を認めます。経過観察の必要があります。自覚症状があれば検査を受けて下さい。'
-    '309' = '【胸部X線】　異常所見を認めます。精密検査の必要があります。'
-    '58'  = '【心電図】　異常があります。経過観察を行い、自覚症状があれば受診して下さい。'
-    '68'  = '【心電図】　異常については、循環器外来を受診し、精査・治療が必要です。'
-    '75'  = '【胃部X線】　異常所見を認めます。経過観察の必要があります。自覚症状があれば検査を受けて下さい。'
-    '69'  = '【胃部X線】　異常所見を認めます。精密検査の必要があります。'
+    '308'   = @{ Cd = '308'; Text = '【胸部X線】　異常所見を認めます。経過観察の必要があります。自覚症状があれば検査を受けて下さい。' }
+    '309'   = @{ Cd = '309'; Text = '【胸部X線】　異常所見を認めます。精密検査の必要があります。' }
+    '58'    = @{ Cd = '58';  Text = '【心電図】　異常があります。経過観察を行い、自覚症状があれば受診して下さい。' }
+    '68'    = @{ Cd = '68';  Text = '【心電図】　異常については、循環器外来を受診し、精査・治療が必要です。' }
+    '75'    = @{ Cd = '75';  Text = '【胃部X線】　異常所見を認めます。経過観察の必要があります。自覚症状があれば検査を受けて下さい。' }
+    '69'    = @{ Cd = '69';  Text = '【胃部X線】　異常所見を認めます。精密検査の必要があります。' }
+    'SIN_D' = @{ Cd = '';    Text = '【診察】　自覚症状があるときは医療機関を受診してください。' }
 }
 # 医師指示事項の枠 (総合判定N(編集))
 $SLOTS = @('11001','11002','11003','11004','11005','11006','11007','11008','11009')
@@ -84,9 +88,13 @@ Write-Host ' 医師指示事項に定型文を追加' -ForegroundColor Cyan
 Write-Host ('=' * 76) -ForegroundColor Cyan
 Write-Host "  受診日: $Ymd"
 Write-Host '  入れる先: 総合判定N(編集) 11001〜11009 の空いている枠'
+Write-Host '  (診察は番号がないので、文章だけを入れます)'
 Write-Host ''
 foreach ($r in $RULES) {
-    Write-Host ('    {0,-8} 判定D → {1}番 / 判定F → {2}番' -f $r.Name, $r.D, $r.F)
+    $dTxt = if ($r.D) { $TEXT[$r.D].Text } else { '(未設定)' }
+    $fTxt = if ($r.F) { $TEXT[$r.F].Text } else { '(未設定)' }
+    Write-Host ('    {0,-8} D: {1}' -f $r.Name, $dTxt)
+    Write-Host ('    {0,-8} F: {1}' -f '',      $fTxt)
 }
 Write-Host ''
 
@@ -155,15 +163,21 @@ WHERE s.D_KENSIN = @ymd AND s.F_TORIKESI = 0
         $cd    = [string]$r.CD
         $h     = [string]$r.H
         $rule  = $RULES | Where-Object { $_.Item -eq $cd } | Select-Object -First 1
-        $no    = if ($h -eq 'D') { $rule.D } else { $rule.F }
-        $body  = $TEXT[$no]
+        $key   = if ($h -eq 'D') { $rule.D } else { $rule.F }
+        $cd    = ''
+        $body  = ''
+        if ($key -and $TEXT.ContainsKey($key)) { $cd = $TEXT[$key].Cd; $body = $TEXT[$key].Text }
 
         $rep = New-Object PSObject -Property @{
             氏名 = [string]$r.氏名; 検査 = $rule.Name; 判定 = $h
             所見 = (Normalize-Text ([string]$r.所見))
-            番号 = $no; 枠 = ''; 状態 = ''
-            PkSeq = $pk; 文章 = $body; Now = ''
+            番号 = $(if ($cd -ne '') { $cd } else { '(番号なし)' })
+            枠 = ''; 状態 = ''
+            PkSeq = $pk; 文章 = $body; 番号CD = $cd; Now = ''
         }
+
+        # その判定に入れる文章が決まっていない (例: 診察の F) 場合は、何も書かずに知らせる
+        if ($body -eq '') { $rep.状態 = '文章が決まっていません'; $plan += $rep; continue }
 
         if (-not $cur.ContainsKey($pk)) { $rep.状態 = '医師指示事項の枠がありません'; $plan += $rep; continue }
 
@@ -174,8 +188,9 @@ WHERE s.D_KENSIN = @ymd AND s.F_TORIKESI = 0
         foreach ($sc in $SLOTS) {
             if (-not $cur[$pk].ContainsKey($sc)) { continue }
             $c = $cur[$pk][$sc]
-            if ($c.Kekka -eq $body)  { $dupSlot = $sc; $sameText = $true; break }
-            if ($c.KekkaCd -eq $no)  { $dupSlot = $sc; break }
+            if ($c.Kekka -eq $body) { $dupSlot = $sc; $sameText = $true; break }
+            # 番号が空のものは、空き枠まで一致してしまうので番号では照合しない
+            if ($cd -ne '' -and $c.KekkaCd -eq $cd) { $dupSlot = $sc; break }
         }
         if ($dupSlot) {
             $rep.枠 = $dupSlot
@@ -211,9 +226,9 @@ WHERE s.D_KENSIN = @ymd AND s.F_TORIKESI = 0
 
     Write-Host '=== 入れる文章 ===' -ForegroundColor Cyan
     $writable = @($plan | Where-Object { $_.状態 -eq 'OK' -or $_.状態 -eq '文章を直す' })
-    foreach ($no in ($writable | ForEach-Object { $_.番号 } | Sort-Object -Unique)) {
-        $n = @($writable | Where-Object { $_.番号 -eq $no }).Count
-        Write-Host ("  {0,-4} ({1}件)  {2}" -f $no, $n, $TEXT[$no])
+    foreach ($t in ($writable | Sort-Object 番号, 文章 -Unique)) {
+        $n = @($writable | Where-Object { $_.文章 -eq $t.文章 }).Count
+        Write-Host ("  {0,-10} ({1}件)  {2}" -f $t.番号, $n, $t.文章)
     }
 
     $ok   = @($plan | Where-Object { $_.状態 -eq 'OK' -or $_.状態 -eq '文章を直す' })
@@ -257,7 +272,7 @@ WHERE s.D_KENSIN = @ymd AND s.F_TORIKESI = 0
             foreach ($t in $grp.Group) {
                 $n = Invoke-DbExec $conn $tran `
                     'UPDATE T_KENSA SET KEKKA = @v, KEKKA_CD = @c WHERE PK_SEQ = @p AND LTRIM(RTRIM(KOMOKU_CD)) = @cd' `
-                    @{ v = $t.文章; c = $t.番号; p = $pk; cd = $t.枠 }
+                    @{ v = $t.文章; c = $t.番号CD; p = $pk; cd = $t.枠 }
                 if ($n -ne 1) { throw ("UPDATE影響行数が {0} でした ({1} / {2})。ロールバックします。" -f $n, $t.氏名, $t.枠) }
                 $done++
             }

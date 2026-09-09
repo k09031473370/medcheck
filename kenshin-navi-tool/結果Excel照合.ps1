@@ -57,8 +57,9 @@ $RULES = @(
     @{ Name='左視力 裸眼';     Col=17;  Ryaku=@('視力左');                   Kind='NUM' }
     @{ Name='右視力 矯正';     Col=18;  Ryaku=@('矯正右');                   Kind='NUM' }
     @{ Name='左視力 矯正';     Col=19;  Ryaku=@('矯正左');                   Kind='NUM' }
-    @{ Name='最高血圧';        Col=22;  Ryaku=@('最高血圧その他');           Kind='NUM' }
-    @{ Name='最低血圧';        Col=23;  Ryaku=@('最低血圧その他');           Kind='NUM' }
+    # 帳票の「最高血圧その他」は、2回測った人は2回目の値が出る (健診ナビの作り)。2回目が空なら1回目。
+    @{ Name='最高血圧';        Col=22;  Col2=24; Ryaku=@('最高血圧その他');  Kind='NUM' }
+    @{ Name='最低血圧';        Col=23;  Col2=25; Ryaku=@('最低血圧その他');  Kind='NUM' }
     @{ Name='尿糖';            Col=27;  Ryaku=@('尿糖');                     Kind='NYOU' }
     @{ Name='尿蛋白';          Col=28;  Ryaku=@('尿蛋白');                   Kind='NYOU' }
     @{ Name='尿潜血';          Col=29;  Ryaku=@('尿潜血');                   Kind='NYOU' }
@@ -321,7 +322,13 @@ foreach ($fx in $xlsxFiles) {
     if ($xName -ne '' -and $csvBy.ContainsKey($xName)) { $f = $csvBy[$xName] }
     elseif ($xKana -ne '' -and $csvKana.ContainsKey($xKana)) { $f = $csvKana[$xKana] }
     if ($null -eq $f) {
-        $people += New-Object PSObject -Property @{ 氏名 = $label; 一致 = 0; 不一致 = 0; 目視 = 0; 状態 = 'CSVにこの人がいません' }
+        # 東振協のCSVは受診した人しか載らない。帳票がほぼ空なら未受診。
+        $filled = 0
+        foreach ($ry in @('身長','体重','GOT','白血球数','視力右')) {
+            if ($cellOf.ContainsKey($ry) -and $cells.ContainsKey($cellOf[$ry])) { $filled++ }
+        }
+        $st = $(if ($filled -eq 0) { '未受診 (CSVに無く帳票も空)。印刷しない' } else { 'CSVにこの人がいません (帳票には値あり)' })
+        $people += New-Object PSObject -Property @{ 氏名 = $label; 一致 = 0; 不一致 = 0; 目視 = 0; 状態 = $st }
         continue
     }
     $usedCsv[(NoSpace (F $f $COL_KANJI))] = 1
@@ -335,6 +342,10 @@ foreach ($fx in $xlsxFiles) {
 
     foreach ($ru in $RULES) {
         $csvRaw = Narrow (F $f $ru.Col)
+        if ($ru.ContainsKey('Col2')) {
+            $v2 = Narrow (F $f $ru.Col2)
+            if ($v2 -ne '') { $csvRaw = $v2 }     # 2回目があればそちら
+        }
         # 帳票側: 候補の略称のうち、値が入っているセルを使う
         $xlRaw = ''; $slot = ''
         foreach ($ry in $ru.Ryaku) {

@@ -22,6 +22,8 @@
     ・追加だけ。今ある行は消さない・書き換えない
     ・同じ病名が本人の既往歴として既に入っていれば飛ばす
     ・本人の既往歴が合計で -Max 件(既定4件)を超えないようにする
+      (健診ナビが受付時に自動で作る「病名が空の行」は数えない)
+    ・元からある本人の行をプレビューに出して、何が入っているか見えるようにする
     ・T_KIOU の作り(列・NOT NULL・IDENTITY)をその場で読んでから組み立てる
     ・プレビューを出してから、その場で y を打つまで書き込まない
     ・書込前に T_KIOU を自動バックアップ、追加した行の一覧も残す
@@ -213,13 +215,19 @@ ORDER BY 3 DESC
     }
 
     # ---- その人たちの今の既往歴 ----
-    $exist = @{}
+    $exist    = @{}
+    $selfRows = @()      # 元からある本人の行 (プレビューで見せる)
     foreach ($r in (Invoke-DbQuery $conn @"
 SELECT k.KOJIN_ID,
+       g.KANJI_SIMEI                                              AS SIMEI,
        k.RENBAN,
        LTRIM(RTRIM(ISNULL(k.BYOMEI,'')))                          AS BYOMEI,
-       LTRIM(RTRIM(ISNULL(CONVERT(varchar(20), k.ZOKUGARA),'')))  AS ZK
+       LTRIM(RTRIM(ISNULL(k.BYOMEI_CD,'')))                       AS BYOMEI_CD,
+       LTRIM(RTRIM(ISNULL(k.CHIRYOMEI,'')))                       AS CHIRYOMEI,
+       LTRIM(RTRIM(ISNULL(CONVERT(varchar(20), k.ZOKUGARA),'')))  AS ZK,
+       LTRIM(RTRIM(ISNULL(k.ZOKUGARAMEI,'')))                     AS ZKMEI
 FROM T_KIOU k
+LEFT JOIN T_KOJIN1 g ON g.KOJIN_ID = k.KOJIN_ID
 WHERE k.KOJIN_ID IN (SELECT KOJIN_ID FROM T_KENSIN WHERE D_KENSIN = @ymd AND F_TORIKESI = 0)
 "@ @{ ymd = $Ymd }).Rows) {
         $kj = [string]$r.KOJIN_ID
@@ -232,8 +240,15 @@ WHERE k.KOJIN_ID IN (SELECT KOJIN_ID FROM T_KENSIN WHERE D_KENSIN = @ymd AND F_T
         }
         # 続柄が空か 0 の行を「本人の既往歴」として扱う
         if ([string]$r.ZK -eq '' -or [string]$r.ZK -eq $selfCd) {
-            $exist[$kj].Self[[string]$r.BYOMEI] = 1
-            $exist[$kj].SelfCount = $exist[$kj].SelfCount + 1
+            $bm = [string]$r.BYOMEI
+            $selfRows += New-Object PSObject -Property @{
+                氏名 = [string]$r.SIMEI; 連番 = ([string]$r.RENBAN).Trim(); 病名 = $bm
+                病名CD = [string]$r.BYOMEI_CD; 治療 = [string]$r.CHIRYOMEI; 続柄名 = [string]$r.ZKMEI }
+            # 病名が空の行は、健診ナビが自動で作った空枠なので 4件の枠に数えない
+            if ($bm -ne '') {
+                $exist[$kj].Self[$bm] = 1
+                $exist[$kj].SelfCount = $exist[$kj].SelfCount + 1
+            }
         }
     }
 
@@ -309,6 +324,23 @@ WHERE k.KOJIN_ID IN (SELECT KOJIN_ID FROM T_KENSIN WHERE D_KENSIN = @ymd AND F_T
     }
 
     # ---- 出す ----
+    Write-Host ''
+    Write-Host ("=== {0} の人が元から持っている本人の既往歴 (T_KIOU) ===" -f $Ymd) -ForegroundColor Cyan
+    $blankRows = @($selfRows | Where-Object { $_.病名 -eq '' })
+    $namedRows = @($selfRows | Where-Object { $_.病名 -ne '' })
+    Write-Host ("  病名が空の行: {0} 件 ({1} 人)  … 健診ナビが自動で作った空枠。4件の枠には数えません" `
+        -f $blankRows.Count, (@($blankRows | Group-Object 氏名)).Count)
+    if ($blankRows.Count -gt 0) {
+        $rb = @($blankRows | Group-Object 連番 | Sort-Object Name | ForEach-Object { "連番{0}:{1}件" -f $_.Name, $_.Count })
+        Write-Host ("     内訳 " + ($rb -join ' / ')) -ForegroundColor DarkGray
+    }
+    Write-Host ("  病名が入っている行: {0} 件 ({1} 人)  … これは既往歴1件と数えます" `
+        -f $namedRows.Count, (@($namedRows | Group-Object 氏名)).Count)
+    if ($namedRows.Count -gt 0) {
+        $namedRows | Sort-Object 氏名, 連番 | Select-Object 氏名, 連番, 病名, 病名CD, 治療, 続柄名 |
+            Format-Table -AutoSize | Out-String -Width 160 | Write-Host
+    }
+
     Write-Host ''
     Write-Host '=== 既往歴(1)と(2)の関係 ===' -ForegroundColor Cyan
     Write-Host ("  (1)にだけ印: {0} 人 / (2)にだけ印: {1} 人 / 両方に印: {2} 人 / 既往歴なし: {3} 人" `

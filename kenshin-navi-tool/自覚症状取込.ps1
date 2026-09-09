@@ -48,7 +48,11 @@ function Get-Part([string]$from, [string]$to) {
     return $src.Substring($i, $j - $i)
 }
 # Normalize-* / Read-TextShared / Parse-CsvText / Read-FormCsv / Get-Field まで
-Invoke-Expression (Get-Part 'function Normalize-Text'      'function Detect-MappingPath')
+#   途中に「$XlsxLib = Join-Path $PSScriptRoot ...」という関数の外の行がある。
+#   Invoke-Expression の中では $PSScriptRoot が空なのでそこで止まる。
+#   CSVしか読まないので Excel の部品は要らない。その3行を飛ばして2回に分けて借りる。
+Invoke-Expression (Get-Part 'function Normalize-Text'      '$XlsxLib = Join-Path')
+Invoke-Expression (Get-Part 'function Test-XlsxEncrypted'  'function Detect-MappingPath')
 Invoke-Expression (Get-Part 'function Get-LocalConnFile'   'function Resolve-PkSeq')
 Invoke-Expression (Get-Part 'function Resolve-PkSeqByName' 'function Get-NaviName')
 Invoke-Expression (Get-Part 'function Normalize-Name'      'function Select-TargetRows')

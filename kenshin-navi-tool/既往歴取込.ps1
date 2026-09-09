@@ -18,12 +18,20 @@
     ・「脂質異常症」を「高脂血症」に寄せるような意味のずれが起きない
   そのかわり病名コード(BYOMEI_CD)は空になる。表示・印刷は問題ない。
 
+  健診ナビは受付時に、本人の既往歴として「特記事項なし」(または空)の行を
+  1行だけ自動で作る。この行はそのまま残すと報告書に
+  「特記事項なし / 高血圧 / …」と矛盾して並ぶので、
+    ・その人にCSVの既往歴があれば、最初の1件でこの行を「置き換える」
+    ・CSVの既往歴が無い人の「特記事項なし」はそのまま残す
+    ・この行は4件の枠に数えない
+  置き換えるのはこの空枠の行だけ。病名が入っている行は消さないし書き換えない。
+
   安全のために、こうしている。
-    ・追加だけ。今ある行は消さない・書き換えない
+    ・病名の入った行は消さない・書き換えない (置き換えるのは空枠の行だけ)
     ・同じ病名が本人の既往歴として既に入っていれば飛ばす
     ・本人の既往歴が合計で -Max 件(既定4件)を超えないようにする
-      (健診ナビが受付時に自動で作る「病名が空の行」は数えない)
     ・元からある本人の行をプレビューに出して、何が入っているか見えるようにする
+    ・置き換えた行は元の文言を控えに残す (backup\T_KIOU_変更分_*.csv)
     ・T_KIOU の作り(列・NOT NULL・IDENTITY)をその場で読んでから組み立てる
     ・プレビューを出してから、その場で y を打つまで書き込まない
     ・書込前に T_KIOU を自動バックアップ、追加した行の一覧も残す
@@ -81,6 +89,12 @@ $COLS1 = 153..172      # 既往歴(1)
 $COLS2 = 173..192      # 既往歴(2)
 # 人の照合に使う列
 $COL_YMD = 1; $COL_KANJI = 4; $COL_KANA = 5
+# 健診ナビが自動で作る空枠の文言。これは既往歴に数えず、置き換えの対象にする
+$PLACEHOLDER = @('', '特記事項なし', '特記事項無し', '特になし', '特に無し', 'なし', '無し')
+function Test-Placeholder([string]$s) {
+    $t = (Normalize-Text $s) -replace '[\s　]', ''
+    return ($PLACEHOLDER -contains $t)
+}
 
 function Line { Write-Host ('-' * 76) -ForegroundColor DarkGray }
 
@@ -229,10 +243,11 @@ SELECT k.KOJIN_ID,
 FROM T_KIOU k
 LEFT JOIN T_KOJIN1 g ON g.KOJIN_ID = k.KOJIN_ID
 WHERE k.KOJIN_ID IN (SELECT KOJIN_ID FROM T_KENSIN WHERE D_KENSIN = @ymd AND F_TORIKESI = 0)
+ORDER BY k.KOJIN_ID, k.RENBAN
 "@ @{ ymd = $Ymd }).Rows) {
         $kj = [string]$r.KOJIN_ID
         if (-not $exist.ContainsKey($kj)) {
-            $exist[$kj] = New-Object PSObject -Property @{ MaxRenban = 0; Self = @{}; SelfCount = 0 }
+            $exist[$kj] = New-Object PSObject -Property @{ MaxRenban = 0; Self = @{}; SelfCount = 0; Holder = $null }
         }
         $n = 0
         if ([int]::TryParse(([string]$r.RENBAN).Trim(), [ref]$n)) {
@@ -241,11 +256,18 @@ WHERE k.KOJIN_ID IN (SELECT KOJIN_ID FROM T_KENSIN WHERE D_KENSIN = @ymd AND F_T
         # 続柄が空か 0 の行を「本人の既往歴」として扱う
         if ([string]$r.ZK -eq '' -or [string]$r.ZK -eq $selfCd) {
             $bm = [string]$r.BYOMEI
+            $isHolder = Test-Placeholder $bm
             $selfRows += New-Object PSObject -Property @{
                 氏名 = [string]$r.SIMEI; 連番 = ([string]$r.RENBAN).Trim(); 病名 = $bm
-                病名CD = [string]$r.BYOMEI_CD; 治療 = [string]$r.CHIRYOMEI; 続柄名 = [string]$r.ZKMEI }
-            # 病名が空の行は、健診ナビが自動で作った空枠なので 4件の枠に数えない
-            if ($bm -ne '') {
+                病名CD = [string]$r.BYOMEI_CD; 治療 = [string]$r.CHIRYOMEI; 続柄名 = [string]$r.ZKMEI
+                空枠 = $isHolder }
+            if ($isHolder) {
+                # 「特記事項なし」や空の行は、健診ナビが自動で作った空枠。
+                # 4件の枠に数えず、この人に既往歴を入れるときは最初の1件でこの行を置き換える。
+                if ($null -eq $exist[$kj].Holder) {
+                    $exist[$kj].Holder = @{ Renban = ([string]$r.RENBAN).Trim(); Byomei = $bm }
+                }
+            } else {
                 $exist[$kj].Self[$bm] = 1
                 $exist[$kj].SelfCount = $exist[$kj].SelfCount + 1
             }
@@ -298,27 +320,37 @@ WHERE k.KOJIN_ID IN (SELECT KOJIN_ID FROM T_KENSIN WHERE D_KENSIN = @ymd AND F_T
         }
         $kj = $kojinOf[$pk]
         if (-not $exist.ContainsKey($kj)) {
-            $exist[$kj] = New-Object PSObject -Property @{ MaxRenban = 0; Self = @{}; SelfCount = 0 }
+            $exist[$kj] = New-Object PSObject -Property @{ MaxRenban = 0; Self = @{}; SelfCount = 0; Holder = $null }
         }
         $room   = $Max - $exist[$kj].SelfCount
         $renban = $exist[$kj].MaxRenban
+        $holder = $exist[$kj].Holder      # 置き換える空枠。使ったら $null にする
 
         foreach ($b in $hits) {
             $rep = New-Object PSObject -Property @{
-                氏名 = $name; 病名 = $b; 出所 = $from[$b]; 連番 = ''
+                氏名 = $name; 病名 = $b; 出所 = $from[$b]; 操作 = ''; 連番 = ''; 元 = ''
                 状態 = ''; PkSeq = $pk; KojinId = $kj }
             if ($exist[$kj].Self.ContainsKey($b)) { $rep.状態 = '既に入っています'; $plan += $rep; continue }
             if (-not (Test-Fits $b $tbl['BYOMEI'])) { $rep.状態 = '病名が長すぎます'; $plan += $rep; continue }
             if ($room -le 0) {
                 $rep.状態 = ("本人の既往歴が既に{0}件あるので入れません" -f $Max); $plan += $rep; continue
             }
-            $renban++
-            $rep.連番 = $renban
+            if ($null -ne $holder) {
+                # 最初の1件は「特記事項なし」の行に上書きする (行は増えない)
+                $rep.操作 = '置換'
+                $rep.連番 = $holder.Renban
+                $rep.元   = $(if ($holder.Byomei -eq '') { '(空)' } else { $holder.Byomei })
+                $holder = $null
+            } else {
+                $renban++
+                $rep.操作 = '追加'
+                $rep.連番 = $renban
+                $exist[$kj].MaxRenban = $renban
+            }
             $rep.状態 = 'OK'
             $room--
             $exist[$kj].Self[$b] = 1
             $exist[$kj].SelfCount = $exist[$kj].SelfCount + 1
-            $exist[$kj].MaxRenban = $renban
             $plan += $rep
         }
     }
@@ -326,15 +358,22 @@ WHERE k.KOJIN_ID IN (SELECT KOJIN_ID FROM T_KENSIN WHERE D_KENSIN = @ymd AND F_T
     # ---- 出す ----
     Write-Host ''
     Write-Host ("=== {0} の人が元から持っている本人の既往歴 (T_KIOU) ===" -f $Ymd) -ForegroundColor Cyan
-    $blankRows = @($selfRows | Where-Object { $_.病名 -eq '' })
-    $namedRows = @($selfRows | Where-Object { $_.病名 -ne '' })
-    Write-Host ("  病名が空の行: {0} 件 ({1} 人)  … 健診ナビが自動で作った空枠。4件の枠には数えません" `
-        -f $blankRows.Count, (@($blankRows | Group-Object 氏名)).Count)
-    if ($blankRows.Count -gt 0) {
-        $rb = @($blankRows | Group-Object 連番 | Sort-Object Name | ForEach-Object { "連番{0}:{1}件" -f $_.Name, $_.Count })
-        Write-Host ("     内訳 " + ($rb -join ' / ')) -ForegroundColor DarkGray
+    $holderRows = @($selfRows | Where-Object { $_.空枠 })
+    $namedRows  = @($selfRows | Where-Object { -not $_.空枠 })
+    Write-Host ("  空枠の行 (特記事項なし・空 など): {0} 件 ({1} 人)" `
+        -f $holderRows.Count, (@($holderRows | Group-Object 氏名)).Count)
+    Write-Host '     … 健診ナビが自動で作った行。4件の枠に数えません。' -ForegroundColor DarkGray
+    Write-Host '       既往歴を入れる人は、最初の1件でこの行を置き換えます (行は増えません)。' -ForegroundColor DarkGray
+    Write-Host '       既往歴が無い人の行は、そのまま残します。' -ForegroundColor DarkGray
+    if ($holderRows.Count -gt 0) {
+        $rb = @($holderRows | Group-Object 病名 | Sort-Object Count -Descending |
+               ForEach-Object { "[{0}] {1}件" -f $_.Name, $_.Count })
+        Write-Host ("     文言の内訳: " + ($rb -join ' / ')) -ForegroundColor DarkGray
+        $rn = @($holderRows | Group-Object 連番 | Sort-Object Name |
+               ForEach-Object { "連番{0}: {1}件" -f $_.Name, $_.Count })
+        Write-Host ("     連番の内訳: " + ($rn -join ' / ')) -ForegroundColor DarkGray
     }
-    Write-Host ("  病名が入っている行: {0} 件 ({1} 人)  … これは既往歴1件と数えます" `
+    Write-Host ("  病名が入っている行: {0} 件 ({1} 人)  … これは既往歴1件と数えます。消しません・書き換えません" `
         -f $namedRows.Count, (@($namedRows | Group-Object 氏名)).Count)
     if ($namedRows.Count -gt 0) {
         $namedRows | Sort-Object 氏名, 連番 | Select-Object 氏名, 連番, 病名, 病名CD, 治療, 続柄名 |
@@ -348,10 +387,12 @@ WHERE k.KOJIN_ID IN (SELECT KOJIN_ID FROM T_KENSIN WHERE D_KENSIN = @ymd AND F_T
 
     Write-Host ''
     Write-Host '=== 入れる内容 ===' -ForegroundColor Cyan
-    $plan | Select-Object 氏名, 病名, 出所, 連番, 状態 |
+    $plan | Select-Object 氏名, 病名, 出所, 操作, 連番, 元, 状態 |
         Format-Table -AutoSize -Wrap | Out-String -Width 160 | Write-Host
 
     $ok   = @($plan | Where-Object { $_.状態 -eq 'OK' })
+    $okR  = @($ok | Where-Object { $_.操作 -eq '置換' })
+    $okA  = @($ok | Where-Object { $_.操作 -eq '追加' })
     $skip = @($plan | Where-Object { $_.状態 -eq '既に入っています' })
     $err  = @($plan | Where-Object { $_.状態 -notin @('OK', '既に入っています') })
 
@@ -361,10 +402,12 @@ WHERE k.KOJIN_ID IN (SELECT KOJIN_ID FROM T_KENSIN WHERE D_KENSIN = @ymd AND F_T
     }
     Write-Host ''
     Line
-    Write-Host ("入れる: {0} 件 ({1} 人) / 既にあり: {2} 件 / 要確認: {3} 件 / 既往歴なし: {4} 人" `
-        -f $ok.Count, (@($ok | Group-Object KojinId)).Count, $skip.Count, $err.Count, $noHit) `
+    Write-Host ("入れる: {0} 件 ({1} 人)  = 置換 {2} 件 + 追加 {3} 件 / 既にあり: {4} 件 / 要確認: {5} 件 / 既往歴なし: {6} 人" `
+        -f $ok.Count, (@($ok | Group-Object KojinId)).Count, $okR.Count, $okA.Count, $skip.Count, $err.Count, $noHit) `
         -ForegroundColor $(if ($err.Count -gt 0) { 'Yellow' } else { 'Green' })
     Line
+    Write-Host '  置換 = 「特記事項なし」の行を最初の病名で上書き (行は増えない)' -ForegroundColor DarkGray
+    Write-Host '  追加 = 2件目以降を新しい行として追加' -ForegroundColor DarkGray
 
     # ---- 自動判定への影響を先に見せる ----
     if ($ok.Count -gt 0) {
@@ -435,15 +478,25 @@ ORDER BY 1, 2
     $insCols = @('KOJIN_ID', 'RENBAN', 'BYOMEI') + @($fixed.Keys | Sort-Object)
     $insSql  = 'INSERT INTO T_KIOU (' + ($insCols -join ', ') + ') VALUES (' +
                (($insCols | ForEach-Object { '@' + $_ }) -join ', ') + ')'
+    # 置換は病名(と病名コード)だけ書き換える。続柄・治療などは元の行のまま。
+    # 元の文言が変わっていたら (プレビュー後に誰かが触った) 0件になり、止まる。
+    $updSet = @('BYOMEI = @BYOMEI')
+    if ($tbl.ContainsKey('BYOMEI_CD')) { $updSet += 'BYOMEI_CD = @BYOMEI_CD' }
+    $updSql = 'UPDATE T_KIOU SET ' + ($updSet -join ', ') +
+              ' WHERE KOJIN_ID = @KOJIN_ID AND RENBAN = @RENBAN AND LTRIM(RTRIM(ISNULL(BYOMEI,''''))) = @OLD'
     Write-Host ''
-    Write-Host ("[SQL] " + $insSql) -ForegroundColor DarkGray
+    Write-Host ("[SQL 追加] " + $insSql) -ForegroundColor DarkGray
+    Write-Host ("[SQL 置換] " + $updSql) -ForegroundColor DarkGray
 
     # ---- 書き込む ----
     if (-not (Test-Path $BackupDir)) { [void](New-Item -ItemType Directory -Path $BackupDir) }
     $stamp   = Get-Date -Format 'yyyyMMdd_HHmmss'
-    $undo    = Join-Path $BackupDir ("T_KIOU_追加分_{0}.csv" -f $stamp)
+    $undo    = Join-Path $BackupDir ("T_KIOU_変更分_{0}.csv" -f $stamp)
     $added   = @()
     $done    = 0
+    $doneR   = 0
+    $doneA   = 0
+    $isIntRenban = ($tbl['RENBAN'].Type -match '^(int|smallint|tinyint|bigint)$')
 
     foreach ($grp in ($ok | Group-Object KojinId)) {
         $kj = $grp.Name
@@ -464,31 +517,46 @@ ORDER BY 1, 2
             $lock2 = Test-Locked $conn $pk $tran
             if ($lock2) { throw "書込直前に健診ナビで開かれました ($lock2)" }
             foreach ($t in $grp.Group) {
-                $p = @{}
-                foreach ($k in $fixed.Keys) { $p[$k] = $fixed[$k] }
-                $p['KOJIN_ID'] = $kj
-                $p['RENBAN']   = $(if ($tbl['RENBAN'].Type -match '^(int|smallint|tinyint|bigint)$') { [int]$t.連番 } else { [string]$t.連番 })
-                $p['BYOMEI']   = $t.病名
-                $n = Invoke-DbExec $conn $tran $insSql $p
-                if ($n -ne 1) { throw ("INSERT影響行数が {0} でした ({1} / {2})。ロールバックします。" -f $n, $t.氏名, $t.病名) }
+                $rb = $(if ($isIntRenban) { [int]$t.連番 } else { [string]$t.連番 })
+                if ($t.操作 -eq '置換') {
+                    $old = $(if ($t.元 -eq '(空)') { '' } else { [string]$t.元 })
+                    $p = @{ KOJIN_ID = $kj; RENBAN = $rb; BYOMEI = $t.病名; OLD = $old }
+                    if ($tbl.ContainsKey('BYOMEI_CD')) { $p['BYOMEI_CD'] = '' }
+                    $n = Invoke-DbExec $conn $tran $updSql $p
+                    if ($n -ne 1) {
+                        throw ("置換のUPDATE影響行数が {0} でした ({1} / 連番{2} / 元[{3}])。元の行が変わっています。ロールバックします。" `
+                            -f $n, $t.氏名, $t.連番, $old)
+                    }
+                    $doneR++
+                } else {
+                    $p = @{}
+                    foreach ($k in $fixed.Keys) { $p[$k] = $fixed[$k] }
+                    $p['KOJIN_ID'] = $kj
+                    $p['RENBAN']   = $rb
+                    $p['BYOMEI']   = $t.病名
+                    $n = Invoke-DbExec $conn $tran $insSql $p
+                    if ($n -ne 1) { throw ("INSERT影響行数が {0} でした ({1} / {2})。ロールバックします。" -f $n, $t.氏名, $t.病名) }
+                    $doneA++
+                }
                 $added += New-Object PSObject -Property @{
-                    KOJIN_ID = $kj; RENBAN = $t.連番; BYOMEI = $t.病名; 氏名 = $t.氏名 }
+                    氏名 = $t.氏名; KOJIN_ID = $kj; RENBAN = $t.連番; 操作 = $t.操作; BYOMEI = $t.病名; 元の病名 = $t.元 }
                 $done++
             }
             $tran.Commit()
-            Write-Host ("  [書込] {0} : {1} 件" -f $grp.Group[0].氏名, $grp.Count) -ForegroundColor Green
+            $nR = @($grp.Group | Where-Object { $_.操作 -eq '置換' }).Count
+            Write-Host ("  [書込] {0} : {1} 件 (置換 {2} / 追加 {3})" -f $grp.Group[0].氏名, $grp.Count, $nR, ($grp.Count - $nR)) -ForegroundColor Green
         }
         catch { $tran.Rollback(); throw }
     }
 
     if ($added.Count -gt 0) {
-        $added | Select-Object 氏名, KOJIN_ID, RENBAN, BYOMEI |
+        $added | Select-Object 氏名, KOJIN_ID, RENBAN, 操作, BYOMEI, 元の病名 |
             Export-Csv -Path $undo -NoTypeInformation -Encoding UTF8
-        Write-Host ("[控え] 追加した行の一覧: {0}" -f $undo) -ForegroundColor DarkGray
+        Write-Host ("[控え] 変更した行の一覧 (置換した行の元の文言つき): {0}" -f $undo) -ForegroundColor DarkGray
     }
 
     Write-Host ''
-    Write-Host ("[完了] {0} 件の既往歴を入れました。" -f $done) -ForegroundColor Green
+    Write-Host ("[完了] {0} 件の既往歴を入れました (置換 {1} 件 / 追加 {2} 件)。" -f $done, $doneR, $doneA) -ForegroundColor Green
     Write-Host ''
     Write-Host '※ 結果報告書の「既往歴」欄に出ます (4枠まで)。' -ForegroundColor Yellow
     Write-Host '※ 病名コード(BYOMEI_CD)は空です。文字だけ入っています。' -ForegroundColor Yellow

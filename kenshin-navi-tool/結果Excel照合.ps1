@@ -90,14 +90,14 @@ $RULES = @(
     @{ Name='総コレステロール';Col=97;  Ryaku=@('総ｺﾚｽﾃﾛｰﾙ');               Kind='NUM' }
     @{ Name='HDL';             Col=99;  Ryaku=@('HDLｺﾚｽﾃﾛｰﾙ');              Kind='NUM' }
     @{ Name='LDL';             Col=101; Ryaku=@('LDLｺﾚｽﾃﾛｰﾙ');              Kind='NUM' }
-    @{ Name='中性脂肪';        Col=103; Ryaku=@('中性脂肪','随時中性脂肪');  Kind='NUM' }
+    @{ Name='中性脂肪';        Col=103; Ryaku=@('中性脂肪未判別','中性脂肪','随時中性脂肪'); Kind='NUM' }   # 帳票303(直し後)は 中性脂肪未判別
     @{ Name='AST(GOT)';        Col=106; Ryaku=@('GOT');                      Kind='NUM' }
     @{ Name='ALT(GPT)';        Col=108; Ryaku=@('GPT');                      Kind='NUM' }
     @{ Name='γ-GTP';           Col=110; Ryaku=@('γ-GTP');                    Kind='NUM' }
     @{ Name='尿素窒素';        Col=113; Ryaku=@('尿素窒素');                 Kind='NUM' }
     @{ Name='クレアチニン';    Col=115; Ryaku=@('ｸﾚｱﾁﾆﾝ');                  Kind='NUM' }
     @{ Name='尿酸';            Col=117; Ryaku=@('尿酸');                     Kind='NUM' }
-    @{ Name='血糖';            Col=120; Ryaku=@('空腹時血糖','随時血糖');    Kind='NUM' }
+    @{ Name='血糖';            Col=120; Ryaku=@('血糖','空腹時血糖','随時血糖'); Kind='NUM' }             # 帳票303(直し後)は 血糖
     @{ Name='HbA1c';           Col=122; Ryaku=@('HbA1cNGSP');                Kind='NUM' }
     @{ Name='総蛋白';          Col=125; Ryaku=@('総蛋白');                   Kind='NUM' }
     @{ Name='総ビリルビン';    Col=127; Ryaku=@('総ﾋﾞﾘﾙﾋﾞﾝ');                Kind='NUM' }

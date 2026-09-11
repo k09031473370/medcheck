@@ -87,6 +87,10 @@ if (-not (Test-Path $Folder)) { throw "見つかりません: $Folder" }
 if (-not (Test-Path $CellMap)) { throw "帳票のセル対応表がありません: $CellMap" }
 if (-not $OutDir) { $OutDir = $Folder + '_カナ' }
 if (-not (Test-Path $OutDir)) { [void](New-Item -ItemType Directory -Path $OutDir) }
+elseif ($OutDir -like '*_カナ') {
+    # 自分が作った出力フォルダなら、前回の結果を消してから作り直す
+    Get-ChildItem -LiteralPath $OutDir -File | Where-Object { $_.Extension -in '.xlsx', '.csv' } | Remove-Item -Force
+}
 
 $kanaCell = $null; $kanjiCell = $null; $checkCells = @()
 foreach ($r in (Import-Csv -Path $CellMap -Encoding UTF8)) {
@@ -118,13 +122,27 @@ foreach ($fx in $files) {
     $kana = ''; if ($cells.ContainsKey($kanaCell)) { $kana = To-KanaName $cells[$kanaCell] }
     if ($kana -eq '') { $warn += ("{0} : カナ氏名が空なので元の名前のままコピー" -f $fx.Name); $newName = $fx.Name }
     else {
-        # 20260821_0006_秋葉達也_303_… → 3つ目 (氏名) をカナに
-        $parts = $fx.BaseName -split '_'
-        if ($parts.Count -ge 4) {
-            if ($KanaFirst) { $newName = ($kana + '_' + $parts[0] + '_' + $parts[1] + '_' + (($parts[3..($parts.Count-1)]) -join '_')) + $fx.Extension }
-            else            { $parts[2] = $kana; $newName = ($parts -join '_') + $fx.Extension }
-        } else {
-            $newName = $kana + '_' + $fx.Name
+        # 20260821_0006__秋葉達也_303_… のように、氏名の前に空の区切りが入ることがある。
+        # Excelの中の漢字氏名と同じ区切りを探して、そこをカナにする。
+        $kanji = ''; if ($kanjiCell -and $cells.ContainsKey($kanjiCell)) { $kanji = ([string]$cells[$kanjiCell]) -replace '[\s　]+', '' }
+        $parts = @($fx.BaseName -split '_')
+        $ix = -1
+        for ($i = 0; $i -lt $parts.Count; $i++) {
+            if ($kanji -ne '' -and (($parts[$i] -replace '[\s　]+', '') -eq $kanji)) { $ix = $i; break }
+        }
+        if ($ix -lt 0) {
+            # 見つからなければ、日付・番号の次の「空でない」区切りを氏名とみなす
+            for ($i = 2; $i -lt $parts.Count; $i++) { if ($parts[$i] -ne '') { $ix = $i; break } }
+        }
+        if ($ix -lt 0) { $newName = $kana + '_' + $fx.Name }
+        else {
+            $parts[$ix] = $kana
+            if ($KanaFirst) {
+                $rest = @($parts | Where-Object { $_ -ne $kana })
+                $newName = ($kana + '_' + ($rest -join '_')) + $fx.Extension
+            } else {
+                $newName = ($parts -join '_') + $fx.Extension
+            }
         }
     }
     $dst = Join-Path $OutDir $newName

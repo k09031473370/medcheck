@@ -57,7 +57,7 @@ $RULES = @(
     @{ Name='左視力 裸眼';     Col=17;  Ryaku=@('視力左');                   Kind='NUM' }
     @{ Name='右視力 矯正';     Col=18;  Ryaku=@('矯正右');                   Kind='NUM' }
     @{ Name='左視力 矯正';     Col=19;  Ryaku=@('矯正左');                   Kind='NUM' }
-    # 帳票の「最高血圧その他」は、2回測った人は2回目の値が出る (健診ナビの作り)。2回目が空なら1回目。
+    # 帳票の「最高血圧その他」は、2回測った人は 1回目と2回目の低い方 (最高・最低それぞれ) が出る (健診ナビの作り)。
     @{ Name='最高血圧';        Col=22;  Col2=24; Ryaku=@('最高血圧その他');  Kind='NUM' }
     @{ Name='最低血圧';        Col=23;  Col2=25; Ryaku=@('最低血圧その他');  Kind='NUM' }
     @{ Name='尿糖';            Col=27;  Ryaku=@('尿糖');                     Kind='NYOU' }
@@ -343,8 +343,13 @@ foreach ($fx in $xlsxFiles) {
     foreach ($ru in $RULES) {
         $csvRaw = Narrow (F $f $ru.Col)
         if ($ru.ContainsKey('Col2')) {
+            # 1回目と2回目の両方があれば低い方。片方だけならある方。
             $v2 = Narrow (F $f $ru.Col2)
-            if ($v2 -ne '') { $csvRaw = $v2 }     # 2回目があればそちら
+            $d1 = 0.0; $d2 = 0.0
+            $ok1 = [double]::TryParse((Norm-Num $csvRaw), [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$d1)
+            $ok2 = [double]::TryParse((Norm-Num $v2),     [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$d2)
+            if ($ok1 -and $ok2) { if ($d2 -lt $d1) { $csvRaw = $v2 } }
+            elseif ($ok2)       { $csvRaw = $v2 }
         }
         # 帳票側: 候補の略称のうち、値が入っているセルを使う
         $xlRaw = ''; $slot = ''

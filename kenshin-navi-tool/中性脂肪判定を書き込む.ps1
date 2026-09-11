@@ -16,6 +16,9 @@
            (A→B, A→D, B→D など。今の方が悪ければそのまま)
          ・中性脂肪（空腹時）の基準値の欄が空なら 30〜149 mg/dl を入れる
            (古いひな形で出した帳票は空になる。「〜」と単位は同じ帳票の総コレステロールの欄に合わせる)
+         ・字の色 … 健診ナビは 印・異常値・A以外の判定 を赤い字にするので、
+           中性脂肪の印と値、A以外になった脂質代謝の判定 を、同じ帳票の他の項目と同じ赤にする
+    もう一度かけても、既に入っているものは飛ばす (色だけ直すこともできる)
     4. 総合判定は書き換えない。中性脂肪のせいで総合判定まで変わるはずの人がいたら
        「手で確認」として一覧に出すだけ (今回の 8/21 分は 0人)
 
@@ -165,9 +168,19 @@ if ($files.Count -eq 0) { throw "フォルダに .xlsx がありません: $Fold
 #   $tgHL[略称]   = @{ Sheet=2; Cell='CH41' }  (中性脂肪の HL_1)
 $tgVal = @{}; $tgHL = @{}; $tgKijun = @(); $tcKijun = $null; $shishitsu = $null; $sogo = $null; $kanjiCell = $null; $kanaCell = $null
 $hlKeys = @()      # 全項目の HL_1 のセル (印の文字を調べる用)
+$hlRefs = @()      # 全項目の HL_1 と、その項目の結果値_1 (赤い字の色を調べる用)
+$hanRefs = @()     # 全項目の 判定_1 (判定文字の赤を調べる用)
+$valCellOf = @{}   # 略称 → 結果値_1 のセル
+foreach ($r in (Import-Csv -Path $CellMap -Encoding UTF8)) {
+    if ($r.Kind -eq '結果値_1' -and $r.Ryaku -ne '') { $valCellOf[$r.Ryaku] = $r.Cell }
+}
 foreach ($r in (Import-Csv -Path $CellMap -Encoding UTF8)) {
     $sheetNo = [int]($r.Sheet -replace '\D', '')
     $ref = @{ Sheet = $sheetNo; Cell = $r.Cell; Key = ('sheet{0}.xml!{1}' -f $sheetNo, $r.Cell); Row = [int]($r.Cell -replace '\D', '') }
+    if ($r.Kind -eq 'HL_1' -and $r.Ryaku -ne '' -and $valCellOf.ContainsKey($r.Ryaku) -and ($r.Ryaku -notin $TG_RYAKU)) {
+        $hlRefs += @{ Sheet = $sheetNo; Cell = $r.Cell; Key = $ref.Key; ValCell = $valCellOf[$r.Ryaku] }
+    }
+    if ($r.Kind -eq '判定_1' -and $r.Ryaku -like '判定_*' -and $r.Ryaku -ne '判定_脂質代謝') { $hanRefs += $ref }
     if ($r.Ryaku -in $TG_RYAKU) {
         if ($r.Kind -eq '結果値_1') { $tgVal[$r.Ryaku] = $ref }
         if ($r.Kind -eq 'HL_1')    { $tgHL[$r.Ryaku]  = $ref }
@@ -281,12 +294,25 @@ foreach ($fx in $files) {
     if ($shNew -ne $shNow) { $writes += @{ Sheet = $shishitsu.Sheet; Cell = $shishitsu.Cell; Key = $shishitsu.Key; What = '脂質代謝の判定'; Old = $shNow; New = $shNew; Check = @{ Key = $tgVal[$slot].Key; Val = $xlVal } } }
     if ($kjNew -ne '')     { $writes += @{ Sheet = $kjRef.Sheet; Cell = $kjRef.Cell; Key = $kjRef.Key; What = '中性脂肪の基準値'; Old = ''; New = $kjNew; Check = @{ Key = $tgVal[$slot].Key; Val = $xlVal } } }
 
+    # 字の色: 健診ナビは 印・異常値・A以外の判定 を赤い字にする。書いた/既にあるものを同じ色にそろえる
+    $colors = @()
+    if ($hlNew -ne '') {
+        $colors += @{ Sheet = $tgHL[$slot].Sheet;  Cell = $tgHL[$slot].Cell;  Kind = 'HL';  What = '中性脂肪の印' }
+        $colors += @{ Sheet = $tgVal[$slot].Sheet; Cell = $tgVal[$slot].Cell; Kind = 'VAL'; What = '中性脂肪の値' }
+    }
+    if ($shNew -ne '' -and $shNew -ne 'A') { $colors += @{ Sheet = $shishitsu.Sheet; Cell = $shishitsu.Cell; Kind = 'HAN'; What = '脂質代謝の判定' } }
+    # 赤の見本にできる、この帳票の他の項目の印 (H/L) があるか
+    $refHL = $null
+    foreach ($h in $hlRefs) { if ($cells.ContainsKey($h.Key) -and ((NoSpace $cells[$h.Key]) -in @('H', 'L'))) { $refHL = $h; break } }
+
     $plan += New-Object PSObject -Property @{
         File = $fx; 氏名 = $label; 中性脂肪 = $csvVal; 判定 = $han
         印 = $(if ($hlNew -eq '') { '' } else { "$hlNow→$hlNew" })
         脂質代謝 = $(if ($shNew -ne $shNow) { "$shNow→$shNew" } else { $shNow })
         基準値 = $(if ($kjNew -ne '') { "空→$kjNew" } else { $kjNow })
-        総合判定 = $sgNow; 状態 = $(if ($writes.Count -gt 0) { '書く' } else { '変更なし' }); 備考 = $note; Writes = $writes
+        色 = $(if ($colors.Count -gt 0) { '赤' } else { '' })
+        総合判定 = $sgNow; 状態 = $(if ($writes.Count -gt 0 -or $colors.Count -gt 0) { '書く' } else { '変更なし' }); 備考 = $note
+        Writes = $writes; Colors = $colors; RefHL = $refHL
     }
 }
 
@@ -302,7 +328,7 @@ foreach ($p in $plan) { foreach ($w in $p.Writes) { if ($w.New -eq '@H') { $w.Ne
 # ============================================================================
 # 2. 一覧
 # ============================================================================
-$toWrite = @($plan | Where-Object { $_.Writes.Count -gt 0 })
+$toWrite = @($plan | Where-Object { $_.Writes.Count -gt 0 -or $_.Colors.Count -gt 0 })
 $warn    = @($plan | Where-Object { $_.状態 -like '★*' -or $_.状態 -like '読めません*' })
 $dist = @{}; foreach ($p in $plan) { if ($p.判定) { $dist[$p.判定] = 1 + $(if ($dist.ContainsKey($p.判定)) { $dist[$p.判定] } else { 0 }) } }
 
@@ -311,11 +337,13 @@ Write-Host ('--- 中性脂肪の判定 (学会基準で計算) ---') -Foreground
 foreach ($k in @('A','B','C','D','E','F')) { if ($dist.ContainsKey($k)) { Write-Host ("  {0} : {1,3} 人" -f $k, $dist[$k]) } }
 Write-Host ("  他の項目に付いている印の文字: [{0}]  → 中性脂肪にも [{1}] を付けます" -f ($seen -join ' '), $Mark) -ForegroundColor DarkGray
 Write-Host ''
-$judged = @($toWrite | Where-Object { @($_.Writes | Where-Object { $_.What -ne '中性脂肪の基準値' }).Count -gt 0 })
+$judged = @($toWrite | Where-Object { @($_.Writes | Where-Object { $_.What -ne '中性脂肪の基準値' }).Count -gt 0 -or $_.Colors.Count -gt 0 })
 $kjOnly = @($toWrite | Where-Object { @($_.Writes | Where-Object { $_.What -eq '中性脂肪の基準値' }).Count -gt 0 })
-Write-Host ('--- 印 または 脂質代謝の判定 を書く人 ({0} 人) ---' -f $judged.Count) -ForegroundColor Cyan
+Write-Host ('--- 印 / 脂質代謝の判定 を書く人・字を赤にそろえる人 ({0} 人) ---' -f $judged.Count) -ForegroundColor Cyan
 if ($judged.Count -gt 0) {
-    $judged | Select-Object 氏名, 中性脂肪, 判定, 印, 脂質代謝, 総合判定, 備考 | Format-Table -AutoSize | Out-String -Width 200 | Write-Host
+    $judged | Select-Object 氏名, 中性脂肪, 判定, 印, 脂質代謝, 色, 総合判定, 備考 | Format-Table -AutoSize | Out-String -Width 200 | Write-Host
+    Write-Host '  色 = 赤 … 中性脂肪の印・値、A以外の脂質代謝の判定 を、同じ帳票の他の項目と同じ赤い字にする (既に赤なら何もしない)' -ForegroundColor DarkGray
+    Write-Host ''
 }
 if ($kjOnly.Count -gt 0) {
     $sample = @($kjOnly | ForEach-Object { ($_.基準値 -replace '^空→', '') } | Select-Object -Unique)
@@ -350,7 +378,29 @@ $xl = $null
 try { $xl = New-Object -ComObject Excel.Application }
 catch { throw 'Excelが起動できません。このPCにExcelが入っているか確認してください。' }
 $xl.Visible = $false; $xl.DisplayAlerts = $false; $xl.ScreenUpdating = $false
-$okFiles = 0; $ng = @(); $log = @()
+$okFiles = 0; $ng = @(); $log = @(); $colorChanged = 0
+
+# ---- 赤い字の色を、他の項目に H/L の付いている帳票から1回だけ読む (印・値・判定文字 それぞれ) ----
+$RED = @{ HL = $null; VAL = $null; HAN = $null }
+$refPerson = $toWrite | Where-Object { $_.Colors.Count -gt 0 -and $_.RefHL } | Select-Object -First 1
+if (-not $refPerson) { $refPerson = $plan | Where-Object { $_.RefHL } | Select-Object -First 1 }
+if ($refPerson) {
+    $wbR = $null
+    try {
+        $wbR = $xl.Workbooks.Open($refPerson.File.FullName, 0, $true)
+        $h = $refPerson.RefHL; $wsR = $wbR.Worksheets.Item($h.Sheet)
+        $RED.HL  = [int]$wsR.Range($h.Cell).MergeArea.Cells.Item(1, 1).Font.Color
+        $RED.VAL = [int]$wsR.Range($h.ValCell).MergeArea.Cells.Item(1, 1).Font.Color
+        foreach ($hr in $hanRefs) {
+            $c = $wbR.Worksheets.Item($hr.Sheet).Range($hr.Cell).MergeArea.Cells.Item(1, 1)
+            if ((NoSpace ([string]$c.Text)).ToUpper() -in @('B', 'C', 'D', 'E', 'F', 'G', 'J')) { $RED.HAN = [int]$c.Font.Color; break }
+        }
+    } catch { }
+    finally { try { if ($wbR) { $wbR.Close($false) } } catch {} }
+}
+foreach ($k in @('HL', 'VAL', 'HAN')) { if ($null -eq $RED[$k]) { $RED[$k] = 255 } }   # 見つからなければ純粋な赤 (RGB 255,0,0)
+Write-Host ("  赤い字の色 (見本: {0}): 印={1} 値={2} 判定={3}" -f $(if ($refPerson) { $refPerson.氏名 } else { 'なし' }), $RED.HL, $RED.VAL, $RED.HAN) -ForegroundColor DarkGray
+
 try {
     $n = 0
     foreach ($p in $toWrite) {
@@ -360,6 +410,7 @@ try {
         $wb = $null
         try {
             $wb = $xl.Workbooks.Open($fx.FullName, 0, $false)
+            $did = @()
             foreach ($w in $p.Writes) {
                 $ws = $wb.Worksheets.Item($w.Sheet)
                 # 念のため、同じシートの中性脂肪の値が帳票と同じことを見てから書く (シートの取り違え防止)
@@ -369,12 +420,23 @@ try {
                 $cur = [string]$tgt.Text
                 if ((NoSpace $cur) -ne (NoSpace $w.Old)) { throw ("{0} {1} が [{2}] で想定 [{3}] と違う" -f $w.What, $w.Cell, $cur, $w.Old) }
                 $tgt.Value2 = $w.New
+                $did += ("{0} {1}→{2}" -f $w.What, $w.Old, $w.New)
                 $log += New-Object PSObject -Property @{ 氏名 = $p.氏名; ファイル = $fx.Name; 項目 = $w.What; セル = ("Sheet{0}!{1}" -f $w.Sheet, $w.Cell); 前 = $w.Old; 後 = $w.New }
             }
-            $wb.Save()
+            # 字の色をそろえる (値が入っているセルだけ。既に同じ色なら何もしない)
+            foreach ($c in $p.Colors) {
+                $tgt = $wb.Worksheets.Item($c.Sheet).Range($c.Cell).MergeArea.Cells.Item(1, 1)
+                if ((NoSpace ([string]$tgt.Text)) -eq '') { continue }
+                $want = [int]$RED[$c.Kind]; $cur = [int]$tgt.Font.Color
+                if ($cur -eq $want) { continue }
+                $tgt.Font.Color = $want
+                $colorChanged++
+                $did += ("{0}の色 {1}→{2}" -f $c.What, $cur, $want)
+                $log += New-Object PSObject -Property @{ 氏名 = $p.氏名; ファイル = $fx.Name; 項目 = ($c.What + 'の色'); セル = ("Sheet{0}!{1}" -f $c.Sheet, $c.Cell); 前 = $cur; 後 = $want }
+            }
+            if ($did.Count -gt 0) { $wb.Save(); $okFiles++ }
             $wb.Close($false); $wb = $null
-            $okFiles++
-            Write-Host ("  [{0}/{1}] {2}  {3}" -f $n, $toWrite.Count, $p.氏名, (($p.Writes | ForEach-Object { "{0} {1}→{2}" -f $_.What, $_.Old, $_.New }) -join ' / ')) -ForegroundColor DarkGray
+            Write-Host ("  [{0}/{1}] {2}  {3}" -f $n, $toWrite.Count, $p.氏名, $(if ($did.Count -gt 0) { $did -join ' / ' } else { '変更なし (もう入っている)' })) -ForegroundColor DarkGray
         } catch {
             $ng += ("{0} : {1}" -f $p.氏名, $_.Exception.Message)
             try { if ($wb) { $wb.Close($false) } } catch {}
@@ -413,7 +475,7 @@ $logPath = Join-Path $bkDir '_書き込み一覧.csv'
 $log | Select-Object 氏名, ファイル, 項目, セル, 前, 後 | Export-Csv -Path $logPath -NoTypeInformation -Encoding Default
 
 $color = $(if ($ng.Count -gt 0 -or $bad.Count -gt 0) { 'Yellow' } else { 'Green' })
-Write-Host ("書き込み: {0} ファイル ({1} セル) / 失敗: {2} / 確認NG: {3}" -f $okFiles, $log.Count, $ng.Count, $bad.Count) -ForegroundColor $color
+Write-Host ("書き込み: {0} ファイル ({1} セル, うち字の色 {2}) / 失敗: {3} / 確認NG: {4}" -f $okFiles, $log.Count, $colorChanged, $ng.Count, $bad.Count) -ForegroundColor $color
 if ($ng.Count -gt 0)  { Write-Host ''; Write-Host '--- 失敗 (元に戻してあります) ---' -ForegroundColor Yellow; $ng  | ForEach-Object { Write-Host ('  ' + $_) -ForegroundColor Yellow } }
 if ($bad.Count -gt 0) { Write-Host ''; Write-Host '--- 確認NG ---' -ForegroundColor Yellow; $bad | ForEach-Object { Write-Host ('  ' + $_) -ForegroundColor Yellow } }
 Write-Host ''

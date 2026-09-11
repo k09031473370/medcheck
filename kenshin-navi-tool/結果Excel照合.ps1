@@ -418,12 +418,14 @@ foreach ($fx in $xlsxFiles) {
         else { $ng++; & $add "既往歴$i" $exp $got '不一致' '★既往歴が違う' }
     }
 
-    # ---- 総合判定 (CSVには無いので表示だけ) ----
+    # ---- 総合判定: 帳票 (健診ナビの自動判定) と CSV10列目 (提供元の総合判定) を並べる (参考) ----
     $sg = ''
     if ($hanOf.ContainsKey('総合判定(編集)') -and $cells.ContainsKey($hanOf['総合判定(編集)'])) { $sg = Narrow $cells[$hanOf['総合判定(編集)']] }
+    $csvSgRaw = (NoSpace (F $f 10)).ToUpper()
+    $csvSg = Norm-Han $csvSgRaw $true          # 東振協 A/B/C/D → 健診ナビ A/B/D/F に読み替え
 
     $people += New-Object PSObject -Property @{
-        氏名 = $label; 一致 = $ok; 不一致 = $ng; 目視 = $eye; 総合 = $sg
+        氏名 = $label; 一致 = $ok; 不一致 = $ng; 目視 = $eye; 総合 = $sg; CSV総合 = $csvSgRaw; CSV総合換算 = $csvSg
         状態 = $(if ($ng -eq 0) { 'OK' } else { "不一致 $ng 件" }) }
 }
 
@@ -454,6 +456,30 @@ $L.Add('')
 $eyeRows = @($all | Where-Object { $_.結果 -eq '目視' })
 $L.Add(("--- 3. 目視で確かめる項目 (所見はCSVがコードなので合否を付けていません) ({0} 件) ---" -f $eyeRows.Count))
 $L.Add(($eyeRows | Select-Object 氏名, 項目, CSV, 帳票 | Format-Table -AutoSize -Wrap | Out-String -Width 160).TrimEnd())
+$L.Add('')
+# 総合判定の比較 (参考)。基準が違うので一致しなくても誤りではないが、大きく違う人は見ておく
+$RANK = @{ 'A'=1; 'B'=2; 'C'=3; 'D'=4; 'E'=5; 'F'=6; 'G'=7; 'J'=7 }
+$sgRows = @()
+foreach ($pp in ($people | Where-Object { $_.状態 -eq 'OK' -or $_.状態 -like '不一致*' })) {
+    $x = [string]$pp.総合; $y = [string]$pp.CSV総合換算
+    if ($x -eq '' -and $y -eq '') { continue }
+    $rx = 0; $ry = 0
+    if ($RANK.ContainsKey($x)) { $rx = $RANK[$x] }
+    if ($RANK.ContainsKey($y)) { $ry = $RANK[$y] }
+    $rel = ''
+    if ($x -eq $y)      { $rel = '同じ' }
+    elseif ($rx -gt $ry) { $rel = '帳票の方が悪い' }
+    elseif ($rx -lt $ry) { $rel = '★帳票の方が軽い' }
+    else                 { $rel = '?' }
+    $sgRows += New-Object PSObject -Property @{ 氏名 = $pp.氏名; 帳票 = $x; CSV = $pp.CSV総合; CSV換算 = $y; 関係 = $rel }
+}
+$L.Add(("--- 3b. 参考: 総合判定 帳票(健診ナビ) vs CSV10列目(提供元) ({0} 人) ---" -f $sgRows.Count))
+$L.Add('  判定の基準が違うので一致しなくても誤りではありません。「★帳票の方が軽い」の人だけ理由を確認してください。')
+$L.Add(('  同じ: {0} 人 / 帳票の方が悪い: {1} 人 / ★帳票の方が軽い: {2} 人' -f
+    @($sgRows | Where-Object { $_.関係 -eq '同じ' }).Count,
+    @($sgRows | Where-Object { $_.関係 -eq '帳票の方が悪い' }).Count,
+    @($sgRows | Where-Object { $_.関係 -like '★*' }).Count))
+$L.Add(($sgRows | Sort-Object 関係, 氏名 | Select-Object 氏名, 帳票, CSV, CSV換算, 関係 | Format-Table -AutoSize | Out-String -Width 120).TrimEnd())
 $L.Add('')
 $L.Add(("--- 4. CSVにいるのに結果報告書のExcelが無い人 ({0} 人) ---" -f $noXlsx.Count))
 $L.Add('  ' + ($noXlsx -join ' / '))

@@ -1,0 +1,4 @@
+﻿CourseCd,Meisyo,MeisyoRyaku,BaseDantai,BaseCourseCd,DelKomoku,AddKomoku,KenpoRyoukin,DantaiRyoukin,KojinRyoukin,JikoFutanBun,Note
+MMD1,マイクロンD1,マイクロンD1,9999999997,SHTD1,,068673;068653;068623,0,32000,0,,ドック健診(被保険者35歳以上希望者) 78名 32000円。指示書の●に合わせて 尿素窒素・コリンエステラーゼ・血清アミラーゼ を追加
+MMB,マイクロンB,マイクロンB,9999999997,SHTB,,,0,12980,0,,生活習慣病健診(東振協)Bコース 62名 12980円。雛形SHTBが指示書と一致するのでそのまま
+MMA2,マイクロンA2,マイクロンA2,9999999997,SHTB,069211;069245;069246,,0,7770,0,,簡易生活習慣病健診(東振協)A2コース34歳以下 158名 7770円。Bから 尿潜血・便潜血2回 を外して尿2種にする

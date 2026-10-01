@@ -7,15 +7,18 @@
       GET /api/navi.json  →  fussa_reception_YYYYMMDD_HHMMSS.json
   を読んで、健診ナビの予約レコードを「違うところだけ」更新する。
 
-  反映するもの (既定)
+  反映するもの (既定の3つ)
     ・受付番号      actual.reception_number → T_KENSIN.UKE_NO_KENSA
-      これだけ。既存の行の1列を書き換えるだけなので影響がはっきりしている。
+    ・カナ氏名      identity.kana           → T_KOJIN1.KANA_SIMEI      (空のときだけ埋める)
+    ・生年月日      identity.birth_date     → T_KOJIN1 の生年月日の列  (空のときだけ埋める。列名は自動でさがす)
+    いずれも既にある行の1列を書き換えるだけ。予約を新しく作ることはしない。
+    既に値が入っていて中身が違う場合は、書かずに一覧に出す
+    (カナは -OverwriteKana を付けると上書きする)。
 
   スイッチを付けたときだけ反映するもの
-    ・-WithKana    カナ氏名 identity.kana       → T_KOJIN1.KANA_SIMEI
-                   生年月日 identity.birth_date → T_KOJIN1 の生年月日の列 (列名は自動でさがす)
-                   (-OverwriteKana を足すと、既に入っているカナも上書きする)
     ・-WithCourse  コース変更 actual.course (A/B/C) → T_KENSIN.COURSE_CD (FA/FB/FC)
+  付けないもの
+    ・-NoKana      カナと生年月日を書かない (受付番号だけにする)
 
   反映しないもの (一覧に出すだけ)
     ・受診日が予定と違う人 (date_changed)   … 日付を動かすと帳票・請求に響くので人が判断する
@@ -48,9 +51,9 @@ param(
     [Parameter(Position = 0)]
     [string]$Json,                      # 受付アプリが出した navi.json
     [string]$DantaiLike = '福生',       # 対象にする団体名のキーワード
-    [switch]$WithKana,                  # 付けると、カナ氏名と生年月日も入れる
+    [switch]$NoKana,                    # 付けると、カナと生年月日は書かない (受付番号だけ)
     [switch]$WithCourse,                # 付けると、当日のコース変更も反映する
-    [switch]$OverwriteKana,             # -WithKana と併用。既に入っているカナも上書きする
+    [switch]$OverwriteKana,             # 既に入っているカナも上書きする
     [switch]$Force,                     # 付けると、古いファイルでも続行する
     [switch]$Commit,                    # 付けると確認なしで書き込む
     [string]$ConnFile = '\\KNSV\KenshinNavi\SQLSV\SQLServerConnect.txt',
@@ -227,23 +230,23 @@ WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList) AND d.MEISYO1 LIKE N'%$Dantai
             elseif ($null -eq $n.UKE -or $n.UKE -is [System.DBNull]) { $sets += @{ T='KENSIN'; Col='UKE_NO_KENSA'; New=$rn; Old=''; What='受付番号' } }
             elseif ([int]$n.UKE -ne $rn) { $sets += @{ T='KENSIN'; Col='UKE_NO_KENSA'; New=$rn; Old=[int]$n.UKE; What='受付番号' } }
         }
-        # --- カナ (既定では書かない。-WithKana を付けたときだけ) ---
+        # --- カナ (既定で書く。-NoKana を付けると書かない) ---
         $kana = ToWideKana ([string]$p.identity.kana)
         if ($kana -ne '') {
             $cur = [string]$n.KANA
-            if (-not $WithKana) {
-                if ($cur -eq '') { $note += "$label : カナ [$kana] を入れられます → -WithKana で反映します" }
+            if ($NoKana) {
+                if ($cur -eq '') { $note += "$label : カナ [$kana] を入れられます (-NoKana が付いているので書きません)" }
             }
             elseif ($cur -eq '') { $sets += @{ T='KOJIN'; Col='KANA_SIMEI'; New=$kana; Old=''; What='カナ' } }
             elseif ((NoSpace $cur) -ne (NoSpace $kana) -and $OverwriteKana) { $sets += @{ T='KOJIN'; Col='KANA_SIMEI'; New=$kana; Old=$cur; What='カナ(上書き)' } }
             elseif ((NoSpace $cur) -ne (NoSpace $kana)) { $note += "$label : カナが違います 健診ナビ[$cur] 受付[$kana] → -OverwriteKana で上書きできます" }
         }
-        # --- 生年月日 (既定では書かない。-WithKana を付けたときだけ) ---
+        # --- 生年月日 (既定で書く。-NoKana を付けると書かない) ---
         $bd = [string]$p.identity.birth_date
         if ($birthCol -and $bd -ne '') {
             $bdN = $bd -replace '-', '/'
-            if (-not $WithKana) {
-                if ([string]$n.BIRTH -eq '') { $note += "$label : 生年月日 [$bdN] を入れられます → -WithKana で反映します" }
+            if ($NoKana) {
+                if ([string]$n.BIRTH -eq '') { $note += "$label : 生年月日 [$bdN] を入れられます (-NoKana が付いているので書きません)" }
             }
             elseif ([string]$n.BIRTH -eq '') { $sets += @{ T='KOJIN'; Col=$birthCol; New=$bdN; Old=''; What='生年月日'; IsDate=$true } }
             elseif ([string]$n.BIRTH -ne $bdN) { $note += "$label : 生年月日が違います 健診ナビ[$($n.BIRTH)] 受付[$bdN] → 手で確認してください" }

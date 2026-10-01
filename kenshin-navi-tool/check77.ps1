@@ -118,6 +118,44 @@ WHERE s.F_TORIKESI = 0 AND s.D_KENSIN BETWEEN '2026/10/01' AND '2026/10/31'
 GROUP BY s.D_KENSIN ORDER BY 1
 "@ 40
 
+Q '--- 9. ★受付番号は同じ日の中で重複しないのか (過去2年) ---' @"
+SELECT CASE WHEN c.人数 = 1 THEN N'その日に1人だけ' ELSE N'同じ日に同じ番号が複数' END AS 状態,
+       COUNT(*) AS 組み合わせ数
+FROM (SELECT CONVERT(varchar(10), s.D_KENSIN, 111) AS YMD, s.UKE_NO_KENSA AS UKE, COUNT(*) AS 人数
+      FROM T_KENSIN s
+      WHERE s.F_TORIKESI = 0 AND s.D_KENSIN >= '2024/10/01'
+        AND s.UKE_NO_KENSA IS NOT NULL AND s.UKE_NO_KENSA <> 0
+      GROUP BY s.D_KENSIN, s.UKE_NO_KENSA) c
+GROUP BY CASE WHEN c.人数 = 1 THEN N'その日に1人だけ' ELSE N'同じ日に同じ番号が複数' END
+"@ 20
+
+Q '--- 10. ★T_KANJA_G (受診日と番号を持つテーブル) の中身 ---' @"
+SELECT TOP 20 * FROM T_KANJA_G ORDER BY 1 DESC
+"@ 30
+
+Q '--- 11. ★10月の福生の予約に、既に埋まっている受付番号があるか (移動先で衝突しないか) ---' @"
+SELECT CONVERT(varchar(10), s.D_KENSIN, 111) AS 受診日,
+       MIN(s.UKE_NO_KENSA) AS 番号の最小, MAX(s.UKE_NO_KENSA) AS 番号の最大,
+       COUNT(*) AS 番号が入っている人数
+FROM T_KENSIN s
+LEFT JOIN T_DANTAI1 d ON d.DANTAI_CD1 = s.DANTAI_CD1
+WHERE s.F_TORIKESI = 0 AND s.D_KENSIN BETWEEN '2026/10/01' AND '2026/10/31'
+  AND d.MEISYO1 LIKE N'%$Name%'
+  AND s.UKE_NO_KENSA IS NOT NULL AND s.UKE_NO_KENSA <> 0
+GROUP BY s.D_KENSIN ORDER BY 1
+"@ 40
+
+Q '--- 12. ★受診日を変えたとき一緒に動くはずのテーブルに、PK_SEQ 以外の受診日があるか ---' @"
+SELECT o.name AS テーブル, c.name AS 列, ty.name AS 型
+FROM sys.columns c
+JOIN sys.objects o ON o.object_id = c.object_id
+JOIN sys.types ty ON ty.user_type_id = c.user_type_id
+WHERE o.type = 'U'
+  AND EXISTS (SELECT 1 FROM sys.columns p WHERE p.object_id = o.object_id AND p.name = 'PK_SEQ')
+  AND (ty.name IN ('date','datetime','smalldatetime') OR c.name LIKE '%YMD%' OR c.name LIKE '%SEQ%')
+ORDER BY o.name, c.column_id
+"@ 150
+
 Q '--- 8. T_KENSIN_LOG に受診日を変えた履歴が残っているか ---' @"
 SELECT TOP 20 c.name AS 列, ty.name AS 型
 FROM sys.columns c JOIN sys.types ty ON ty.user_type_id = c.user_type_id
@@ -137,5 +175,18 @@ W '    ここが T_KENSIN だけなら話は簡単。他にもあるなら健診
 W '  5 が 0 件なら、同じ人が2つの日に予約を持っている問題は無い。'
 W '  6 が 0 件なら、氏名で突き合わせても取り違えは起きない。'
 W '  7 で今の10月の予約の状態 (受付番号・カナの入り具合) が分かる。'
+W ''
+W '  ここから下は「予約の受診日を動かす」案のための確認。'
+W '  9  「同じ日に同じ番号が複数」が 0 なら、受付番号は日の中で一意。'
+W '      → 日付を動かすときは、移動先の日で番号が衝突しないかを必ず見ないといけない。'
+W '      0 でないなら、健診ナビは一意性を気にしていない。'
+W '  10 T_KANJA_G に受診日 (KEN_YMD) が入っているなら、ここも一緒に直す対象。'
+W '  11 10月の福生で、既に受付番号が入っている予約があるか。'
+W '      あれば、それが今日入れる番号とぶつからないかを見る必要がある。'
+W '  12 PK_SEQ を持つテーブルの日付列・SEQ列の一覧。'
+W '      受診日を動かすときに取り残される場所の洗い出し。'
+W '      ここが T_KENSIN の D_KENSIN だけなら、ツールで動かしてよい。'
+W '      T_KENSA の SEQ1/SEQ2 や T_KANJA_G の KEN_YMD にも日付が埋まっているなら、'
+W '      1列だけ書き換えるのは不整合になるので、健診ナビの画面に任せるべき。'
 W '  ※ 読むだけです。何も書いていません。'
 notepad $out

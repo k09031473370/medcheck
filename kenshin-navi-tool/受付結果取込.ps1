@@ -144,11 +144,11 @@ $conn = Open-Db
 try {
     # ---- 生年月日の列名をさがす ----
     $birthCol = $null
-    $cols = @(Invoke-DbQuery $conn @"
+    $cols = @((Invoke-DbQuery $conn @"
 SELECT c.name AS COL, ty.name AS TY
 FROM sys.columns c JOIN sys.types ty ON ty.user_type_id = c.user_type_id
 WHERE c.object_id = OBJECT_ID('T_KOJIN1')
-"@ @{})
+"@ @{}).Rows)
     foreach ($c in $cols) {
         $n = ([string]$c.COL).ToUpper()
         if ($n -match 'BIRTH' -or $n -match 'SEINEN' -or $n -match 'TANJO' -or $n -eq 'D_SEI') { $birthCol = [string]$c.COL; break }
@@ -158,10 +158,10 @@ WHERE c.object_id = OBJECT_ID('T_KOJIN1')
 
     # ---- 受付番号の桁数 ----
     $ukeMax = 9999
-    $u = @(Invoke-DbQuery $conn @"
+    $u = @((Invoke-DbQuery $conn @"
 SELECT c.precision AS P, c.scale AS S FROM sys.columns c
 WHERE c.object_id = OBJECT_ID('T_KENSIN') AND c.name = 'UKE_NO_KENSA'
-"@ @{})
+"@ @{}).Rows)
     if ($u.Count -eq 1) {
         $p = [int]$u[0].P; $s = [int]$u[0].S
         $ukeMax = [math]::Pow(10, [math]::Max(1, $p - $s)) - 1
@@ -189,7 +189,7 @@ LEFT JOIN T_KOJIN1 g ON g.KOJIN_ID = s.KOJIN_ID
 LEFT JOIN T_DANTAI1 d ON d.DANTAI_CD1 = s.DANTAI_CD1
 WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList) AND d.MEISYO1 LIKE N'%$DantaiLike%'
 "@
-    $navi = @(Invoke-DbQuery $conn $naviSql @{})
+    $navi = @((Invoke-DbQuery $conn $naviSql @{}).Rows)
     Write-Host ("  健診ナビ側 {0} 人 / JSON {1} 人" -f $navi.Count, $doc.people.Count) -ForegroundColor DarkGray
     Write-Host ''
 
@@ -312,9 +312,9 @@ WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList) AND d.MEISYO1 LIKE N'%$Dantai
     $bkDir = Join-Path $BackupDir ("受付結果取込_{0}" -f $stamp)
     [void](New-Item -ItemType Directory -Path $bkDir -Force)
     $pks = ($plan | ForEach-Object { $_.PK_SEQ }) -join ','
-    (Invoke-DbQuery $conn "SELECT * FROM T_KENSIN WHERE PK_SEQ IN ($pks)" @{}) | Export-Csv (Join-Path $bkDir 'T_KENSIN_書込前.csv') -NoTypeInformation -Encoding UTF8
+    (Invoke-DbQuery $conn "SELECT * FROM T_KENSIN WHERE PK_SEQ IN ($pks)" @{}).Rows | Export-Csv (Join-Path $bkDir 'T_KENSIN_書込前.csv') -NoTypeInformation -Encoding UTF8
     $kjs = ($plan | ForEach-Object { "'" + $_.KOJIN_ID + "'" }) -join ','
-    (Invoke-DbQuery $conn "SELECT * FROM T_KOJIN1 WHERE KOJIN_ID IN ($kjs)" @{}) | Export-Csv (Join-Path $bkDir 'T_KOJIN1_書込前.csv') -NoTypeInformation -Encoding UTF8
+    (Invoke-DbQuery $conn "SELECT * FROM T_KOJIN1 WHERE KOJIN_ID IN ($kjs)" @{}).Rows | Export-Csv (Join-Path $bkDir 'T_KOJIN1_書込前.csv') -NoTypeInformation -Encoding UTF8
     # 取り消し用のUPDATE
     $undo = @("-- $stamp の取込を元に戻す。健診ナビを閉じてから、内容を確認して実行すること。", 'BEGIN TRAN')
     foreach ($t in $plan) {
@@ -354,7 +354,7 @@ WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList) AND d.MEISYO1 LIKE N'%$Dantai
 
     # ---- 読み直して確認 ----
     $bad = @()
-    $chk = @(Invoke-DbQuery $conn $naviSql @{})
+    $chk = @((Invoke-DbQuery $conn $naviSql @{}).Rows)
     $byPk = @{}; foreach ($r in $chk) { $byPk[[string]$r.PK_SEQ] = $r }
     foreach ($t in $plan) {
         $r = $byPk[[string]$t.PK_SEQ]

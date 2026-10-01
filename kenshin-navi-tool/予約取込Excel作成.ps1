@@ -124,13 +124,13 @@ try {
     # ---- 健診ナビに既に入っている人 ----
     $dates = @($doc.people | ForEach-Object { [string]$_.planned.date } | Where-Object { $_ } | Select-Object -Unique)
     $inList = ($dates | ForEach-Object { "'" + ($_ -replace '-', '/') + "'" }) -join ','
-    $exist = @(Invoke-DbQuery $conn @"
+    $exist = @((Invoke-DbQuery $conn @"
 SELECT LTRIM(RTRIM(ISNULL(g.KANJI_SIMEI,''))) AS KANJI, CONVERT(varchar(10), s.D_KENSIN, 111) AS YMD
 FROM T_KENSIN s
 LEFT JOIN T_KOJIN1 g ON g.KOJIN_ID = s.KOJIN_ID
 LEFT JOIN T_DANTAI1 d ON d.DANTAI_CD1 = s.DANTAI_CD1
 WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList) AND d.MEISYO1 LIKE N'%$DantaiLike%'
-"@ @{})
+"@ @{}).Rows)
     $have = @{}
     foreach ($e in $exist) { $k = NoSpace $e.KANJI; if ($k -ne '') { $have[$k] = $e.YMD } }
     Write-Host ("  健診ナビに既に入っている福生の人 : {0} 人" -f $have.Count) -ForegroundColor DarkGray

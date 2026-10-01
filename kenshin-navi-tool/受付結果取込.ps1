@@ -9,6 +9,7 @@
 
   反映するもの (既定の3つ)
     ・受付番号      actual.reception_number → T_KENSIN.UKE_NO_KENSA
+                    ただし健診ナビの予約の受診日と、実際に受付した日が同じときだけ
     ・カナ氏名      identity.kana           → T_KOJIN1.KANA_SIMEI      (空のときだけ埋める)
     ・生年月日      identity.birth_date     → T_KOJIN1 の生年月日の列  (空のときだけ埋める。列名は自動でさがす)
     いずれも既にある行の1列を書き換えるだけ。予約を新しく作ることはしない。
@@ -21,7 +22,8 @@
     ・-NoKana      カナと生年月日を書かない (受付番号だけにする)
 
   反映しないもの (一覧に出すだけ)
-    ・受診日が予定と違う人 (date_changed)   … 日付を動かすと帳票・請求に響くので人が判断する
+    ・受診日が予定と違う人 (date_changed)   … 日付を動かすと帳票・請求に響くので人が判断する。
+                                            この人には受付番号も入れない (別の日の予約に入ると事故になる)
     ・キャンセル (is_cancelled)             … F_TORIKESI は触らない
     ・オプション・便本数・採血/胃/尿の変更  … T_RYOUKIN と T_KENSA に行を新規作成する必要があり、
                                             健診ナビの画面がやっている処理の再現になるので今回は見送り
@@ -173,7 +175,10 @@ WHERE c.object_id = OBJECT_ID('T_KENSIN') AND c.name = 'UKE_NO_KENSA'
     Write-Host ''
 
     # ---- 健診ナビ側の対象者を読む ----
-    $dates = @($doc.people | ForEach-Object { [string]$_.planned.date } | Where-Object { $_ } | Select-Object -Unique)
+    $dates = @($doc.people | ForEach-Object {
+        [string]$_.planned.date
+        if ($_.actual) { [string]$_.actual.checked_in_date }
+    } | Where-Object { $_ } | Select-Object -Unique)
     if ($dates.Count -eq 0) { throw 'JSONに予定日がありません。' }
     $inList = ($dates | ForEach-Object { "'" + ($_ -replace '-', '/') + "'" }) -join ','
     Write-Host ("  健診ナビ側の対象: 受診日 {0} / 団体名に「{1}」" -f ($dates -join ' '), $DantaiLike) -ForegroundColor DarkGray
@@ -223,10 +228,21 @@ WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList) AND d.MEISYO1 LIKE N'%$Dantai
 
         $sets = @()
         # --- 受付番号 ---
+        # 受付番号はその日かぎりの番号なので、健診ナビの予約の受診日と
+        # 実際に受付した日が同じときだけ書く。違う日の予約には絶対に書かない。
         $rn = $null
         if ($p.actual -and $null -ne $p.actual.reception_number) { $rn = [int]$p.actual.reception_number }
+        $ymdActual = ''
+        if ($p.actual -and [string]$p.actual.checked_in_date) { $ymdActual = ([string]$p.actual.checked_in_date) -replace '-', '/' }
+        $ymdNavi = ([string]$n.YMD) -replace '-', '/'
         if ($null -ne $rn) {
-            if ($rn -gt $ukeMax) { $note += "$label : 受付番号 $rn は健診ナビの桁数($ukeMax)を超えるので入れません" }
+            if ($ymdActual -eq '') {
+                $note += "$label : 受付番号 $rn があるのに受付日が分からないので入れません"
+            }
+            elseif ($ymdActual -ne $ymdNavi) {
+                $note += "$label : ★受診日が違います 健診ナビの予約[$ymdNavi] / 実際に受付[$ymdActual]。別の日の予約に受付番号を入れると事故になるので入れません。健診ナビの画面で受診日を $ymdActual に直してから、もう一度このツールを流してください (受付番号 $rn)"
+            }
+            elseif ($rn -gt $ukeMax) { $note += "$label : 受付番号 $rn は健診ナビの桁数($ukeMax)を超えるので入れません" }
             elseif ($null -eq $n.UKE -or $n.UKE -is [System.DBNull]) { $sets += @{ T='KENSIN'; Col='UKE_NO_KENSA'; New=$rn; Old=''; What='受付番号' } }
             elseif ([int]$n.UKE -ne $rn) { $sets += @{ T='KENSIN'; Col='UKE_NO_KENSA'; New=$rn; Old=[int]$n.UKE; What='受付番号' } }
         }
@@ -267,7 +283,9 @@ WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList) AND d.MEISYO1 LIKE N'%$Dantai
             }
         }
         # --- 書かないが知らせること ---
-        if ($p.derived.date_changed) { $note += "$label : 予定 $($p.planned.date) → 実際 $($p.actual.checked_in_date) に受診。受診日は自動では動かしません" }
+        if ($p.derived.date_changed -and $ymdActual -eq $ymdNavi) {
+            $note += "$label : 予定 $($p.planned.date) → 実際 $($p.actual.checked_in_date) に受診。健診ナビの予約はもう $ymdNavi になっているので受付番号は入れました"
+        }
         if ($p.derived.is_cancelled) { $note += "$label : 受付アプリ側でキャンセル。健診ナビの予約は取り消していません" }
         if ($p.actual -and (@($p.derived.options_added) + @($p.derived.options_removed)).Count -gt 0) {
             $note += ("$label : オプション変更 追加[{0}] 中止[{1}] → 健診ナビの画面で対応してください" -f (($p.derived.options_added) -join '.'), (($p.derived.options_removed) -join '.'))

@@ -7,16 +7,21 @@
       GET /api/navi.json  →  fussa_reception_YYYYMMDD_HHMMSS.json
   を読んで、健診ナビの予約レコードを「違うところだけ」更新する。
 
-  反映するもの (第1段階)
+  反映するもの (既定)
     ・受付番号      actual.reception_number → T_KENSIN.UKE_NO_KENSA
-    ・カナ氏名      identity.kana           → T_KOJIN1.KANA_SIMEI
-    ・生年月日      identity.birth_date     → T_KOJIN1 の生年月日の列 (列名は自動でさがす)
-    ・コース変更    actual.course (A/B/C)   → T_KENSIN.COURSE_CD (FA/FB/FC)
+      これだけ。既存の行の1列を書き換えるだけなので影響がはっきりしている。
+
+  スイッチを付けたときだけ反映するもの
+    ・-WithKana    カナ氏名 identity.kana       → T_KOJIN1.KANA_SIMEI
+                   生年月日 identity.birth_date → T_KOJIN1 の生年月日の列 (列名は自動でさがす)
+                   (-OverwriteKana を足すと、既に入っているカナも上書きする)
+    ・-WithCourse  コース変更 actual.course (A/B/C) → T_KENSIN.COURSE_CD (FA/FB/FC)
 
   反映しないもの (一覧に出すだけ)
     ・受診日が予定と違う人 (date_changed)   … 日付を動かすと帳票・請求に響くので人が判断する
     ・キャンセル (is_cancelled)             … F_TORIKESI は触らない
-    ・オプション・便本数・採血/胃/尿の変更  … 健診ナビ側の受け皿が未確定
+    ・オプション・便本数・採血/胃/尿の変更  … T_RYOUKIN と T_KENSA に行を新規作成する必要があり、
+                                            健診ナビの画面がやっている処理の再現になるので今回は見送り
     ・コースが未知の人 (warnings)           … 保留
 
   突き合わせ
@@ -43,7 +48,9 @@ param(
     [Parameter(Position = 0)]
     [string]$Json,                      # 受付アプリが出した navi.json
     [string]$DantaiLike = '福生',       # 対象にする団体名のキーワード
-    [switch]$OverwriteKana,             # 付けると、既に入っているカナも上書きする
+    [switch]$WithKana,                  # 付けると、カナ氏名と生年月日も入れる
+    [switch]$WithCourse,                # 付けると、当日のコース変更も反映する
+    [switch]$OverwriteKana,             # -WithKana と併用。既に入っているカナも上書きする
     [switch]$Force,                     # 付けると、古いファイルでも続行する
     [switch]$Commit,                    # 付けると確認なしで書き込む
     [string]$ConnFile = '\\KNSV\KenshinNavi\SQLSV\SQLServerConnect.txt',
@@ -220,39 +227,50 @@ WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList) AND d.MEISYO1 LIKE N'%$Dantai
             elseif ($null -eq $n.UKE -or $n.UKE -is [System.DBNull]) { $sets += @{ T='KENSIN'; Col='UKE_NO_KENSA'; New=$rn; Old=''; What='受付番号' } }
             elseif ([int]$n.UKE -ne $rn) { $sets += @{ T='KENSIN'; Col='UKE_NO_KENSA'; New=$rn; Old=[int]$n.UKE; What='受付番号' } }
         }
-        # --- カナ ---
+        # --- カナ (既定では書かない。-WithKana を付けたときだけ) ---
         $kana = ToWideKana ([string]$p.identity.kana)
         if ($kana -ne '') {
             $cur = [string]$n.KANA
-            if ($cur -eq '') { $sets += @{ T='KOJIN'; Col='KANA_SIMEI'; New=$kana; Old=''; What='カナ' } }
+            if (-not $WithKana) {
+                if ($cur -eq '') { $note += "$label : カナ [$kana] を入れられます → -WithKana で反映します" }
+            }
+            elseif ($cur -eq '') { $sets += @{ T='KOJIN'; Col='KANA_SIMEI'; New=$kana; Old=''; What='カナ' } }
             elseif ((NoSpace $cur) -ne (NoSpace $kana) -and $OverwriteKana) { $sets += @{ T='KOJIN'; Col='KANA_SIMEI'; New=$kana; Old=$cur; What='カナ(上書き)' } }
             elseif ((NoSpace $cur) -ne (NoSpace $kana)) { $note += "$label : カナが違います 健診ナビ[$cur] 受付[$kana] → -OverwriteKana で上書きできます" }
         }
-        # --- 生年月日 ---
+        # --- 生年月日 (既定では書かない。-WithKana を付けたときだけ) ---
         $bd = [string]$p.identity.birth_date
         if ($birthCol -and $bd -ne '') {
             $bdN = $bd -replace '-', '/'
-            if ([string]$n.BIRTH -eq '') { $sets += @{ T='KOJIN'; Col=$birthCol; New=$bdN; Old=''; What='生年月日'; IsDate=$true } }
+            if (-not $WithKana) {
+                if ([string]$n.BIRTH -eq '') { $note += "$label : 生年月日 [$bdN] を入れられます → -WithKana で反映します" }
+            }
+            elseif ([string]$n.BIRTH -eq '') { $sets += @{ T='KOJIN'; Col=$birthCol; New=$bdN; Old=''; What='生年月日'; IsDate=$true } }
             elseif ([string]$n.BIRTH -ne $bdN) { $note += "$label : 生年月日が違います 健診ナビ[$($n.BIRTH)] 受付[$bdN] → 手で確認してください" }
         }
-        # --- コース変更 ---
+        # --- コース変更 (既定では書かない。-WithCourse を付けたときだけ) ---
         if ($p.actual -and $p.derived.course_changed) {
             $ac = [string]$p.actual.course
-            if ($COURSE_MAP.ContainsKey($ac)) {
+            if (-not $COURSE_MAP.ContainsKey($ac)) {
+                $note += "$label : 当日コースが [$ac] なので健診ナビのコースに変換できません → 手で確認してください"
+            }
+            elseif (-not $WithCourse) {
+                $want = $COURSE_MAP[$ac]
+                if ([string]$n.COURSE_CD -ne $want) { $note += "$label : コース変更 健診ナビ[$($n.COURSE_CD)] → 当日[$ac=$want] → -WithCourse で反映します" }
+            }
+            else {
                 $want = $COURSE_MAP[$ac]
                 if ([string]$n.COURSE_CD -ne $want) { $sets += @{ T='KENSIN'; Col='COURSE_CD'; New=$want; Old=[string]$n.COURSE_CD; What="コース($ac)" } }
-            } else {
-                $note += "$label : 当日コースが [$ac] なので健診ナビのコースに変換できません → 手で確認してください"
             }
         }
         # --- 書かないが知らせること ---
         if ($p.derived.date_changed) { $note += "$label : 予定 $($p.planned.date) → 実際 $($p.actual.checked_in_date) に受診。受診日は自動では動かしません" }
         if ($p.derived.is_cancelled) { $note += "$label : 受付アプリ側でキャンセル。健診ナビの予約は取り消していません" }
         if ($p.actual -and (@($p.derived.options_added) + @($p.derived.options_removed)).Count -gt 0) {
-            $note += ("$label : オプション変更 追加[{0}] 中止[{1}] → 第2段階 (今回は反映しません)" -f (($p.derived.options_added) -join '.'), (($p.derived.options_removed) -join '.'))
+            $note += ("$label : オプション変更 追加[{0}] 中止[{1}] → 健診ナビの画面で対応してください" -f (($p.derived.options_added) -join '.'), (($p.derived.options_removed) -join '.'))
         }
         if ($p.actual -and $null -ne $p.actual.stool_count -and [int]$p.actual.stool_count -ne 2) {
-            $note += "$label : 便 $($p.actual.stool_count) 本 → 第2段階 (今回は反映しません)"
+            $note += "$label : 便 $($p.actual.stool_count) 本 → 健診ナビの画面で対応してください"
         }
 
         if ($sets.Count -gt 0) {
@@ -365,8 +383,8 @@ WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList) AND d.MEISYO1 LIKE N'%$Dantai
     Write-Host ("[控え] 取り消しSQL  : {0}" -f (Join-Path $bkDir '取り消し.sql')) -ForegroundColor DarkGray
     Write-Host ("[控え] 対応表       : {0}" -f $mapFile) -ForegroundColor DarkGray
     Write-Host ''
-    Write-Host '※ オプション・便本数・採血/胃/尿の変更は、まだ反映していません (第2段階)。' -ForegroundColor Yellow
-    Write-Host '※ 受診日が変わった人・キャンセルの人は、お知らせに出した内容を見て手で直してください。' -ForegroundColor Yellow
+    Write-Host '※ オプション・便本数・採血/胃/尿の変更は反映していません。お知らせの一覧を見て健診ナビの画面で対応してください。' -ForegroundColor Yellow
+    Write-Host '※ 受診日が変わった人・キャンセルの人も、お知らせの一覧を見て手で直してください。' -ForegroundColor Yellow
 }
 finally {
     if ($conn -and $conn.State -eq 'Open') { $conn.Close() }

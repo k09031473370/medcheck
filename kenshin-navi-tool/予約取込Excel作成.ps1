@@ -167,8 +167,10 @@ WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList) AND d.MEISYO1 LIKE N'%$Dantai
         $cs = $(if ($p.actual -and [string]$p.actual.course -ne '') { [string]$p.actual.course } else { [string]$p.planned.course })
         if (-not $COURSE.ContainsKey($cs)) { Skip ("コースが [$cs] なので変換できない") $who; continue }
 
-        # 予約日: 実際に受付した日があればそれ。無ければ予定日
-        $ymdOut = $(if ($ciDate -ne '') { $ciDate } else { [string]$p.planned.date }) -replace '-', '/'
+        # 予約日
+        #   -Ymd で日を絞ったときは その日 (実際に受付した日)。
+        #   絞っていないときは 予定日。テスト受付が残っていても予約日が狂わないようにする。
+        $ymdOut = $(if ($Ymd) { $Ymd -replace '-', '/' } else { ([string]$p.planned.date) -replace '-', '/' })
 
         $rows += [PSCustomObject]@{
             氏名 = $name; カナ = $kana; 性別 = [string]$p.planned.gender

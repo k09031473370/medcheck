@@ -92,6 +92,17 @@ function ToWideKana([string]$s) {
     $w = [Microsoft.VisualBasic.Strings]::StrConv($s, [Microsoft.VisualBasic.VbStrConv]::Wide, 1041)
     return ($w -replace '\s+', ' ').Trim()
 }
+# 健診ナビはカナを半角 (ﾃﾂﾞｶ ﾄﾓﾖｼ) で持っている。書くときも比べるときも半角に揃える。
+function ToNarrowKana([string]$s) {
+    if ([string]::IsNullOrWhiteSpace($s)) { return '' }
+    Add-Type -AssemblyName Microsoft.VisualBasic
+    $n = [Microsoft.VisualBasic.Strings]::StrConv($s, [Microsoft.VisualBasic.VbStrConv]::Narrow, 1041)
+    return ($n -replace '\s+', ' ').Trim()
+}
+# 全角/半角・空白の違いを無視して同じカナかどうか
+function SameKana([string]$a, [string]$b) {
+    return ((NoSpace (ToNarrowKana $a)) -eq (NoSpace (ToNarrowKana $b)))
+}
 
 # ============================================================================
 # JSONを読む
@@ -247,15 +258,16 @@ WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList) AND d.MEISYO1 LIKE N'%$Dantai
             elseif ([int]$n.UKE -ne $rn) { $sets += @{ T='KENSIN'; Col='UKE_NO_KENSA'; New=$rn; Old=[int]$n.UKE; What='受付番号' } }
         }
         # --- カナ (既定で書く。-NoKana を付けると書かない) ---
-        $kana = ToWideKana ([string]$p.identity.kana)
+        $kana = ToNarrowKana ([string]$p.identity.kana)    # 健診ナビに合わせて半角
         if ($kana -ne '') {
             $cur = [string]$n.KANA
             if ($NoKana) {
                 if ($cur -eq '') { $note += "$label : カナ [$kana] を入れられます (-NoKana が付いているので書きません)" }
             }
             elseif ($cur -eq '') { $sets += @{ T='KOJIN'; Col='KANA_SIMEI'; New=$kana; Old=''; What='カナ' } }
-            elseif ((NoSpace $cur) -ne (NoSpace $kana) -and $OverwriteKana) { $sets += @{ T='KOJIN'; Col='KANA_SIMEI'; New=$kana; Old=$cur; What='カナ(上書き)' } }
-            elseif ((NoSpace $cur) -ne (NoSpace $kana)) { $note += "$label : カナが違います 健診ナビ[$cur] 受付[$kana] → -OverwriteKana で上書きできます" }
+            elseif (SameKana $cur $kana) { }   # 全角/半角・空白の違いだけなら同じとみなして何もしない
+            elseif ($OverwriteKana) { $sets += @{ T='KOJIN'; Col='KANA_SIMEI'; New=$kana; Old=$cur; What='カナ(上書き)' } }
+            else { $note += "$label : ★カナが違います 健診ナビ[$cur] 受付[$kana] → どちらが正しいか確認。受付が正しければ -OverwriteKana" }
         }
         # --- 生年月日 (既定で書く。-NoKana を付けると書かない) ---
         $bd = [string]$p.identity.birth_date
@@ -287,8 +299,17 @@ WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList) AND d.MEISYO1 LIKE N'%$Dantai
             $note += "$label : 予定 $($p.planned.date) → 実際 $($p.actual.checked_in_date) に受診。健診ナビの予約はもう $ymdNavi になっているので受付番号は入れました"
         }
         if ($p.derived.is_cancelled) { $note += "$label : 受付アプリ側でキャンセル。健診ナビの予約は取り消していません" }
+        if ($p.actual -and $p.actual.exam_changes) {
+            $ec = $p.actual.exam_changes
+            $chg = @()
+            foreach ($pair in @(@('blood','採血'), @('stomach','胃部'), @('urine','尿'))) {
+                $v = [string]$ec.($pair[0])
+                if ($v -ne '' -and $v -ne 'unchanged') { $chg += ('{0}={1}' -f $pair[1], $v) }
+            }
+            if ($chg.Count -gt 0) { $note += ("$label : ★検査の変更 [{0}] → 健診ナビの画面で対応してください" -f ($chg -join ' / ')) }
+        }
         if ($p.actual -and (@($p.derived.options_added) + @($p.derived.options_removed)).Count -gt 0) {
-            $note += ("$label : オプション変更 追加[{0}] 中止[{1}] → 健診ナビの画面で対応してください" -f (($p.derived.options_added) -join '.'), (($p.derived.options_removed) -join '.'))
+            $note += ("$label : ★オプション変更 追加[{0}] 中止[{1}] → 健診ナビの画面で対応してください" -f (($p.derived.options_added) -join '.'), (($p.derived.options_removed) -join '.'))
         }
         # 便の本数は 0 が「記録なし」として大量に入るので、1本のときだけ知らせる。
         # (2本が通常。0本は受付アプリ側で記録していないだけのことが多い)

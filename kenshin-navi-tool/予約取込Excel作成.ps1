@@ -83,6 +83,12 @@ function ToWideKana([string]$s) {
     $w = [Microsoft.VisualBasic.Strings]::StrConv($s, [Microsoft.VisualBasic.VbStrConv]::Wide, 1041)
     return ($w -replace '\s+', ' ').Trim()
 }
+function ToNarrowKana([string]$s) {
+    if ([string]::IsNullOrWhiteSpace($s)) { return '' }
+    Add-Type -AssemblyName Microsoft.VisualBasic
+    $n = [Microsoft.VisualBasic.Strings]::StrConv($s, [Microsoft.VisualBasic.VbStrConv]::Narrow, 1041)
+    return ($n -replace '\s+', ' ').Trim()
+}
 function StartTime([string]$slot) {
     # 「10:00～10:15」→「10:00」
     if ($slot -match '(\d{1,2}:\d{2})') { return $Matches[1] }
@@ -157,7 +163,7 @@ WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList) AND d.MEISYO1 LIKE N'%$Dantai
         if ($p.derived.is_cancelled) { Skip '受付アプリでキャンセル' $who; continue }
         if ($have.ContainsKey((NoSpace $name))) { Skip 'もう健診ナビに入っている' $who; continue }
 
-        $kana = ToWideKana ([string]$p.identity.kana)
+        $kana = ToNarrowKana ([string]$p.identity.kana)    # 健診ナビは半角カナで持っているので合わせる
         if ($kana -eq '' -and -not $IncludeNoKana) { Skip 'カナが空 (取込で弾かれます)' $who; continue }
 
         $cd = $cdOf[(NoSpace $p.planned.company)]

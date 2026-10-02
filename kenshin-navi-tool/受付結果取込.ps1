@@ -290,8 +290,10 @@ WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList) AND d.MEISYO1 LIKE N'%$Dantai
         if ($p.actual -and (@($p.derived.options_added) + @($p.derived.options_removed)).Count -gt 0) {
             $note += ("$label : オプション変更 追加[{0}] 中止[{1}] → 健診ナビの画面で対応してください" -f (($p.derived.options_added) -join '.'), (($p.derived.options_removed) -join '.'))
         }
-        if ($p.actual -and $null -ne $p.actual.stool_count -and [int]$p.actual.stool_count -ne 2) {
-            $note += "$label : 便 $($p.actual.stool_count) 本 → 健診ナビの画面で対応してください"
+        # 便の本数は 0 が「記録なし」として大量に入るので、1本のときだけ知らせる。
+        # (2本が通常。0本は受付アプリ側で記録していないだけのことが多い)
+        if ($p.actual -and $null -ne $p.actual.stool_count -and [int]$p.actual.stool_count -eq 1) {
+            $note += "$label : 便 1 本 → 結果は1本分で入れてください"
         }
 
         if ($sets.Count -gt 0) {

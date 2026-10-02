@@ -214,17 +214,17 @@ WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList) AND d.MEISYO1 LIKE N'%$Dantai
     # ========================================================================
     $plan = @(); $skip = @(); $note = @(); $map = @()
     foreach ($p in $doc.people) {
-        $pid  = [string]$p.id
+        $uid  = [string]$p.id
         $name = NoSpace $p.identity.name
         if ($name -eq '') { $name = NoSpace $p.planned.name }
-        $label = "$pid $($p.identity.name)"
+        $label = "$uid $($p.identity.name)"
 
-        if ($holdIds.ContainsKey($pid)) { $skip += "$label : 受付アプリの警告があるので保留"; continue }
+        if ($holdIds.ContainsKey($uid)) { $skip += "$label : 受付アプリの警告があるので保留"; continue }
         if (-not $byName.ContainsKey($name)) { $skip += "$label : 健診ナビに見つかりません ($($p.planned.company) / $($p.planned.date))"; continue }
         $hits = @($byName[$name])
         if ($hits.Count -gt 1) { $skip += "$label : 健診ナビに $($hits.Count) 件あって決められません"; continue }
         $n = $hits[0]
-        $map += New-Object PSObject -Property @{ series_id = $doc.series_id; 受診者ID = $pid; PK_SEQ = $n.PK_SEQ; KOJIN_ID = $n.KOJIN_ID; 氏名 = $p.identity.name; 事業所 = $n.DANTAI }
+        $map += New-Object PSObject -Property @{ series_id = $doc.series_id; 受診者ID = $uid; PK_SEQ = $n.PK_SEQ; KOJIN_ID = $n.KOJIN_ID; 氏名 = $p.identity.name; 事業所 = $n.DANTAI }
 
         $sets = @()
         # --- 受付番号 ---
@@ -298,7 +298,7 @@ WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList) AND d.MEISYO1 LIKE N'%$Dantai
 
         if ($sets.Count -gt 0) {
             $plan += New-Object PSObject -Property @{
-                ID = $pid; 氏名 = $p.identity.name; 事業所 = $n.DANTAI; 受診日 = $n.YMD
+                ID = $uid; 氏名 = $p.identity.name; 事業所 = $n.DANTAI; 受診日 = $n.YMD
                 PK_SEQ = $n.PK_SEQ; KOJIN_ID = $n.KOJIN_ID; Sets = $sets
                 内容 = (($sets | ForEach-Object { "{0} [{1}]→[{2}]" -f $_.What, $_.Old, $_.New }) -join ' / ')
             }

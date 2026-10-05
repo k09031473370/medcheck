@@ -1250,6 +1250,20 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current, $kojin) {
             if ($komoku -eq '') { $rep.Status = '項目CD未設定'; $rep.New = (Normalize-Text $raw); $plan += $rep; continue }
             if ($conv.Status -eq 'CONVERR') { $rep.Status = "変換不可($kind)"; $rep.New = $conv.Value; $plan += $rep; continue }
             $rep.New = $conv.Value
+            # 文字の置換 (対応表に Replace 列があるときだけ)
+            #   書き方: 正規表現=>置換後;正規表現=>置換後   例: [A-Z]\d{2}：=>;, =>・
+            #   「A09：視神経乳頭陥凹の拡大, A10：網膜神経線維層欠損」→「視神経乳頭陥凹の拡大・網膜神経線維層欠損」
+            if ($m.PSObject.Properties.Name -contains 'Replace') {
+                $rpl = [string]$m.Replace
+                if ($rpl.Trim() -ne '') {
+                    foreach ($pair in ($rpl -split ';')) {
+                        if ($pair -notmatch '^(.*?)=>(.*)$') { continue }
+                        $rep.New = [regex]::Replace($rep.New, $Matches[1], $Matches[2])
+                    }
+                    $rep.New = $rep.New.Trim()
+                    if ($rep.New -eq '') { continue }
+                }
+            }
             # 表記を健診ナビに合わせる (Format=0.0 なら 147 → 147.0)
             $fmt = Normalize-Text $m.Format
             if ($fmt -ne '') {

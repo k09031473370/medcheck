@@ -1,5 +1,5 @@
 ﻿Col,Col2,Label,Kind,KOMOKU_CD,SYOKEN_CD,SYOKEN_CD2,CodeMap,IfEmpty,ReqCol,Format,Note
-# DETECT=HEADER:カルテ№,便ﾍﾓ
+# DETECT=HEADER:カルテ№,便ﾍﾓ,!総ﾋﾞﾘﾙﾋﾞﾝ
 # DETECT=COLS:48-56
 # LABEL=SRL血液 (52列・2026/08受領の実ファイルに合わせた)
 1,,受付日,KENYMD,,,,,,,,260721 のような形でも読める

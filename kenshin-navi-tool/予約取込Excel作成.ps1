@@ -54,6 +54,7 @@ param(
     [string]$OptCsv,                    # 省略時は form\fussa_option_map.csv (記号 → 健診ナビのコード/名称)
     [ValidateSet('Code','Name')]
     [string]$OptionAs = 'Code',         # オプション検査の列に何を書くか。Code=OPJ014  Name=乳腺超音波検査
+    [switch]$NoOptions,                 # 付けると、オプション検査の列を空にする (10/2 と同じ形。健診ナビの画面で付ける)
     [switch]$IncludeNoKana,             # 付けると、カナが無い人も出す (取込で弾かれます)
     [string]$ConnFile = '\\KNSV\KenshinNavi\SQLSV\SQLServerConnect.txt',
     [string]$ConnectionString
@@ -211,7 +212,9 @@ WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList) AND d.MEISYO1 LIKE N'%$Dantai
         $received = ($p.actual -and $null -ne $p.actual.reception_number)
         $syms = @($(if ($received) { $p.actual.options } else { $p.planned.options }) | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ })
         $optVals = @(); $optNote = @()
+        if ($NoOptions -and $syms.Count -gt 0) { $optNote += ("オプション [{0}] は -NoOptions なので列に書かない → 健診ナビの画面で付ける" -f ($syms -join '.')) }
         foreach ($sym in $syms) {
+            if ($NoOptions) { break }
             if (-not $optOf.ContainsKey($sym)) { $optNote += "記号 $sym は対応表にない"; continue }
             $o = $optOf[$sym]
             if ($o.CD -eq '') { $optNote += "$sym($($o.App)) は健診ナビにコードが無いので取込まない"; continue }
@@ -348,7 +351,8 @@ WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList) AND d.MEISYO1 LIKE N'%$Dantai
     }
     Write-Host ''
     Write-Host '※ 健診ナビの予約取込にこのExcelをかけてください。' -ForegroundColor Yellow
-    Write-Host ("※ オプション検査の列には健診ナビの{0}を書いてあります。初回は1人だけで試してください。" -f $(if ($OptionAs -eq 'Code') { 'コード (OPJ014 など)' } else { '名称 (乳腺超音波検査 など)' })) -ForegroundColor Yellow
+    if ($NoOptions) { Write-Host '※ オプション検査の列は空です (-NoOptions)。オプションは確認一覧を見て健診ナビの画面で付けてください。' -ForegroundColor Yellow }
+    else { Write-Host ("※ オプション検査の列には健診ナビの{0}を書いてあります。初回は1人だけで試してください。" -f $(if ($OptionAs -eq 'Code') { 'コード (OPJ014 など)' } else { '名称 (乳腺超音波検査 など)' })) -ForegroundColor Yellow }
     Write-Host '※ 取込が終わったら 受付結果取込.bat で受付番号を入れてください。' -ForegroundColor Yellow
 }
 finally {

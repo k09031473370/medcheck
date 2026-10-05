@@ -15,8 +15,17 @@
     1. JSONを読む (identity.kana / identity.birth_date が当日確認したカナ・生年月日)
     2. 健診ナビを読んで、もう入っている人を外す (氏名で突き合わせ。二重登録を防ぐ)
     3. 事業所コードを form\fussa_company_map.csv から引く
-    4. コース A/B/C を FA/FB/FC に変換
-    5. 33列のExcelを作る
+    4. コース A/B/C を FA/FB/FC に変換 (受付済みの人は当日のコース)
+    5. オプションを form\fussa_option_map.csv で健診ナビのコード/名称に変換して
+       「オプション検査1〜10」の列に書く (受付済みの人は当日のオプション。O 溶接ヒュームは書かない)
+    6. 33列のExcelを作る
+    7. Excelでは入れられないもの (採血/胃部/尿の変更・便の本数・受付メモ・コース変更の経緯) を
+       「確認一覧.txt」に出す → 健診ナビの画面で対応してもらう
+
+  同じ人を二度登録しない仕組み
+    健診ナビに同じ氏名の人が既にいれば出さない (2)。
+    その人の受付番号・カナ・生年月日は 受付結果取込.bat が既存の予約に書く。
+    つまり「無い人はこのツールで新規」「ある人は受付結果取込で更新」に自動で分かれる。
 
   出さない人 (一覧に理由を出す)
     ・もう健診ナビに入っている人
@@ -42,6 +51,9 @@ param(
     [string]$Out,                       # 出力先フォルダ (既定: デスクトップ)
     [string]$DantaiLike = '福生',       # 健診ナビ側で既に入っている人をさがす範囲
     [string]$MapCsv,                    # 省略時は form\fussa_company_map.csv
+    [string]$OptCsv,                    # 省略時は form\fussa_option_map.csv (記号 → 健診ナビのコード/名称)
+    [ValidateSet('Code','Name')]
+    [string]$OptionAs = 'Code',         # オプション検査の列に何を書くか。Code=OPJ014  Name=乳腺超音波検査
     [switch]$IncludeNoKana,             # 付けると、カナが無い人も出す (取込で弾かれます)
     [string]$ConnFile = '\\KNSV\KenshinNavi\SQLSV\SQLServerConnect.txt',
     [string]$ConnectionString
@@ -60,6 +72,7 @@ Invoke-Expression (Get-Part 'function Normalize-Text'    '$XlsxLib = Join-Path')
 Invoke-Expression (Get-Part 'function Get-LocalConnFile' 'function Resolve-PkSeq')
 
 if (-not $MapCsv) { $MapCsv = Join-Path $PSScriptRoot 'form\fussa_company_map.csv' }
+if (-not $OptCsv) { $OptCsv = Join-Path $PSScriptRoot 'form\fussa_option_map.csv' }
 
 # 受付アプリのコース記号 → 健診ナビ
 $COURSE = @{
@@ -102,6 +115,7 @@ if (-not $Json) { $Json = Read-Host '受付アプリのJSONをドラッグ＆ド
 $Json = ($Json -replace '^"|"$', '').Trim()
 if (-not (Test-Path $Json)) { throw "見つかりません: $Json" }
 if (-not (Test-Path $MapCsv)) { throw "事業所の対応表がありません: $MapCsv" }
+if (-not (Test-Path $OptCsv)) { throw "オプションの対応表がありません: $OptCsv" }
 if (-not $Out) { $Out = [Environment]::GetFolderPath('Desktop') }
 if (-not (Test-Path $Out)) { throw "出力先がありません: $Out" }
 
@@ -115,6 +129,14 @@ foreach ($r in (Import-Csv -Path $MapCsv -Encoding UTF8)) {
     if ($k -ne '' -and ([string]$r.団体CD).Trim() -ne '') { $cdOf[$k] = ([string]$r.団体CD).Trim() }
 }
 
+# オプション記号 → 健診ナビ
+$optOf = @{}
+foreach ($r in (Import-Csv -Path $OptCsv -Encoding UTF8)) {
+    $sym = ([string]$r.記号).Trim()
+    if ($sym -eq '') { continue }
+    $optOf[$sym] = @{ CD = ([string]$r.コード).Trim(); Name = ([string]$r.健診ナビの名称).Trim(); App = ([string]$r.受付アプリの名称).Trim() }
+}
+
 Write-Host ''
 Write-Host ('=' * 78) -ForegroundColor Cyan
 Write-Host ' 受付アプリのJSON → 健診ナビの予約取込Excel (33列)' -ForegroundColor Cyan
@@ -122,13 +144,17 @@ Write-Host ('=' * 78) -ForegroundColor Cyan
 Write-Host ("  ファイル : {0}" -f (Split-Path $Json -Leaf))
 Write-Host ("  出力日時 : {0}   全{1}人" -f $doc.exported_at, $doc.people.Count)
 if ($Ymd) { Write-Host ("  絞り込み : {0} に実際に受付した人だけ" -f $Ymd) -ForegroundColor Yellow }
-Write-Host ("  事業所の対応表 : {0} 社" -f $cdOf.Count)
+Write-Host ("  事業所の対応表 : {0} 社   オプションの対応表 : {1} 記号 (列には {2} を書く)" -f $cdOf.Count, $optOf.Count, $(if ($OptionAs -eq 'Code') { 'コード' } else { '名称' }))
 Write-Host ''
 
 $conn = Open-Db
 try {
     # ---- 健診ナビに既に入っている人 ----
-    $dates = @($doc.people | ForEach-Object { [string]$_.planned.date } | Where-Object { $_ } | Select-Object -Unique)
+    # 予定日だけでなく実際に受付した日も見る (予定と違う日に来た人の予約も拾う)
+    $dates = @($doc.people | ForEach-Object {
+        [string]$_.planned.date
+        if ($_.actual) { [string]$_.actual.checked_in_date }
+    } | Where-Object { $_ } | Select-Object -Unique)
     $inList = ($dates | ForEach-Object { "'" + ($_ -replace '-', '/') + "'" }) -join ','
     $exist = @((Invoke-DbQuery $conn @"
 SELECT LTRIM(RTRIM(ISNULL(g.KANJI_SIMEI,''))) AS KANJI, CONVERT(varchar(10), s.D_KENSIN, 111) AS YMD
@@ -173,17 +199,56 @@ WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList) AND d.MEISYO1 LIKE N'%$Dantai
         $cs = $(if ($p.actual -and [string]$p.actual.course -ne '') { [string]$p.actual.course } else { [string]$p.planned.course })
         if (-not $COURSE.ContainsKey($cs)) { Skip ("コースが [$cs] なので変換できない") $who; continue }
 
+        $sex = ([string]$p.planned.gender).Trim()
+        if ($sex -eq '') { Skip '性別が空 (取込で弾かれます)' $who; continue }
+
         # 予約日
         #   -Ymd で日を絞ったときは その日 (実際に受付した日)。
         #   絞っていないときは 予定日。テスト受付が残っていても予約日が狂わないようにする。
         $ymdOut = $(if ($Ymd) { $Ymd -replace '-', '/' } else { ([string]$p.planned.date) -replace '-', '/' })
 
+        # オプション: 受付済みなら当日の内容 (actual.options が全体)。未受付なら予定。
+        $received = ($p.actual -and $null -ne $p.actual.reception_number)
+        $syms = @($(if ($received) { $p.actual.options } else { $p.planned.options }) | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ })
+        $optVals = @(); $optNote = @()
+        foreach ($sym in $syms) {
+            if (-not $optOf.ContainsKey($sym)) { $optNote += "記号 $sym は対応表にない"; continue }
+            $o = $optOf[$sym]
+            if ($o.CD -eq '') { $optNote += "$sym($($o.App)) は健診ナビにコードが無いので取込まない"; continue }
+            $optVals += $(if ($OptionAs -eq 'Code') { $o.CD } else { $o.Name })
+        }
+        if ($optVals.Count -gt 10) { Skip 'オプションが10個を超える' $who; continue }
+
+        # 確認一覧 (Excelには書けないので、健診ナビの画面で見てもらうこと)
+        $memo = @()
+        if ($received) {
+            $a = $p.actual
+            if ([string]$a.course -ne '' -and [string]$a.course -ne [string]$p.planned.course) { $memo += ("コース変更 予定[{0}] → 当日[{1}]" -f $p.planned.course, $a.course) }
+            if ($a.exam_changes) {
+                foreach ($pair in @(@('blood','採血'), @('stomach','胃部'), @('urine','尿'))) {
+                    $v = [string]$a.exam_changes.($pair[0])
+                    if ($v -ne '' -and $v -ne 'unchanged') { $memo += ("{0}={1}" -f $pair[1], $v) }
+                }
+            }
+            if ($null -ne $a.stool_count -and [int]$a.stool_count -ne 0 -and [int]$a.stool_count -ne 2) { $memo += ("便 {0} 本" -f $a.stool_count) }
+            if ($syms -contains 'M' -and $null -ne $a.stool_count -and [int]$a.stool_count -eq 0) { $memo += '大腸がん(M)ありだが便 0 本' }
+            if ([string]$a.notes -ne '') { $memo += ("受付メモ: {0}" -f $a.notes) }
+            if ($p.derived -and (@($p.derived.options_added) + @($p.derived.options_removed)).Count -gt 0) {
+                $memo += ("オプション 追加[{0}] 中止[{1}]" -f (($p.derived.options_added) -join '.'), (($p.derived.options_removed) -join '.'))
+            }
+        }
+        $memo += $optNote
+        if (([string]$p.identity.birth_date) -eq '') { $memo += '生年月日が空' }
+
         $rows += [PSCustomObject]@{
-            氏名 = $name; カナ = $kana; 性別 = [string]$p.planned.gender
+            氏名 = $name; カナ = $kana; 性別 = $sex
             生年月日 = ([string]$p.identity.birth_date) -replace '-', '/'
             事業所CD = $cd; 事業所 = [string]$p.planned.company
             コースCD = $COURSE[$cs].CD; コース名 = $COURSE[$cs].Name
             予約日 = $ymdOut; 予約時間 = StartTime ([string]$p.planned.time)
+            オプション = $optVals; オプション記号 = ($syms -join '.')
+            受付番号 = $(if ($received) { [string]$p.actual.reception_number } else { '' })
+            確認 = ($memo -join ' / ')
             ID = $p.id
         }
     }
@@ -199,6 +264,8 @@ WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList) AND d.MEISYO1 LIKE N'%$Dantai
         }
         $noBirth = @($rows | Where-Object { $_.生年月日 -eq '' }).Count
         if ($noBirth -gt 0) { Write-Host ("  ※ うち生年月日が空: {0} 人 (取り込めますが年齢判定が出ません)" -f $noBirth) -ForegroundColor Yellow }
+        $withOpt = @($rows | Where-Object { $_.オプション.Count -gt 0 })
+        Write-Host ("  オプションあり : {0} 人 / {1} 個" -f $withOpt.Count, (($withOpt | ForEach-Object { $_.オプション.Count }) | Measure-Object -Sum).Sum)
     }
     Write-Host ''
     if ($skip.Count -gt 0) {
@@ -243,6 +310,7 @@ WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList) AND d.MEISYO1 LIKE N'%$Dantai
             $ws.Cells.Item($r, 21).Value2 = $x.コース名
             $ws.Cells.Item($r, 22).Value2 = $x.予約日
             $ws.Cells.Item($r, 23).Value2 = $x.予約時間
+            for ($k = 0; $k -lt $x.オプション.Count; $k++) { $ws.Cells.Item($r, 24 + $k).Value2 = [string]$x.オプション[$k] }
             $r++
         }
         [void]$ws.Columns.AutoFit()
@@ -257,14 +325,30 @@ WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList) AND d.MEISYO1 LIKE N'%$Dantai
 
     # 控え
     $csv = [System.IO.Path]::ChangeExtension($file, '.csv')
-    $rows | Select-Object ID, 氏名, カナ, 性別, 生年月日, 事業所CD, 事業所, コースCD, 予約日, 予約時間 |
+    $rows | Select-Object ID, 受付番号, 氏名, カナ, 性別, 生年月日, 事業所CD, 事業所, コースCD, 予約日, 予約時間,
+                          @{ N='オプション'; E={ $_.オプション -join '.' } }, オプション記号, 確認 |
         Export-Csv -Path $csv -NoTypeInformation -Encoding UTF8
+
+    # 確認一覧 (健診ナビの画面で見てもらうこと)
+    $need = @($rows | Where-Object { $_.確認 -ne '' })
+    $memoFile = [System.IO.Path]::ChangeExtension($file, '.確認一覧.txt')
+    $lines = @("=== 確認一覧  $(Split-Path $file -Leaf)  ===", '',
+               '健診ナビの予約取込では入れられないものです。取込のあと健診ナビの画面で対応してください。', '')
+    if ($need.Count -eq 0) { $lines += '  (確認が必要な人はいません)' }
+    foreach ($x in $need) { $lines += ("  受付{0,-4} {1} {2} ({3})" -f $x.受付番号, $x.ID, $x.氏名, $x.事業所); $lines += ("        {0}" -f $x.確認) }
+    $lines | Out-File -FilePath $memoFile -Encoding Default
 
     Write-Host ("[出力] {0}  ({1} 人)" -f $file, $rows.Count) -ForegroundColor Green
     Write-Host ("[控え] {0}" -f $csv) -ForegroundColor DarkGray
+    Write-Host ("[確認] {0}  ({1} 人)" -f $memoFile, $need.Count) -ForegroundColor $(if ($need.Count -gt 0) { 'Yellow' } else { 'DarkGray' })
+    if ($need.Count -gt 0) {
+        Write-Host ''
+        Write-Host ('--- 確認一覧 ({0} 人。Excelには入りません。健診ナビの画面で対応) ---' -f $need.Count) -ForegroundColor Yellow
+        foreach ($x in $need) { Write-Host ("  受付{0,-4} {1} {2}" -f $x.受付番号, $x.ID, $x.氏名) -ForegroundColor Yellow; Write-Host ("        {0}" -f $x.確認) -ForegroundColor DarkYellow }
+    }
     Write-Host ''
     Write-Host '※ 健診ナビの予約取込にこのExcelをかけてください。' -ForegroundColor Yellow
-    Write-Host '※ オプション検査の列は空にしてあります。オプションは健診ナビの画面で付けてください。' -ForegroundColor Yellow
+    Write-Host ("※ オプション検査の列には健診ナビの{0}を書いてあります。初回は1人だけで試してください。" -f $(if ($OptionAs -eq 'Code') { 'コード (OPJ014 など)' } else { '名称 (乳腺超音波検査 など)' })) -ForegroundColor Yellow
     Write-Host '※ 取込が終わったら 受付結果取込.bat で受付番号を入れてください。' -ForegroundColor Yellow
 }
 finally {

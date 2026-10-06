@@ -58,6 +58,7 @@ param(
     [switch]$OverwriteKana,             # 既に入っているカナも上書きする
     [switch]$Force,                     # 付けると、古いファイルでも続行する
     [switch]$Commit,                    # 付けると確認なしで書き込む
+    [switch]$PreviewOnly,               # 付けるとプレビューだけ出して終わる (画面付きツール用)
     [string]$ConnFile = '\\KNSV\KenshinNavi\SQLSV\SQLServerConnect.txt',
     [string]$ConnectionString
 )
@@ -351,7 +352,9 @@ WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList)
         Write-Host ('--- お知らせ ({0} 件。書き込みはしません) ---' -f $note.Count) -ForegroundColor DarkYellow
         $note | ForEach-Object { Write-Host ('  ' + $_) -ForegroundColor DarkYellow }; Write-Host ''
     }
-    if ($plan.Count -eq 0) { Write-Host '更新するものがありません。' -ForegroundColor Green; return }
+    if ($plan.Count -eq 0) { Write-Host '更新するものがありません。' -ForegroundColor Green; Write-Host '[更新予定] 0 人'; return }
+    Write-Host ('[更新予定] {0} 人' -f $plan.Count)
+    if ($PreviewOnly) { return }
 
     if (-not $Commit) {
         $ans = Read-Host ("上の {0} 人を健診ナビに反映します。よければ Y" -f $plan.Count)

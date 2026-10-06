@@ -34,6 +34,7 @@ param(
     [string]$Ymd,                       # 省略時は JSON の中の一番新しい受付日
     [string]$DantaiLike = '福生',
     [switch]$SkipCheck,                 # 事前チェックで止まったときに、承知のうえで続けるとき
+    [switch]$CheckOnly,                 # 事前チェックだけして終わる (画面付きツール用。問題があれば終了コード 2)
     [string]$ConnFile = '\\KNSV\KenshinNavi\SQLSV\SQLServerConnect.txt',
     [string]$ConnectionString
 )
@@ -142,6 +143,12 @@ finally { if ($conn -and $conn.State -eq 'Open') { $conn.Close() } }
 
 if ($problems.Count -eq 0) {
     Write-Host ("  OK  {0} 団体ともコースあり・対応表も一致" -f $need.Count) -ForegroundColor Green
+    if ($CheckOnly) { exit 0 }
+}
+elseif ($CheckOnly) {
+    Write-Host ('  ★ 直してから進めてください ({0} 件)' -f $problems.Count) -ForegroundColor Red
+    $problems | Sort-Object -Unique | ForEach-Object { Write-Host ('    ' + $_) -ForegroundColor Yellow }
+    exit 2
 }
 else {
     Write-Host ('  ★ 直してから進めてください ({0} 件)' -f $problems.Count) -ForegroundColor Red

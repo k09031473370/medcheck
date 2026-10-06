@@ -106,9 +106,25 @@ foreach ($r in (Import-Csv -Path (Join-Path $dir 'form\fussa_company_map.csv') -
 $problems = @()
 $conn = Open-Db
 try {
+    # 健診ナビに既に予約がある人は、事前チェックの対象から外す (手で作った人・前回入れた人)
+    $have = @{}
+    $mapCds = (($cdOf.Values | Select-Object -Unique | ForEach-Object { "'$_'" }) -join ',')
+    if ($mapCds -eq '') { $mapCds = "''" }
+    $dtH = Invoke-DbQuery $conn @"
+SELECT LTRIM(RTRIM(ISNULL(g.KANJI_SIMEI,''))) AS KANJI
+FROM T_KENSIN s
+LEFT JOIN T_KOJIN1 g ON g.KOJIN_ID = s.KOJIN_ID
+LEFT JOIN T_DANTAI1 d ON d.DANTAI_CD1 = s.DANTAI_CD1
+WHERE s.F_TORIKESI = 0 AND s.D_KENSIN = '$Ymd'
+  AND (d.MEISYO1 LIKE N'%$DantaiLike%' OR LTRIM(RTRIM(s.DANTAI_CD1)) IN ($mapCds))
+"@ @{}
+    foreach ($r in $dtH.Rows) { $k = NoSpace $r.KANJI; if ($k -ne '') { $have[$k] = 1 } }
+    $skipped = 0
+
     # 今日の人の 団体CD と コース
     $need = @{}   # 団体CD -> @{ Name=会社名; Courses=@{FA=人数} }
     foreach ($p in $recv) {
+        if ($have.ContainsKey((NoSpace $p.identity.name))) { $skipped++; continue }
         $co = NoSpace $p.planned.company
         $cd = $cdOf[$co]
         if (-not $cd) { $problems += "対応表に無い会社: $($p.planned.company)  ($($p.identity.name))"; continue }
@@ -141,6 +157,7 @@ FROM T_DANTAI1 d WHERE LTRIM(RTRIM(d.DANTAI_CD1)) IN ($inCd)
 }
 finally { if ($conn -and $conn.State -eq 'Open') { $conn.Close() } }
 
+if ($skipped -gt 0) { Write-Host ("  (健診ナビに予約がある {0} 人はチェック対象外)" -f $skipped) -ForegroundColor DarkGray }
 if ($problems.Count -eq 0) {
     Write-Host ("  OK  {0} 団体ともコースあり・対応表も一致" -f $need.Count) -ForegroundColor Green
     if ($CheckOnly) { exit 0 }

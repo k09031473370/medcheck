@@ -163,12 +163,16 @@ try {
         if ($_.actual) { [string]$_.actual.checked_in_date }
     } | Where-Object { $_ } | Select-Object -Unique)
     $inList = ($dates | ForEach-Object { "'" + ($_ -replace '-', '/') + "'" }) -join ','
+    # 団体名に「福生」が無い団体も、対応表の団体CDなら「もう入っている」の判定に含める
+    $cdList = (($cdOf.Values | Select-Object -Unique | ForEach-Object { "'$_'" }) -join ',')
+    if ($cdList -eq '') { $cdList = "''" }
     $exist = @((Invoke-DbQuery $conn @"
 SELECT LTRIM(RTRIM(ISNULL(g.KANJI_SIMEI,''))) AS KANJI, CONVERT(varchar(10), s.D_KENSIN, 111) AS YMD
 FROM T_KENSIN s
 LEFT JOIN T_KOJIN1 g ON g.KOJIN_ID = s.KOJIN_ID
 LEFT JOIN T_DANTAI1 d ON d.DANTAI_CD1 = s.DANTAI_CD1
-WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList) AND d.MEISYO1 LIKE N'%$DantaiLike%'
+WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList)
+  AND (d.MEISYO1 LIKE N'%$DantaiLike%' OR LTRIM(RTRIM(s.DANTAI_CD1)) IN ($cdList))
 "@ @{}).Rows)
     $have = @{}
     foreach ($e in $exist) { $k = NoSpace $e.KANJI; if ($k -ne '') { $have[$k] = $e.YMD } }

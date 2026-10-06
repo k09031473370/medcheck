@@ -194,6 +194,13 @@ WHERE c.object_id = OBJECT_ID('T_KENSIN') AND c.name = 'UKE_NO_KENSA'
     $inList = ($dates | ForEach-Object { "'" + ($_ -replace '-', '/') + "'" }) -join ','
     Write-Host ("  健診ナビ側の対象: 受診日 {0} / 団体名に「{1}」" -f ($dates -join ' '), $DantaiLike) -ForegroundColor DarkGray
 
+    # 団体名に「福生」が無い団体 (例: ILL CLIPPER BARBER SHOP) も、事業所の対応表に載っていれば対象にする
+    $mapCdSql = ''
+    $mapCsv = Join-Path $PSScriptRoot 'form\fussa_company_map.csv'
+    if (Test-Path $mapCsv) {
+        $cds = @(Import-Csv -Path $mapCsv -Encoding UTF8 | ForEach-Object { ([string]$_.団体CD).Trim() } | Where-Object { $_ -match '^\d+$' } | Select-Object -Unique)
+        if ($cds.Count -gt 0) { $mapCdSql = "OR LTRIM(RTRIM(s.DANTAI_CD1)) IN (" + (($cds | ForEach-Object { "'$_'" }) -join ',') + ")" }
+    }
     $naviSql = @"
 SELECT s.PK_SEQ, s.KOJIN_ID, CONVERT(varchar(10), s.D_KENSIN, 111) AS YMD,
        LTRIM(RTRIM(ISNULL(s.COURSE_CD,''))) AS COURSE_CD,
@@ -206,7 +213,8 @@ SELECT s.PK_SEQ, s.KOJIN_ID, CONVERT(varchar(10), s.D_KENSIN, 111) AS YMD,
 FROM T_KENSIN s
 LEFT JOIN T_KOJIN1 g ON g.KOJIN_ID = s.KOJIN_ID
 LEFT JOIN T_DANTAI1 d ON d.DANTAI_CD1 = s.DANTAI_CD1
-WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList) AND d.MEISYO1 LIKE N'%$DantaiLike%'
+WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList)
+  AND (d.MEISYO1 LIKE N'%$DantaiLike%' $mapCdSql)
 "@
     $navi = @((Invoke-DbQuery $conn $naviSql @{}).Rows)
     Write-Host ("  健診ナビ側 {0} 人 / JSON {1} 人" -f $navi.Count, $doc.people.Count) -ForegroundColor DarkGray

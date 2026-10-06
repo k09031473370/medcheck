@@ -247,7 +247,9 @@ WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList) AND d.MEISYO1 LIKE N'%$Dantai
         if ($p.actual -and [string]$p.actual.checked_in_date) { $ymdActual = ([string]$p.actual.checked_in_date) -replace '-', '/' }
         $ymdNavi = ([string]$n.YMD) -replace '-', '/'
         if ($null -ne $rn) {
-            if ($ymdActual -eq '') {
+            # もう同じ番号が入っていれば、受診日が違っていても何も言わない (前回入れた分)
+            if ($null -ne $n.UKE -and -not ($n.UKE -is [System.DBNull]) -and [int]$n.UKE -eq $rn) { }
+            elseif ($ymdActual -eq '') {
                 $note += "$label : 受付番号 $rn があるのに受付日が分からないので入れません"
             }
             elseif ($ymdActual -ne $ymdNavi) {

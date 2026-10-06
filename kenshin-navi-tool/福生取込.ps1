@@ -69,8 +69,8 @@ if (-not $doc.people) { throw 'この JSON に people がありません。受�
 
 # 今日の日付 = JSON の中で一番新しい受付日
 if (-not $Ymd) {
-    $Ymd = @($doc.people | Where-Object { $_.actual -and $_.actual.checked_in_date } |
-             ForEach-Object { [string]$_.actual.checked_in_date } | Sort-Object -Descending | Select-Object -First 1)
+    $Ymd = [string](@($doc.people | Where-Object { $_.actual -and $_.actual.checked_in_date } |
+             ForEach-Object { [string]$_.actual.checked_in_date } | Sort-Object -Descending) | Select-Object -First 1)
     if (-not $Ymd) { throw 'JSON に受付済みの人がいません。' }
 }
 $Ymd = ($Ymd -replace '-', '/')

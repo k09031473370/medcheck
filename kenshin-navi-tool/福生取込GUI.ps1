@@ -188,7 +188,7 @@ $btnRun.Add_Click({
     try {
         # 今日の日付 = JSON の一番新しい受付日
         $doc = Get-Content -LiteralPath $json -Raw -Encoding UTF8 | ConvertFrom-Json
-        $ymd = @($doc.people | Where-Object { $_.actual -and $_.actual.checked_in_date } | ForEach-Object { [string]$_.actual.checked_in_date } | Sort-Object -Descending | Select-Object -First 1)
+        $ymd = [string](@($doc.people | Where-Object { $_.actual -and $_.actual.checked_in_date } | ForEach-Object { [string]$_.actual.checked_in_date } | Sort-Object -Descending) | Select-Object -First 1)
         if (-not $ymd) { Tell 'JSON に受付済みの人がいません。'; return }
         $ymd = ($ymd -replace '-', '/')
         $recv = @($doc.people | Where-Object { $_.actual -and $null -ne $_.actual.reception_number -and (([string]$_.actual.checked_in_date) -replace '-', '/') -eq $ymd }).Count

@@ -113,6 +113,12 @@ function StartTime([string]$slot) {
 # 入力
 # ============================================================================
 if (-not $Json) { $Json = Read-Host '受付アプリのJSONをドラッグ＆ドロップして Enter' }
+# 日付は「Date 2026/10/06」「2026-10-06」のように打たれても、日付の部分だけ拾う
+if ($Ymd) {
+    if ($Ymd -match '(\d{4})[/\-\.年](\d{1,2})[/\-\.月](\d{1,2})') {
+        $Ymd = '{0}/{1:00}/{2:00}' -f $Matches[1], [int]$Matches[2], [int]$Matches[3]
+    } else { throw "日付が読めません: [$Ymd]  2026/10/06 のように入れてください" }
+}
 $Json = ($Json -replace '^"|"$', '').Trim()
 if (-not (Test-Path $Json)) { throw "見つかりません: $Json" }
 if (-not (Test-Path $MapCsv)) { throw "事業所の対応表がありません: $MapCsv" }

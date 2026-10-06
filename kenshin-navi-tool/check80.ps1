@@ -128,8 +128,34 @@ WHERE MEISYO1 LIKE N'%福生%'
 ORDER BY 2
 "@ 120
 
+Q '--- 4. ★【福生】の団体ごとに、どのコース (FA/FB/FC) が設定されているか (無い団体は取込で赤になる) ---' @"
+SELECT LTRIM(RTRIM(d.DANTAI_CD1)) AS 団体CD, LTRIM(RTRIM(ISNULL(d.MEISYO1,''))) AS 団体名,
+       STUFF((SELECT ',' + LTRIM(RTRIM(c.COURSE_CD)) FROM T_COURSE1 c
+              WHERE c.DANTAI_CD1 = d.DANTAI_CD1 ORDER BY c.COURSE_CD FOR XML PATH('')), 1, 1, '') AS コース,
+       CASE WHEN NOT EXISTS (SELECT 1 FROM T_COURSE1 c WHERE c.DANTAI_CD1 = d.DANTAI_CD1 AND LTRIM(RTRIM(c.COURSE_CD)) = 'FA') THEN N'FA無 ' ELSE '' END
+     + CASE WHEN NOT EXISTS (SELECT 1 FROM T_COURSE1 c WHERE c.DANTAI_CD1 = d.DANTAI_CD1 AND LTRIM(RTRIM(c.COURSE_CD)) = 'FB') THEN N'FB無 ' ELSE '' END
+     + CASE WHEN NOT EXISTS (SELECT 1 FROM T_COURSE1 c WHERE c.DANTAI_CD1 = d.DANTAI_CD1 AND LTRIM(RTRIM(c.COURSE_CD)) = 'FC') THEN N'FC無' ELSE '' END AS 足りない
+FROM T_DANTAI1 d
+WHERE d.MEISYO1 LIKE N'%福生%'
+ORDER BY CASE WHEN EXISTS (SELECT 1 FROM T_COURSE1 c WHERE c.DANTAI_CD1 = d.DANTAI_CD1 AND LTRIM(RTRIM(c.COURSE_CD)) = 'FA')
+               AND EXISTS (SELECT 1 FROM T_COURSE1 c WHERE c.DANTAI_CD1 = d.DANTAI_CD1 AND LTRIM(RTRIM(c.COURSE_CD)) = 'FB')
+               AND EXISTS (SELECT 1 FROM T_COURSE1 c WHERE c.DANTAI_CD1 = d.DANTAI_CD1 AND LTRIM(RTRIM(c.COURSE_CD)) = 'FC') THEN 1 ELSE 0 END, 2
+"@ 150
+
+Q '--- 5. 10/6 の取込で赤になった3人の団体 (北里 / ティーリーフあや) のコース ---' @"
+SELECT LTRIM(RTRIM(c.DANTAI_CD1)) AS 団体CD, LTRIM(RTRIM(ISNULL(d.MEISYO1,''))) AS 団体名,
+       LTRIM(RTRIM(c.COURSE_CD)) AS コース, LTRIM(RTRIM(ISNULL(c.MEISYO,''))) AS コース名
+FROM T_COURSE1 c LEFT JOIN T_DANTAI1 d ON d.DANTAI_CD1 = c.DANTAI_CD1
+WHERE LTRIM(RTRIM(c.DANTAI_CD1)) IN ('0000000256','0000000465') OR d.MEISYO1 LIKE N'%リーフあや%'
+ORDER BY 1, 3
+"@ 40
+
 W ''
 W '=== 読み方 ==='
+W '  4 が 10/7 の前に大事。「足りない」が空でない【福生】の団体は、その人のコースで取込むと赤になる。'
+W '     → 健診ナビの画面で、その団体にコースを足しておく (10/2 の団体は全部そろっていたので同じ形にする)。'
+W '  5 でティーリーフあやに FA が無いことを確かめる。'
+
 W '  1 で【福生】イルクリッパーの正しい団体CDが分かる。'
 W '  2 の判定が空欄の行は正しい。★や「違う」の行は対応表を直す。'
 W '  3 は対応表に無い【福生】の団体。名簿に無い会社なら問題なし。'

@@ -1,1 +1,3 @@
 kenshin-navi-tool/excel_tools.zip
+kenshin-navi-tool/log/*
+!kenshin-navi-tool/log/.gitkeep

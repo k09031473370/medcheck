@@ -111,8 +111,27 @@ function Run-Child([string]$script, [string[]]$argList) {
     }
     $err = $proc.StandardError.ReadToEnd()
     $proc.WaitForExit()
-    if ($err.Trim() -ne '') { Log ('    ' + ($err.Trim() -replace "`r?`n", "`r`n    ")) 'DarkRed' }
+    if ($err.Trim() -ne '') { Log ('    ' + ($err.Trim() -replace "`r?`n", "`r`n    ")) 'DarkRed'; foreach ($e in ($err -split "`r?`n")) { $lines.Add($e) } }
+    if ($proc.ExitCode -ne 0) { Log ("    ※ {0} が終了コード {1} で終わりました (上の赤い行が原因です)" -f $script, $proc.ExitCode) 'DarkRed' }
+    Save-Log
     return @{ Code = $proc.ExitCode; Lines = $lines }
+}
+# ログをファイルに残す (excel_tools\log\福生取込GUI_日時.txt)
+$script:LogFile = $null
+function Save-Log {
+    try {
+        $ld = Join-Path $dir 'log'
+        if (-not (Test-Path $ld)) { [void](New-Item -ItemType Directory -Path $ld) }
+        if (-not $script:LogFile) { $script:LogFile = Join-Path $ld ('福生取込GUI_' + (Get-Date -Format 'yyyyMMdd_HHmmss') + '.txt') }
+        [System.IO.File]::WriteAllText($script:LogFile, $log.Text, [System.Text.Encoding]::UTF8)
+    } catch { }
+}
+# 子ツールが落ちたときに、原因になりそうな行だけ抜き出す
+function Tail-Error($lines, [int]$n = 8) {
+    $arr = @($lines)
+    $hit = @($arr | Where-Object { $_ -match 'エラー|例外|Exception|失敗|ありません|できません|不正|throw|At line|発生場所' })
+    if ($hit.Count -eq 0) { $hit = $arr }
+    return (($hit | Select-Object -Last $n) -join "`r`n")
 }
 function Ask([string]$msg, [string]$title = '確認') {
     return [System.Windows.Forms.MessageBox]::Show($form, $msg, $title, [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question)
@@ -128,14 +147,22 @@ function Do-UkeNo([int]$stepNo, [string]$json) {
     $r = Run-Child '受付結果取込.ps1' @('-Json', $json, '-PreviewOnly')
     $n = -1
     foreach ($l in $r.Lines) { if ($l -match '\[更新予定\]\s+(\d+)\s*人') { $n = [int]$Matches[1] } }
-    if ($n -lt 0) { Step $stepNo 'ng' '出力が読めません'; Log '  受付結果取込 の出力に [更新予定] がありません。上のメッセージを確認してください。' 'DarkRed'; return $false }
+    if ($r.Code -ne 0 -or $n -lt 0) {
+        Step $stepNo 'ng' 'エラー'
+        Tell ("受付結果取込 がエラーで止まりました。原因:`r`n`r`n" + (Tail-Error $r.Lines) + "`r`n`r`nログは " + $script:LogFile) 'エラー'
+        return $false
+    }
     if ($n -eq 0) { Step $stepNo 'ok' '更新なし'; return $true }
     $ans = Ask ("上のプレビューのとおり、{0} 人に受付番号を入れます。`r`n`r`nよければ「はい」" -f $n) '受付番号を入れる'
     if ($ans -ne [System.Windows.Forms.DialogResult]::Yes) { Step $stepNo 'skip' '中止'; Log '  中止しました。何も書いていません。' 'DarkOrange'; return $false }
     Log ''; Log ('--- 書込 ---') 'Navy'
     $r2 = Run-Child '受付結果取込.ps1' @('-Json', $json, '-Commit')
     $ok = @($r2.Lines | Where-Object { $_ -match '読み直し確認' }).Count -gt 0
-    if ($ok) { Step $stepNo 'ok' ("{0} 人" -f $n) } else { Step $stepNo 'ng' '書込を確認できません' }
+    if ($ok) { Step $stepNo 'ok' ("{0} 人" -f $n) }
+    else {
+        Step $stepNo 'ng' '書込を確認できません'
+        Tell ("書込が確認できませんでした。原因:`r`n`r`n" + (Tail-Error $r2.Lines) + "`r`n`r`n何も書いていないか、書いた分は backup に控えがあります。ログは " + $script:LogFile) 'エラー'
+    }
     return $ok
 }
 
@@ -171,6 +198,11 @@ $btnRun.Add_Click({
         Step 0 'run'
         $r = Run-Child '福生取込.ps1' @('-Json', $json, '-Ymd', $ymd, '-CheckOnly')
         if ($r.Code -eq 0) { Step 0 'ok' }
+        elseif ($r.Code -ne 2) {
+            Step 0 'ng' 'エラー'
+            Tell ("事前チェックがエラーで止まりました (DB に繋がらない等)。原因:`r`n`r`n" + (Tail-Error $r.Lines) + "`r`n`r`nログは " + $script:LogFile) 'エラー'
+            return
+        }
         else {
             Step 0 'ng' '要対応'
             $ans = Ask "事前チェックで問題があります (ログの ★ を見てください)。`r`n`r`n健診ナビで直してからやり直すのが確実です。`r`n直さずに進めると、その人は健診ナビの取込で赤になります (他の人は入ります)。`r`n`r`nそれでも進めますか？" '事前チェック'
@@ -186,7 +218,11 @@ $btnRun.Add_Click({
         $r = Run-Child '予約取込Excel作成.ps1' @('-Json', $json, '-Ymd', $ymd)
         $xlsx = $null
         foreach ($l in $r.Lines) { if ($l -match '\[出力\]\s+(.+?\.xlsx)') { $xlsx = $Matches[1].Trim() } }
-        if (-not $xlsx) {
+        if ($r.Code -ne 0) {
+            Step 2 'ng' 'エラー'; Step 3 'skip'
+            Tell ("予約取込Excel作成 がエラーで止まりました。原因:`r`n`r`n" + (Tail-Error $r.Lines) + "`r`n`r`nログは " + $script:LogFile) 'エラー'
+        }
+        elseif (-not $xlsx) {
             Step 2 'ok' '新しく登録する人なし'; Step 3 'skip'
         }
         else {
@@ -219,12 +255,14 @@ $btnRun.Add_Click({
             if (Test-Path $memo) { Get-Content $memo -Encoding Default | ForEach-Object { Log ('  ' + $_) 'DarkOrange' } }
         }
         Step 4 'ok'
-        Log ''; Log '完了。' 'Green'
+        Log ''; Log '完了。' 'Green'; Save-Log; Log ("ログ: " + $script:LogFile) 'Gray'
         Tell "完了しました。`r`n`r`nログの ★ の人を健診ナビの画面で対応してください。`r`n「更新する人」が登録した人数より少なければ、その人は「見つかりません」に出ています。健診ナビで予約ができているか確認して、もう一度 [実行] してください。"
     }
     catch {
         Log ('エラー: ' + $_.Exception.Message) 'DarkRed'
-        Tell ('エラーで止まりました:' + "`r`n" + $_.Exception.Message) 'エラー'
+        Log ('  場所: ' + $_.InvocationInfo.PositionMessage) 'DarkRed'
+        Save-Log
+        Tell ('エラーで止まりました:' + "`r`n`r`n" + $_.Exception.Message + "`r`n`r`nログは " + $script:LogFile) 'エラー'
     }
     finally { $btnRun.Enabled = $true }
 })

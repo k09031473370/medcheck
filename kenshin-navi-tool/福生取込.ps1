@@ -53,7 +53,21 @@ function Pause-Enter([string]$msg) {
     Write-Host $msg -ForegroundColor Yellow
     [void](Read-Host '  Enter を押すと続きます')
 }
-function NoSpace([string]$s) { if ($null -eq $s) { return '' }; return ($s -replace '[\s　]', '') }
+# 氏名の照合用: 空白を取り、旧字・異体字を新字に揃える (壽→寿, 髙→高, 﨑→崎 …)
+#   健診ナビは個人マスタの字 (旧字のことがある)、受付アプリは名簿の字 (新字) なので、そのままだと別人扱いになる。
+$script:OldChars = '壽髙﨑嵜齋齊澤邊邉國廣濱櫻龍惠眞禮與榮德瀧嶋嶌條曾冨靍萬彌藏巖穗祿舩渕籐檜栁槇薭圓濟靑淸瀨黑𠮷塲增敎𣘺橫每步鷗鹽亞惡應獻劍繪聰戶靜讓驗體醫學寫實將眾數壯莊單戰雙寶豐賴彥晉濵𥔎'
+$script:NewChars = '寿高崎崎斎斉沢辺辺国広浜桜竜恵真礼与栄徳滝島島条曽富鶴万弥蔵巌穂禄船淵藤桧柳槙稗円済青清瀬黒吉場増教橋横毎歩鴎塩亜悪応献剣絵聡戸静譲験体医学写実将衆数壮荘単戦双宝豊頼彦晋浜崎'
+function NoSpace([string]$s) {
+    if ($null -eq $s) { return '' }
+    $t = (($s -replace '[\s　]', '').Trim())
+    if ($t -eq '') { return '' }
+    $sb = New-Object System.Text.StringBuilder
+    foreach ($ch in $t.ToCharArray()) {
+        $i = $script:OldChars.IndexOf($ch)
+        if ($i -ge 0) { [void]$sb.Append($script:NewChars[$i]) } else { [void]$sb.Append($ch) }
+    }
+    return $sb.ToString()
+}
 
 # ---- 入力 ----
 if (-not $Json) { $Json = Read-Host '受付アプリの JSON をドラッグ＆ドロップして Enter' }

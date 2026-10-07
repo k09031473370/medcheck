@@ -324,8 +324,11 @@ WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList)
         }
         # 便の本数は 0 が「記録なし」として大量に入るので、1本のときだけ知らせる。
         # (2本が通常。0本は受付アプリ側で記録していないだけのことが多い)
-        if ($p.actual -and $null -ne $p.actual.stool_count -and [int]$p.actual.stool_count -eq 1) {
-            $note += "$label : 便 1 本 → 結果は1本分で入れてください"
+        # 便の本数: 0/1/2 の数字のほか "later"(後日) のような文字も来る
+        if ($p.actual -and $null -ne $p.actual.stool_count) {
+            $sc = [string]$p.actual.stool_count
+            if ($sc -match '^\d+$') { if ([int]$sc -eq 1) { $note += "$label : 便 1 本 → 結果は1本分で入れてください" } }
+            elseif ($sc -ne '') { $note += ("$label : 便 {0} → 結果が来たら入れてください" -f $(if ($sc -eq 'later') { '後日提出' } else { $sc })) }
         }
 
         if ($sets.Count -gt 0) {

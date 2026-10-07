@@ -243,8 +243,13 @@ WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ($inList)
                     if ($v -ne '' -and $v -ne 'unchanged') { $memo += ("{0}={1}" -f $pair[1], $v) }
                 }
             }
-            if ($null -ne $a.stool_count -and [int]$a.stool_count -ne 0 -and [int]$a.stool_count -ne 2) { $memo += ("便 {0} 本" -f $a.stool_count) }
-            if ($syms -contains 'M' -and $null -ne $a.stool_count -and [int]$a.stool_count -eq 0) { $memo += '大腸がん(M)ありだが便 0 本' }
+            # 便の本数: 0/1/2 の数字のほか "later"(後日) のような文字も来る (2026/10/07 受付アプリ)
+            $sc = [string]$a.stool_count
+            if ($sc -match '^\d+$') {
+                if ([int]$sc -ne 0 -and [int]$sc -ne 2) { $memo += ("便 {0} 本" -f $sc) }
+                if ($syms -contains 'M' -and [int]$sc -eq 0) { $memo += '大腸がん(M)ありだが便 0 本' }
+            }
+            elseif ($sc -ne '') { $memo += ("便: {0}" -f $(if ($sc -eq 'later') { '後日提出' } else { $sc })) }
             if ([string]$a.notes -ne '') { $memo += ("受付メモ: {0}" -f $a.notes) }
             if ($p.derived -and (@($p.derived.options_added) + @($p.derived.options_removed)).Count -gt 0) {
                 $memo += ("オプション 追加[{0}] 中止[{1}]" -f (($p.derived.options_added) -join '.'), (($p.derived.options_removed) -join '.'))

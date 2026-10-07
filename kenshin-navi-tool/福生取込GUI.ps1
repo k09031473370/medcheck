@@ -176,7 +176,21 @@ $btnBrowse.Add_Click({
 })
 $form.Add_DragEnter({ param($s, $e) if ($e.Data.GetDataPresent([System.Windows.Forms.DataFormats]::FileDrop)) { $e.Effect = [System.Windows.Forms.DragDropEffects]::Copy } })
 $form.Add_DragDrop({ param($s, $e) $f = @($e.Data.GetData([System.Windows.Forms.DataFormats]::FileDrop)); if ($f.Count -gt 0) { $txtJson.Text = [string]$f[0] } })
-$btnCopy.Add_Click({ if ($log.Text) { [System.Windows.Forms.Clipboard]::SetText($log.Text) } })
+$btnCopy.Add_Click({
+    if (-not $log.Text) { return }
+    # リモートデスクトップ越しだとクリップボードが一瞬使えないことがあるので、3回やり直す
+    $done = $false
+    for ($i = 0; $i -lt 3 -and -not $done; $i++) {
+        try { [System.Windows.Forms.Clipboard]::SetDataObject($log.Text, $true, 5, 100); $done = $true }
+        catch { Start-Sleep -Milliseconds 300 }
+    }
+    if ($done) { Tell 'ログをコピーしました。貼り付けできます。' }
+    else {
+        Save-Log
+        Tell ("クリップボードが使えなかったので、ログをメモ帳で開きます。`r`n" + $script:LogFile)
+        if ($script:LogFile -and (Test-Path $script:LogFile)) { Start-Process notepad.exe -ArgumentList "`"$($script:LogFile)`"" }
+    }
+})
 $btnClose.Add_Click({ $form.Close() })
 
 $btnRun.Add_Click({

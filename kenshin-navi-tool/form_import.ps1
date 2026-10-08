@@ -1566,23 +1566,39 @@ if ($SetUkeNo) {
             $ymd = Resolve-RowYmd $fields $idCols
             $script:UkeNoYmds[$ymd] = 1
             if (-not $cache.ContainsKey($ymd)) {
-                $cache[$ymd] = Invoke-DbQuery $conn @'
+                $dt = Invoke-DbQuery $conn @'
 SELECT s.PK_SEQ, s.UKE_NO_KENSA, k.KANJI_SIMEI, k.KANA_SIMEI
 FROM T_KENSIN s LEFT JOIN T_KOJIN1 k ON k.KOJIN_ID = s.KOJIN_ID
 WHERE s.D_KENSIN = @ymd AND s.F_TORIKESI = 0
 '@ @{ ymd = $ymd }
+                # 氏名の正規化は重いので、その日の予約を読んだときに1回だけ済ませておく
+                # (人数×予約数 回やると数分かかり、画面が固まったように見える)
+                $list = New-Object System.Collections.ArrayList
+                foreach ($r in $dt.Rows) {
+                    [void]$list.Add((New-Object PSObject -Property @{
+                        PK_SEQ = $r.PK_SEQ
+                        UKE_NO_KENSA = $r.UKE_NO_KENSA
+                        KANJI_SIMEI = $r.KANJI_SIMEI
+                        KANA_SIMEI = $r.KANA_SIMEI
+                        NKANJI = (Normalize-Name ([string]$r.KANJI_SIMEI))
+                        NKANA = (Normalize-Name ([string]$r.KANA_SIMEI))
+                        NKENNO = (Normalize-KenNo ([string]$r.UKE_NO_KENSA))
+                    }))
+                }
+                $cache[$ymd] = $list
+                Write-Host ("[照合] {0} の予約 {1} 件を読みました" -f $ymd, $list.Count) -ForegroundColor DarkGray
             }
-            $navi = $cache[$ymd].Rows
+            $navi = $cache[$ymd]
             $kanji = Normalize-Name (Get-Field $fields $idCols.Kanji)
             $kana  = Normalize-Name (Get-Field $fields $idCols.Kana)
 
             $hits = @()
-            if ($kana -ne '')  { $hits = @($navi | Where-Object { (Normalize-Name ([string]$_.KANA_SIMEI)) -eq $kana }) }
+            if ($kana -ne '')  { $hits = @($navi | Where-Object { $_.NKANA -eq $kana }) }
             if ($hits.Count -eq 0 -and $kanji -ne '') {
-                $hits = @($navi | Where-Object { (Normalize-Name ([string]$_.KANJI_SIMEI)) -eq $kanji })
+                $hits = @($navi | Where-Object { $_.NKANJI -eq $kanji })
             }
             elseif ($hits.Count -gt 1 -and $kanji -ne '') {
-                $narrow = @($hits | Where-Object { (Normalize-Name ([string]$_.KANJI_SIMEI)) -eq $kanji })
+                $narrow = @($hits | Where-Object { $_.NKANJI -eq $kanji })
                 if ($narrow.Count -eq 1) { $hits = $narrow }
             }
 
@@ -1599,8 +1615,7 @@ WHERE s.D_KENSIN = @ymd AND s.F_TORIKESI = 0
             $rep.現在の番号 = $cur
             $rep.PkSeq = $hit.PK_SEQ
             # その日の他の人に同じ番号が付いていないか
-            $dup = @($navi | Where-Object {
-                (Normalize-KenNo ([string]$_.UKE_NO_KENSA)) -eq $kenNo -and $_.PK_SEQ -ne $hit.PK_SEQ })
+            $dup = @($navi | Where-Object { $_.NKENNO -eq $kenNo -and $_.PK_SEQ -ne $hit.PK_SEQ })
             if ($dup.Count -gt 0) { $rep.状態 = '同じ受付番号が別の人に設定済み'; $plan += $rep; continue }
             # 受付済み(T_KANJA_Gに行がある)の人は、健診ナビ側が受付番号を別に持っている。
             # ここで T_KENSIN だけ書き換えると食い違うので触らない。

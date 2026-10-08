@@ -919,6 +919,24 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current, $kojin) {
         }
         $raw = Get-Field $fields $col
 
+        # SplitIdx: 1つのセルに「H04/F04」のように複数コードが入っているとき、n番目だけを使う。
+        #   SplitIdx = 何番目か(1始まり) / SplitSep = 区切り文字(省略時は / または ／)
+        #   n番目が無ければ空扱い(何も書かない)。心電図所見1〜3 に振り分けるために使う。
+        if ($m.PSObject.Properties.Name -contains 'SplitIdx') {
+            $si = 0
+            if ([int]::TryParse((Normalize-Text $m.SplitIdx), [ref]$si) -and $si -gt 0) {
+                $sepPat = '[/／]'
+                if ($m.PSObject.Properties.Name -contains 'SplitSep' -and (Normalize-Text $m.SplitSep) -ne '') {
+                    $sepPat = [regex]::Escape((Normalize-Text $m.SplitSep))
+                }
+                $parts = @(([string]$raw) -split $sepPat | ForEach-Object { Normalize-Text $_ } | Where-Object { $_ -ne '' })
+                $raw = $(if ($parts.Count -ge $si) { $parts[$si - 1] } else { '' })
+            }
+        }
+        # OnlyEmpty=1: セルが空のときだけ働く行 (IfEmpty で既定値を入れる専用)。
+        #   値が入っている人は別の行(文字のまま 等)が取り込むので、ここでは何も出さない。
+        if ($m.PSObject.Properties.Name -contains 'OnlyEmpty' -and (Normalize-Text $m.OnlyEmpty) -ne '' -and (Normalize-Text $raw) -ne '') { continue }
+
         # ---- 社員番号 (個人マスタ T_KOJIN1.KOJIN_NO) ----
         # 検査結果ではなく個人マスタへの書込。結果票の差込み文字 **社員番号 がここを読む。
         # 受診ごとではなく人ごとの情報なので、他の受診日の結果票にも出る。

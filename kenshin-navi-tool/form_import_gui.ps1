@@ -169,6 +169,13 @@ $form.Controls.Add($btnYoyaku)
 
 $form.Controls.Add((New-Label '← 受付番号の設定 / 予約取込用のExcelを作成' 430 124 320))
 
+# 画面の文字は自動で log\ に保存している。リモート接続でコピーが効かないときはこのボタンでメモ帳に出す
+$btnLog = New-Object System.Windows.Forms.Button
+$btnLog.Text = 'ログをメモ帳で開く'
+$btnLog.Location = New-Object System.Drawing.Point(760, 118)
+$btnLog.Size = New-Object System.Drawing.Size(150, 30)
+$form.Controls.Add($btnLog)
+
 $btnPreview = New-Object System.Windows.Forms.Button
 $btnPreview.Text = '3. プレビュー'
 $btnPreview.Location = New-Object System.Drawing.Point(244, 80)
@@ -270,7 +277,17 @@ function Append-Out([string]$text) {
     $txtOut.ScrollToCaret()
 }
 
-$allButtons = @($btnBrowse, $btnInspect, $btnDump, $btnPreview, $btnCommit, $btnSyoken, $btnUkeNo, $btnYoyaku, $btnRoster, $btnRosterClear)
+$allButtons = @($btnBrowse, $btnInspect, $btnDump, $btnPreview, $btnCommit, $btnSyoken, $btnUkeNo, $btnYoyaku, $btnRoster, $btnRosterClear, $btnLog)
+
+# 画面の文字をファイルに残す (操作のたびに上書き)。名前が入るので log\ は git に入れない
+$script:LogPath = Join-Path (Join-Path $scriptDir 'log') ('form_import_GUI_' + (Get-Date -Format 'yyyyMMdd_HHmmss') + '.txt')
+function Save-Log {
+    try {
+        $d = Split-Path -Parent $script:LogPath
+        if (-not (Test-Path $d)) { [void](New-Item -ItemType Directory -Path $d) }
+        [System.IO.File]::WriteAllText($script:LogPath, $txtOut.Text, (New-Object System.Text.UTF8Encoding($true)))
+    } catch { }
+}
 
 function Invoke-Busy([scriptblock]$work) {
     foreach ($b in $allButtons) { $b.Enabled = $false }
@@ -281,8 +298,15 @@ function Invoke-Busy([scriptblock]$work) {
     finally {
         foreach ($b in $allButtons) { $b.Enabled = $true }
         $form.Cursor = [System.Windows.Forms.Cursors]::Default
+        Save-Log
     }
 }
+
+$btnLog.Add_Click({
+    Save-Log
+    if (Test-Path $script:LogPath) { Start-Process notepad.exe $script:LogPath }
+    else { [void][System.Windows.Forms.MessageBox]::Show('まだ何も実行していません。', 'ログ', 'OK', 'Information') }
+})
 
 # 入力ファイルを解決 (.xlsx/.xlsm なら一時CSVに変換)
 function Resolve-CsvPath {

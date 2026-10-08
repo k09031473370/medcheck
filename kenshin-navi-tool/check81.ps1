@@ -32,7 +32,6 @@ GROUP BY s.D_KENSIN ORDER BY 1
 Q '--- 2. ★受付番号がまだ入っていない人 (カナ・漢字・団体) ---' @"
 SELECT CONVERT(varchar(10), s.D_KENSIN, 111) AS 受診日, s.PK_SEQ,
        LTRIM(RTRIM(ISNULL(g.KANA_SIMEI,''))) AS カナ, LTRIM(RTRIM(ISNULL(g.KANJI_SIMEI,''))) AS 漢字,
-       CONVERT(varchar(10), g.D_BIRTH, 111) AS 生年月日,
        LTRIM(RTRIM(ISNULL(d.MEISYO1,''))) AS 団体, LTRIM(RTRIM(ISNULL(s.COURSE_CD,''))) AS コース
 FROM T_KENSIN s
 LEFT JOIN T_KOJIN1 g ON g.KOJIN_ID = s.KOJIN_ID

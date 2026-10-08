@@ -45,7 +45,7 @@ function Read-Xlsx([string]$path) {
         }
 
         # --- 共有文字列 ---
-        $shared = @()
+        $shared = New-Object System.Collections.ArrayList
         $xs = & $getXml 'xl/sharedStrings.xml'
         if ($xs) {
             $m = & $nsMgr $xs 'm' $NS
@@ -54,7 +54,7 @@ function Read-Xlsx([string]$path) {
                 # m:rPh/m:t は「ふりがな」なので値ではない (健保外 + ケンポガイ になってしまう)
                 $sb = New-Object System.Text.StringBuilder
                 foreach ($t in $si.SelectNodes('m:t | m:r/m:t', $m)) { [void]$sb.Append($t.InnerText) }
-                $shared += $sb.ToString()
+                [void]$shared.Add($sb.ToString())
             }
         }
 
@@ -108,9 +108,13 @@ function Read-Xlsx([string]$path) {
         if (-not $xsh) { throw "Excelの中にシートが見つかりません: $path" }
         $m = & $nsMgr $xsh 'm' $NS
 
-        $lines = @()
+        # 値の入ったセル(m:v か m:is)を1つも持たない行は読まない。
+        # 書式だけ付いた空行が最終行(104万行)まで続くファイルがあり
+        # (SRLの結果など)、全行を読むと何十分も終わらず画面が固まる。
+        # 配列の += も行数の2乗で遅くなるので ArrayList にする。
+        $lines = New-Object System.Collections.ArrayList
         $maxCol = 0
-        foreach ($row in $xsh.SelectNodes('/m:worksheet/m:sheetData/m:row', $m)) {
+        foreach ($row in $xsh.SelectNodes('/m:worksheet/m:sheetData/m:row[m:c/m:v or m:c/m:is]', $m)) {
             $h = @{}
             foreach ($c in $row.SelectNodes('m:c', $m)) {
                 # 列番号 (A→1, AB→28)
@@ -160,18 +164,18 @@ function Read-Xlsx([string]$path) {
                     if ($col -gt $maxCol) { $maxCol = $col }
                 }
             }
-            $lines += ,$h
+            if ($h.Count -gt 0) { [void]$lines.Add($h) }
         }
 
         if ($maxCol -le 0) { throw "Excelにデータがありません: $path" }
-        $out = @()
+        $out = New-Object System.Collections.ArrayList
         foreach ($h in $lines) {
             $arr = New-Object 'string[]' $maxCol
             for ($i = 0; $i -lt $maxCol; $i++) { $arr[$i] = '' }
             foreach ($k in $h.Keys) { if ($k -le $maxCol) { $arr[$k - 1] = [string]$h[$k] } }
-            $out += ,$arr
+            [void]$out.Add($arr)
         }
-        return ,$out
+        return ,$out.ToArray()
     }
     finally { if ($zip) { $zip.Dispose() } }
 }

@@ -936,6 +936,11 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current, $kojin) {
         # OnlyEmpty=1: セルが空のときだけ働く行 (IfEmpty で既定値を入れる専用)。
         #   値が入っている人は別の行(文字のまま 等)が取り込むので、ここでは何も出さない。
         if ($m.PSObject.Properties.Name -contains 'OnlyEmpty' -and (Normalize-Text $m.OnlyEmpty) -ne '' -and (Normalize-Text $raw) -ne '') { continue }
+        # Optional=1: 健診ナビにその項目の枠が無い人がいて当然の項目 (eGFR・MCV のような計算値、
+        #   コースによって有無が違う HbA1c・便潜血 など)。枠が無ければエラーにせず「取込対象外」で済ませる。
+        #   付けていない項目で枠が無いときは従来どおり「枠なし」(エラー) にして、コース違いに気付けるようにする。
+        $nfStatus = '枠なし'
+        if ($m.PSObject.Properties.Name -contains 'Optional' -and (Normalize-Text $m.Optional) -ne '') { $nfStatus = '取込対象外(この人のコースに枠なし)' }
 
         # ---- 社員番号 (個人マスタ T_KOJIN1.KOJIN_NO) ----
         # 検査結果ではなく個人マスタへの書込。結果票の差込み文字 **社員番号 がここを読む。
@@ -985,7 +990,7 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current, $kojin) {
             }
             if ($hv -eq '') { continue }
             if ($komoku -eq '') { $rep.Status = '項目CD未設定'; $rep.New = $hv; $plan += $rep; continue }
-            if (-not $current.ContainsKey($komoku)) { $rep.Status = '枠なし'; $rep.New = $hv; $plan += $rep; continue }
+            if (-not $current.ContainsKey($komoku)) { $rep.Status = $nfStatus; $rep.New = $hv; $plan += $rep; continue }
             $rep.New    = $hv
             $rep.Hantei = $hv
             $rep.Now    = Normalize-Text ([string]$current[$komoku].HANTEI_KIGO)
@@ -1109,7 +1114,7 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current, $kojin) {
                 $rep.Hantei  = Normalize-Text ([string]$hitS.HANTEI_KIGO)
             }
 
-            if (-not $current.ContainsKey($komoku)) { $rep.Status = '枠なし'; $plan += $rep; continue }
+            if (-not $current.ContainsKey($komoku)) { $rep.Status = $nfStatus; $plan += $rep; continue }
             $rep.Now = Normalize-Text ([string]$current[$komoku].KEKKA)
             $rep.Status = 'OK'
             $rep.Update = @{
@@ -1157,7 +1162,7 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current, $kojin) {
                 $rep.Hantei  = Normalize-Text ([string]$hitS.HANTEI_KIGO)
             }
 
-            if (-not $current.ContainsKey($komoku)) { $rep.Status = '枠なし'; $plan += $rep; continue }
+            if (-not $current.ContainsKey($komoku)) { $rep.Status = $nfStatus; $plan += $rep; continue }
             $rep.Now = Normalize-Text ([string]$current[$komoku].KEKKA)
             $rep.Status = 'OK'
             $rep.Update = @{
@@ -1186,7 +1191,7 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current, $kojin) {
             $fmt = Normalize-Text $m.Format
             if ($fmt -ne '') { $d = 0.0; if ([double]::TryParse($val, [ref]$d)) { $val = $d.ToString($fmt) } }
             $rep.New = $val
-            if (-not $current.ContainsKey($komoku)) { $rep.Status = '枠なし'; $plan += $rep; continue }
+            if (-not $current.ContainsKey($komoku)) { $rep.Status = $nfStatus; $plan += $rep; continue }
             $rep.Now = Normalize-Text ([string]$current[$komoku].KEKKA)
             $rep.Status = 'OK'
             $rep.Update = @{
@@ -1231,7 +1236,7 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current, $kojin) {
                 $rep.Status = "選択肢未登録(コード$code" + $(if ($scd) { "/リスト$scd" } else { '' }) + ')'
                 $rep.New = $code; $plan += $rep; continue
             }
-            if (-not $current.ContainsKey($komoku)) { $rep.Status = '枠なし'; $rep.New = $label; $plan += $rep; continue }
+            if (-not $current.ContainsKey($komoku)) { $rep.Status = $nfStatus; $rep.New = $label; $plan += $rep; continue }
 
             # 並んだ枠(017107A〜J等)に同じ選択肢を二重に書かない
             if ($komoku -match '^(.*\d)[A-Z]$') {
@@ -1288,7 +1293,7 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current, $kojin) {
                 $d = 0.0
                 if ([double]::TryParse($rep.New, [ref]$d)) { $rep.New = $d.ToString($fmt) }
             }
-            if (-not $current.ContainsKey($komoku)) { $rep.Status = '枠なし'; $plan += $rep; continue }
+            if (-not $current.ContainsKey($komoku)) { $rep.Status = $nfStatus; $plan += $rep; continue }
             $rep.Now = Normalize-Text ([string]$current[$komoku].KEKKA)
             $rep.Status = 'OK'
             $rep.Update = @{

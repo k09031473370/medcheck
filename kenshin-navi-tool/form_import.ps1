@@ -1732,8 +1732,13 @@ try {
     # 全体集計 (26人ぶんを1件ずつ目で追わなくて済むように)
     $sumPeople = 0; $sumOk = 0; $sumErr = 0; $sumDrop = 0; $sumDef = 0
     $errNos = @(); $notFoundNos = @(); $wroteNos = @(); $nameNgNos = @()
+    $blankNoRows = 0
     foreach ($fields in $targets) {
         $kenNo = Normalize-KenNo (Get-Field $fields $idCols.KenNo)
+        # 受付番号の列があるファイルで受付番号が空の行は、サブ見出し(眼底の選択肢など)や
+        # 空行なので人のデータではない。受診日も空のことが多く、先に受診日を解釈すると
+        # そこで止まってしまうので、受診日を見る前に飛ばす。
+        if ($idCols.KenNo -gt 0 -and $kenNo -eq '') { $blankNoRows++; continue }
         $ymd = Resolve-RowYmd $fields $idCols
         $byName = $false
         if ($kenNo -ne '') {
@@ -1841,6 +1846,9 @@ try {
     if ($script:MiukeCount -gt 0) {
         Write-Host ''
         Write-Host ("[情報] {0} 人は未受付のため予約情報から特定しました (取込には支障ありません)。" -f $script:MiukeCount) -ForegroundColor DarkGray
+    }
+    if ($blankNoRows -gt 0) {
+        Write-Host ("[情報] 受付番号が空の行 {0} 行は見出し・空行として飛ばしました。" -f $blankNoRows) -ForegroundColor DarkGray
     }
     # 名簿でしぼり込んだ結果1人も残らなかった場合、たいてい受診日の食い違いが原因
     if ($rosterSet -and $sumPeople -eq 0 -and $skipped -gt 0) {

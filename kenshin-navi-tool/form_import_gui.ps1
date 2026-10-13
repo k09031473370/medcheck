@@ -427,12 +427,21 @@ function Confirm-YmdOverride([string]$csv) {
     if ($txtPw.Text -ne '') { $a += @('-Password', $txtPw.Text) }
     $out = Run-Core $a
 
-    $fileYmd = ''; $inYmd = ''
+    $fileYmd = ''; $inYmd = ''; $gotYmdLine = $false
     foreach ($ln in ($out -split "`r?`n")) {
         if ($ln -match '^FILEYMD=(.*)$')  { $fileYmd = $Matches[1].Trim() }
-        if ($ln -match '^INPUTYMD=(.*)$') { $inYmd   = $Matches[1].Trim() }
+        if ($ln -match '^INPUTYMD=(.*)$') { $inYmd   = $Matches[1].Trim(); $gotYmdLine = $true }
     }
 
+    # INPUTYMD の行が無い = 受診日の確認以前にファイルや対応表の読み込みで失敗している
+    # (パスワード未入力・対応表の不備など)。受診日のせいにせず、本当のエラーを見せる。
+    if (-not $gotYmdLine) {
+        Append-Out $out
+        $hint = 'ファイルの読み込みに失敗しました。下の欄の [エラー出力] を確認してください。'
+        if ($out -match 'パスワード') { $hint = 'このExcelにはパスワードが掛かっています。「パスワード」欄に入力してからやり直してください。' }
+        [void][System.Windows.Forms.MessageBox]::Show($hint, 'ファイルを読めません', 'OK', 'Error')
+        return $false
+    }
     if ($inYmd -eq '') {
         [void][System.Windows.Forms.MessageBox]::Show(
             "受診日「$typed」を解釈できません。`r`n2026/07/12 のように入力してください。",

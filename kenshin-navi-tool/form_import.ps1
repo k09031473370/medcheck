@@ -250,6 +250,16 @@ function Read-FormCsv([string]$path, [string]$encName) {
 #  -NoHeader 指定時は必ず見出し無し。未指定なら 1行目の受付番号列を見て自動判定する
 #  (受付番号列が数字ならデータ行、そうでなければ見出し行)
 function Split-HeaderData($rows, $idCols) {
+    # 対応表の # HEADERROW=n に従い、見出しより上の行 (タイトル行など) を読み飛ばす
+    $hr = 1
+    if ($script:HeaderRow) { $hr = [int]$script:HeaderRow }
+    if ($hr -gt 1) {
+        if ($rows.Count -lt $hr) { throw ("見出しが {0} 行目のはずですが、ファイルは {1} 行しかありません。" -f $hr, $rows.Count) }
+        $tmp = @()
+        for ($i = $hr - 1; $i -lt $rows.Count; $i++) { $tmp += , $rows[$i] }
+        $rows = $tmp
+        Write-Host ("[見出し] 対応表の指定により {0} 行目を見出しとして読みます (上の {1} 行は読み飛ばし)" -f $hr, ($hr - 1)) -ForegroundColor DarkGray
+    }
     $noHdr = [bool]$NoHeader
     if (-not $noHdr -and $idCols -and $idCols.KenNo -gt 0) {
         $v = Normalize-KenNo (Get-Field $rows[0] $idCols.KenNo)
@@ -285,30 +295,41 @@ function Get-Field($fields, [int]$col) {
 function Detect-MappingPath([string]$path) {
     if (-not $path) { $path = $Csv }
     if (-not $path -or -not (Test-Path $path)) { return $null }
-    $first = ''
-    $colCount = 0
+    # 先頭 5 行までを読んでおく。対応表に「# HEADERROW=n」があれば n 行目を見出しとして照合する
+    # (読影業者の胸部X線ファイルのように、1 行目がタイトルで 2 行目が見出しのものがあるため)
+    $lines = @(); $counts = @()
     $ext = [System.IO.Path]::GetExtension($path).ToLower()
     if ($ext -eq '.xlsx' -or $ext -eq '.xlsm') {
         try {
-            $r1 = (Read-Xlsx $path)[0]
-            $first = ($r1 -join ',')
-            $colCount = $r1.Count
+            $rr = Read-Xlsx $path
+            $n = [Math]::Min(5, $rr.Count)
+            for ($i = 0; $i -lt $n; $i++) { $lines += ($rr[$i] -join ','); $counts += $rr[$i].Count }
         } catch { return $null }
     }
     else {
         $enc = if ($CsvEncoding -eq 'UTF8') { New-Object System.Text.UTF8Encoding($false) } else { [System.Text.Encoding]::GetEncoding(932) }
         try {
             $all = Read-TextShared $path $enc
-            $first = ($all -split "`r?`n")[0]
+            $ls = @($all -split "`r?`n")
         } catch { return $null }
-        if ($null -eq $first) { return $null }
-        if ($first.Length -gt 0 -and $first[0] -eq [char]0xFEFF) { $first = $first.Substring(1) }
-        $colCount = ($first -split ',').Count
+        $n = [Math]::Min(5, $ls.Count)
+        for ($i = 0; $i -lt $n; $i++) {
+            $l = [string]$ls[$i]
+            if ($i -eq 0 -and $l.Length -gt 0 -and $l[0] -eq [char]0xFEFF) { $l = $l.Substring(1) }
+            $lines += $l; $counts += ($l -split ',').Count
+        }
     }
+    if ($lines.Count -eq 0) { return $null }
 
     $byHeader = $null; $byHeaderKw = -1; $byCols = $null
     foreach ($f in (Get-ChildItem -Path $MapDir -Filter 'mapping*.csv' -File -ErrorAction SilentlyContinue | Sort-Object Name)) {
-        foreach ($ln in (Get-Content $f.FullName -TotalCount 8 -Encoding UTF8)) {
+        $head = @(Get-Content $f.FullName -TotalCount 8 -Encoding UTF8)
+        $hr = 1
+        foreach ($ln in $head) { if ($ln -match '^#\s*HEADERROW\s*=\s*(\d+)\s*$') { $hr = [int]$Matches[1]; break } }
+        if ($hr -lt 1 -or $hr -gt $lines.Count) { continue }
+        $first = $lines[$hr - 1]
+        $colCount = $counts[$hr - 1]
+        foreach ($ln in $head) {
             if ($ln -notmatch '^#\s*DETECT\s*=\s*(.+)$') { continue }
             $spec = $Matches[1].Trim()
             if ($spec -match '^(?i)HEADER\s*:\s*(.+)$') {
@@ -384,6 +405,11 @@ function Load-Mapping {
     if (-not (Test-Path $p)) { throw "対応表が見つかりません: $p" }
     $script:MappingPathUsed = $p
     Write-Host "[対応表] $([System.IO.Path]::GetFileName($p))" -ForegroundColor DarkGray
+    # 「# HEADERROW=n」: 見出しが n 行目にあるファイル用 (上の n-1 行はタイトル等として読み飛ばす)
+    $script:HeaderRow = 1
+    foreach ($ln in (Get-Content $p -TotalCount 8 -Encoding UTF8)) {
+        if ($ln -match '^#\s*HEADERROW\s*=\s*(\d+)\s*$') { $script:HeaderRow = [int]$Matches[1]; break }
+    }
     $rows = @(Import-Csv -Path $p -Encoding UTF8)
     # 対応表の先頭に書いた # のコメント行が、データ行として読まれることがある。
     # (Windows PowerShell 5.1 の Import-Csv は # 行を読み飛ばさない)

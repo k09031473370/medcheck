@@ -137,9 +137,16 @@ XRAY_HANTEI,心配なし,B,読影業者(白十字会)の胸部X線判定(4段階
 XRAY_HANTEI,要経過観察,D,健診ナビの D = 要観察(要経過観察)。C は「要注意」なので使わない
 XRAY_HANTEI,要精検,F,健診ナビの F = 要精検。D ではない
 XRAY_HANTEI,異常なし,A,
-IBU_HANTEI,A,A,胃部X線の判定 (入力画面 112 列目) → 健診ナビの判定記号。2026/10/15 石屋
+IBU_HANTEI,A,A,胃部X線の判定 (入力画面 112 列目) → 健診ナビの判定記号。文字は読み替えずそのまま (ユーザー決定 2026/10/15)
 IBU_HANTEI,B,B,
-IBU_HANTEI,C12,D,12か月後経過観察・再検 → D 要観察 (ユーザー決定 2026/10/15)
-IBU_HANTEI,Ｃ12,D,全角の Ｃ12 も同じ
-IBU_HANTEI,C,D,
-IBU_HANTEI,D,F,
+IBU_HANTEI,C12,C,12か月後経過観察・再検 → C (「12」を落とすだけ。D にしない。ユーザー決定 2026/10/15)
+IBU_HANTEI,Ｃ12,C,全角の Ｃ12 も同じ
+IBU_HANTEI,C,C,
+IBU_HANTEI,D,D,
+ECG_HANTEI,A,A,心電図の判定 (入力画面 105 列目 / 3日分 61 列目) → 健診ナビの判定記号。文字は読み替えずそのまま (ユーザー決定 2026/10/15)
+ECG_HANTEI,B,B,
+ECG_HANTEI,C,C,
+ECG_HANTEI,D,D,
+ECG_HANTEI,D2,D,装置の D2 → D (ユーザー決定 2026/10/15)
+ECG_HANTEI,D1,D,
+ECG_HANTEI,C12,C,

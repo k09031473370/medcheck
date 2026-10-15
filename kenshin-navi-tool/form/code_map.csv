@@ -137,3 +137,9 @@ XRAY_HANTEI,心配なし,B,読影業者(白十字会)の胸部X線判定(4段階
 XRAY_HANTEI,要経過観察,D,健診ナビの D = 要観察(要経過観察)。C は「要注意」なので使わない
 XRAY_HANTEI,要精検,F,健診ナビの F = 要精検。D ではない
 XRAY_HANTEI,異常なし,A,
+IBU_HANTEI,A,A,胃部X線の判定 (入力画面 112 列目) → 健診ナビの判定記号。2026/10/15 石屋
+IBU_HANTEI,B,B,
+IBU_HANTEI,C12,D,12か月後経過観察・再検 → D 要観察 (ユーザー決定 2026/10/15)
+IBU_HANTEI,Ｃ12,D,全角の Ｃ12 も同じ
+IBU_HANTEI,C,D,
+IBU_HANTEI,D,F,

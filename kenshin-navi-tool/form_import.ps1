@@ -1229,7 +1229,8 @@ function Build-Plan($conn, $mapRows, $valueMap, $fields, $current, $kojin) {
         elseif ($kind -eq 'MONSHIN') {
             # ---- 選択式項目 (問診・尿・聴力等): コード → ラベル+判定 ----
             # T_KOMOKU.SYOKEN_CD → T_SYOKEN2 の選択肢リストで解決 (無ければ monshin_map.csv)
-            $rawCode = Normalize-KenNo (Get-Field $fields $col)
+            # 2026/10/16: Get-Field ではなく $raw を使う (IfEmpty/ReqCol の既定値と SplitIdx を MONSHIN でも効かせる)
+            $rawCode = Normalize-KenNo $raw
             if ($rawCode -eq '') { continue }
             if ($komoku -eq '') { $rep.Status = '項目CD未設定'; $rep.New = $rawCode; $plan += $rep; continue }
             $cv = Convert-Code $m $rawCode

@@ -47,8 +47,43 @@ WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ('2026/09/03','2026/09/09','2026/09/10'
 ORDER BY s.UKE_NO_KENSA
 "@ 20
 
+Q '--- 4. ★健診ナビにある 便潜血 の項目 (1 日法・1 本法 のような別項目があるか) と 石屋の枠数 ---' @"
+SELECT LTRIM(RTRIM(m.KOMOKU_CD)) AS 項目CD, m.MEISYO1 AS 項目名, LTRIM(RTRIM(ISNULL(m.SYOKEN_CD,''))) AS 選択肢リスト,
+       (SELECT COUNT(*) FROM T_KENSIN s JOIN T_KENSA k ON k.PK_SEQ = s.PK_SEQ
+         WHERE s.F_TORIKESI = 0 AND s.D_KENSIN IN ('2026/09/03','2026/09/09','2026/09/10') AND s.UKE_NO_KENSA BETWEEN 4631 AND 4831
+           AND LTRIM(RTRIM(k.KOMOKU_CD)) = LTRIM(RTRIM(m.KOMOKU_CD))) AS 石屋の枠,
+       (SELECT COUNT(*) FROM T_KENSA k WHERE LTRIM(RTRIM(k.KOMOKU_CD)) = LTRIM(RTRIM(m.KOMOKU_CD))) AS 全体の枠
+FROM T_KOMOKU m
+WHERE m.MEISYO1 LIKE N'%便%' OR LTRIM(RTRIM(m.KOMOKU_CD)) LIKE 'OPJ%' OR LTRIM(RTRIM(m.KOMOKU_CD)) IN ('069245','069246')
+ORDER BY 1
+"@ 40
+
+Q '--- 5. ★便潜血 2回目 (069246) の選択肢 (「未提出」「未実施」のような選択肢があるか) ---' @"
+SELECT LTRIM(RTRIM(m.KOMOKU_CD)) AS 項目CD, m.MEISYO1 AS 項目名, y.KEKKA_CD AS 結果CD, y.SYOKEN AS 選択肢, ISNULL(y.HANTEI_KIGO,'') AS 判定
+FROM T_KOMOKU m JOIN T_SYOKEN2 y ON LTRIM(RTRIM(y.SYOKEN_CD)) = LTRIM(RTRIM(m.SYOKEN_CD))
+WHERE LTRIM(RTRIM(m.KOMOKU_CD)) IN ('069245','069246')
+ORDER BY 1, y.KEKKA_CD
+"@ 40
+
+Q '--- 6. 参考: 過去 (今年) に 便潜血 2回目 だけ空のまま 自動判定済みの人が他にいるか (セットの判定がどうなっているか) ---' @"
+SELECT TOP 20 CONVERT(varchar(10), s.D_KENSIN, 111) AS 受診日, s.UKE_NO_KENSA AS 受付番号,
+       ISNULL(k1.KEKKA,'') AS 一回目, ISNULL(k1.HANTEI_KIGO,'') AS 判定1, ISNULL(k2.KEKKA,'') AS 二回目, ISNULL(k2.HANTEI_KIGO,'') AS 判定2,
+       ISNULL(ks.KEKKA,'') AS セット結果, ISNULL(ks.HANTEI_KIGO,'') AS セット判定,
+       ISNULL((SELECT TOP 1 ISNULL(x.HANTEI_KIGO,'') FROM T_KENSA x WHERE x.PK_SEQ = s.PK_SEQ AND LTRIM(RTRIM(x.KOMOKU_CD)) = 'MT00A'),'') AS 総合判定
+FROM T_KENSIN s
+JOIN T_KENSA k1 ON k1.PK_SEQ = s.PK_SEQ AND LTRIM(RTRIM(k1.KOMOKU_CD)) = '069245'
+JOIN T_KENSA k2 ON k2.PK_SEQ = s.PK_SEQ AND LTRIM(RTRIM(k2.KOMOKU_CD)) = '069246'
+LEFT JOIN T_KENSA ks ON ks.PK_SEQ = s.PK_SEQ AND LTRIM(RTRIM(ks.KOMOKU_CD)) = 'OPJ010'
+WHERE s.F_TORIKESI = 0 AND s.D_KENSIN >= '2026/01/01' AND s.D_KENSIN < '2026/09/01'
+  AND LTRIM(RTRIM(ISNULL(k1.KEKKA,''))) <> '' AND LTRIM(RTRIM(ISNULL(k2.KEKKA,''))) = ''
+ORDER BY s.D_KENSIN DESC
+"@ 25
+
 W ''
 W '=== 読み方 ==='
+W '  4: 「便潜血1日法」のような別の項目があれば、1 本として入れ直す選択肢がある (ただしコースの項目を変えることになる)。'
+W '  5: 2回目 の選択肢に「未提出」などがあれば、2回目 にそれを入れて 2 日法のまま 1 本で判定させられる。'
+W '  6: 過去に同じ状態 (1回目だけ) の人が自動判定でどう判定されたかの実例。'
 W '  1: 4673 の 1回目が (+) で、セット OPJ010 か 1回目 の判定に F (要精検) が付いていれば問題なし。判定が空なら自動判定がまだ。'
 W '  2: 2 本出した人でどの行に判定が付くか (セットに付くのか、1回目・2回目それぞれに付くのか) の確認用。'
 W '  3: 総合判定が空の人は自動判定がまだ走っていない。'

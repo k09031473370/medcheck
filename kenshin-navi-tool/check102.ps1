@@ -94,6 +94,29 @@ GROUP BY LTRIM(RTRIM(k.KEKKA)), ISNULL(k.KEKKA_CD,'')
 ORDER BY 4 DESC
 "@ 40
 
+Q '--- 9. ★【判定】眼底 600060 の枠が無い人 (表 7 で枠 168 / 199 人): 受診日・コース・総合判定の有無 ---' @"
+SELECT s.UKE_NO_KENSA AS 受付番号, CONVERT(varchar(10), s.D_KENSIN, 111) AS 受診日, g.KANJI_SIMEI AS 氏名, LTRIM(RTRIM(ISNULL(s.COURSE_CD,''))) AS コース,
+       ISNULL((SELECT TOP 1 ISNULL(x.HANTEI_KIGO,'') FROM T_KENSA x WHERE x.PK_SEQ = s.PK_SEQ AND LTRIM(RTRIM(x.KOMOKU_CD)) = '11000'),'') AS 総合判定,
+       (SELECT COUNT(*) FROM T_KENSA y WHERE y.PK_SEQ = s.PK_SEQ AND LTRIM(RTRIM(y.KOMOKU_CD)) IN ('600340','600310','600220','600320')) AS 他のくくり枠,
+       (SELECT COUNT(*) FROM T_KENSA y WHERE y.PK_SEQ = s.PK_SEQ AND LTRIM(RTRIM(y.KOMOKU_CD)) LIKE '6[0-9][0-9][0-9][0-9][0-9]') AS くくり枠の数
+FROM T_KENSIN s LEFT JOIN T_KOJIN1 g ON g.KOJIN_ID = s.KOJIN_ID
+WHERE $ISHIYA AND NOT EXISTS (SELECT 1 FROM T_KENSA k WHERE k.PK_SEQ = s.PK_SEQ AND LTRIM(RTRIM(k.KOMOKU_CD)) = '600060')
+ORDER BY s.D_KENSIN, s.UKE_NO_KENSA
+"@ 60
+
+Q '--- 10. 600060 の枠はあるが判定が空の人 (表 6 の「眼底判定が空」の行) ---' @"
+SELECT s.UKE_NO_KENSA AS 受付番号, CONVERT(varchar(10), s.D_KENSIN, 111) AS 受診日, g.KANJI_SIMEI AS 氏名,
+       ISNULL((SELECT TOP 1 ISNULL(x.HANTEI_KIGO,'') FROM T_KENSA x WHERE x.PK_SEQ = s.PK_SEQ AND LTRIM(RTRIM(x.KOMOKU_CD)) = '11000'),'') AS 総合判定,
+       LEFT(ISNULL(r.KEKKA,''), 24) AS 右所見, LEFT(ISNULL(l.KEKKA,''), 24) AS 左所見,
+       ISNULL((SELECT TOP 1 ISNULL(x.HANTEI_KIGO,'') FROM T_KENSA x WHERE x.PK_SEQ = s.PK_SEQ AND LTRIM(RTRIM(x.KOMOKU_CD)) = '067056'),'') AS ScheieH判定
+FROM T_KENSIN s LEFT JOIN T_KOJIN1 g ON g.KOJIN_ID = s.KOJIN_ID
+JOIN T_KENSA k ON k.PK_SEQ = s.PK_SEQ AND LTRIM(RTRIM(k.KOMOKU_CD)) = '600060'
+LEFT JOIN T_KENSA r ON r.PK_SEQ = s.PK_SEQ AND LTRIM(RTRIM(r.KOMOKU_CD)) = '067052'
+LEFT JOIN T_KENSA l ON l.PK_SEQ = s.PK_SEQ AND LTRIM(RTRIM(l.KOMOKU_CD)) = '067053'
+WHERE $ISHIYA AND LTRIM(RTRIM(ISNULL(k.HANTEI_KIGO,''))) = ''
+ORDER BY s.D_KENSIN, s.UKE_NO_KENSA
+"@ 40
+
 W ''
 W '=== 読み方 ==='
 W '  1: 受診日ごとに眼底の各項目に判定が付いているか。「値ありで判定なし」が 0 でなければ、その項目は判定が付いていない。'
@@ -102,4 +125,5 @@ W '  5: GANTEI の所見に判定記号が無ければ、コード入力の人�
 W '  6: 600060 が結果票に出る眼底の判定。業者の判定 (9/3: A39 B9 C2 D6 F1 G1 / 9/9・9/10: A100 B10 C2 D27 G2) と合っていなければ、'
 W '     mapping_gantei_hantei_93.csv / mapping_gantei_hantei_bkup123.csv で業者の判定を 600060 に入れる (HANDOFF 参照)。'
 W '  8: 眼底のコメントの定型文。kukuri_comment に眼底の規則を足すときの文章に使う。'
+W '  9: 600060 の枠が無い人。くくり枠の数が 0 なら、くくりの枠は自動判定のときに作られる (自動判定をかければ枠ができる) と考えられる。'
 notepad $out

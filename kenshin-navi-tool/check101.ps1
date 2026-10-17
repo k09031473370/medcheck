@@ -9,7 +9,7 @@ param([string]$UkeNo)
 $ErrorActionPreference = 'Continue'
 $dir  = $PSScriptRoot
 $tool = Join-Path $dir 'db_tool.ps1'
-if (-not $UkeNo) { $UkeNo = Read-Host '受付番号 (例 4714)' }
+if (-not $UkeNo) { $UkeNo = Read-Host '受付番号 (例 4001)' }
 if ($UkeNo -notmatch '^\d+$') { Write-Host '受付番号は数字で入れてください。'; pause; return }
 $out  = Join-Path $dir ("r_check101_{0}_{1}.txt" -f $UkeNo, (Get-Date -Format 'yyyyMMdd_HHmmss'))
 function W($t) { $t | Out-File $out -Append -Encoding Default }

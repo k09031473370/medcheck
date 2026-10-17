@@ -57,7 +57,7 @@ function Split-List([string]$s) { return @(($s -split '[,、\s]+') | ForEach-Obj
 # ---- 入れる文章 ----
 #   Item … 判定を見る項目 / Kind … 同じ種類のコメントを見分ける文字 / Heavy … F のときの文に含まれる言葉 (重さの判定用)
 $RULES = @(
-    @{ Name = 'HbA1c'; Item = '068689'; Kind = '糖';    KindPat = '糖';
+    @{ Name = 'HbA1c'; Item = '068689'; Kind = '糖';    KindPat = '糖代謝|糖尿病';   # 「糖」だけだと【尿糖】の文に当たって「既にあり」になる (9/9 の 4771 で発覚)
        D = @{ Cd = '';    Text = '【糖代謝】　高値です。経過観察の必要があります。' }
        F = @{ Cd = '';    Text = '【糖代謝】　糖尿病が疑われますので精密検査の必要があります。' } }
     @{ Name = 'eGFR';  Item = '068676'; Kind = '腎機能'; KindPat = '腎機能';

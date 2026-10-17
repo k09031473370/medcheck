@@ -1758,7 +1758,7 @@ try {
     $skipped = 0
     # 全体集計 (26人ぶんを1件ずつ目で追わなくて済むように)
     $sumPeople = 0; $sumOk = 0; $sumErr = 0; $sumDrop = 0; $sumDef = 0
-    $errNos = @(); $notFoundNos = @(); $wroteNos = @(); $nameNgNos = @()
+    $errNos = @(); $notFoundNos = @(); $wroteNos = @(); $nameNgNos = @(); $lockNos = @()
     $blankNoRows = 0
     foreach ($fields in $targets) {
         $kenNo = Normalize-KenNo (Get-Field $fields $idCols.KenNo)
@@ -1861,8 +1861,18 @@ try {
                 $hadError = $true
                 continue
             }
-            Commit-Plan $conn $pk $plan
-            $wroteNos += $kenNo
+            # 2026/10/17: 健診ナビの画面で開かれている人 (ロック) が 1 人いても全体を止めず、その人だけ飛ばして続ける。
+            #   飛ばした人は最後にまとめて出す。画面を閉じてから同じファイルでもう一度書込実行すれば、その人だけ入る
+            #   (書込済みの人は同じ値を書き直すだけなので害は無い)。
+            try {
+                Commit-Plan $conn $pk $plan
+                $wroteNos += $kenNo
+            } catch {
+                Write-Host ('[書込できず] 受付番号 {0}: {1}' -f $kenNo, $_.Exception.Message) -ForegroundColor Red
+                $hadError = $true
+                $lockNos += $kenNo
+                continue
+            }
         }
     }
     if ($skipped -gt 0) {
@@ -1903,6 +1913,10 @@ try {
     if ($nameNgNos.Count -gt 0) {
         Write-Host ("  氏名が一致せずスキップした受付番号 ({0}人): {1}" -f $nameNgNos.Count, ($nameNgNos -join ', ')) -ForegroundColor Red
     }
+    if ($lockNos.Count -gt 0) {
+        Write-Host ("  ★書込できなかった受付番号 ({0}人): {1}" -f $lockNos.Count, ($lockNos -join ', ')) -ForegroundColor Red
+        Write-Host '  → 健診ナビの結果入力画面で開かれていた等。画面を閉じてから、同じファイルでもう一度「4. 書込実行」をしてください (書込済みの人は同じ値を書き直すだけ)。' -ForegroundColor Red
+    }
     if ($errNos.Count -gt 0) {
         Write-Host ("  エラーのある受付番号 ({0}人): {1}" -f $errNos.Count, (($errNos | Select-Object -Unique) -join ', ')) -ForegroundColor Red
         Write-Host '  → 上にスクロールしてその人の「状態」列を確認してください。' -ForegroundColor Red
@@ -1914,7 +1928,7 @@ try {
     if ($sumDrop -gt 0) {
         Write-Host ("  取込対象外 {0} 件 (変換表で「取り込まない」と決めてある値)。上の一覧で内容を確認できます。" -f $sumDrop) -ForegroundColor Yellow
     }
-    if ($notFoundNos.Count -eq 0 -and $errNos.Count -eq 0 -and $nameNgNos.Count -eq 0) {
+    if ($notFoundNos.Count -eq 0 -and $errNos.Count -eq 0 -and $nameNgNos.Count -eq 0 -and $lockNos.Count -eq 0) {
         Write-Host '  エラーはありません。' -ForegroundColor Green
     }
     Write-Host ('=' * 60) -ForegroundColor Cyan

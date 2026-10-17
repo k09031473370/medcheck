@@ -1,6 +1,7 @@
 ﻿Col,Col2,Label,Kind,KOMOKU_CD,SYOKEN_CD,SYOKEN_CD2,CodeMap,IfEmpty,ReqCol,Format,Replace,OnlyEmpty,SplitIdx,Note
-# DETECT=HEADER:受付NO,Q1,総合判定,心電図初見コード
-# LABEL=眼底の判定だけ (石屋 9/3・59 列「3日分結果まとめ」)
+# DETECT=HEADER:受付NO,Q1,総合判定,心電図初見コード,!胸部Ｘ線
+# ★「読影入力済み修正20261014」の 74 列版には使わない (59 列目が胸部X線・所見(2) になる)。74 列版は mapping_gantei_hantei_93x74.csv。
+# LABEL=眼底の判定だけ (石屋 9/3・元の 59 列「3日分結果まとめ」・読影なし版)
 # 2026/10/17 石屋: 9/3 の取込 (mapping_shibaura_ai_ecg.csv) では 59 列目「総合判定」(眼底の業者判定) を
 #   「判定は健診ナビの自動判定に任せる」として取り込まなかった。ところが眼底の所見は文字 (A09：… 等) で入っていて
 #   所見マスタのコードではないので自動判定では判定が付かず、【判定】眼底 600060 は所見のある人も A のままだった。

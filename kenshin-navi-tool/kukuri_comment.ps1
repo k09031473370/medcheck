@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  HbA1c・eGFR の判定 (D/F) に応じた定型文を医師指示事項に足す (kukuri_comment.ps1)
+  HbA1c・eGFR・中性脂肪 の判定 (D/F) に応じた定型文を医師指示事項に足す (kukuri_comment.ps1)
 
 .DESCRIPTION
   後から枠を足した HbA1c・eGFR は自動判定のときに無かったので、判定コメント (医師指示事項 11001〜11009) が付いていない。
@@ -9,6 +9,9 @@
                   F → 【糖代謝】　糖尿病が疑われますので精密検査の必要があります。
     eGFR  068676  D → 腎機能検査に軽度異常があります。経過観察し、定期的に検査して下さい。 (番号 159)
                   F → 腎機能検査に異常があります。精査を受けて下さい。 (番号 161)
+    中性脂肪 R06-0002 (空腹時 068702 / 随時 R06-0003 に判定がある人はそちらを見る)
+                  D → 【中性脂肪】　高値です。飲酒に注意しバランスの良い食事と適度な運動を心がけ、経過観察の必要があります。
+                  F → 【中性脂肪】　高値です。精密検査の必要があります。
   ・判定が A/B の人には何もしない (自動判定もコメントを付けない)。
   ・既に同じ種類のコメント (糖 / 腎機能) がある人:
       重さが合っていれば「既にあり」で何もしない。軽い文 (経過観察) しか無いのに判定が F なら「文章を直す」でその枠を差し替える。
@@ -60,7 +63,13 @@ $RULES = @(
     @{ Name = 'eGFR';  Item = '068676'; Kind = '腎機能'; KindPat = '腎機能';
        D = @{ Cd = '159'; Text = '腎機能検査に軽度異常があります。経過観察し、定期的に検査して下さい。' }
        F = @{ Cd = '161'; Text = '腎機能検査に異常があります。精査を受けて下さい。' } }
+    @{ Name = '中性脂肪'; Item = 'R06-0002'; Alt = @('068702','R06-0003'); Kind = '中性脂肪'; KindPat = '中性脂肪';
+       D = @{ Cd = '';    Text = '【中性脂肪】　高値です。飲酒に注意しバランスの良い食事と適度な運動を心がけ、経過観察の必要があります。' }
+       F = @{ Cd = '';    Text = '【中性脂肪】　高値です。精密検査の必要があります。' } }
 )
+# 項目CD → 規則 (Alt の項目も同じ規則に向ける)
+$RULE_OF = @{}
+foreach ($r in $RULES) { $RULE_OF[$r.Item] = $r; if ($r.Alt) { foreach ($a in $r.Alt) { $RULE_OF[$a] = $r } } }
 $HEAVY = '精密|精査|治療'      # これを含む文は F 相当
 $SLOTS = @('11001','11002','11003','11004','11005','11006','11007','11008','11009')
 $SOGO  = '11000'
@@ -115,7 +124,7 @@ if ($dateList.Count -eq 0) { throw '-Dates に受診日を指定してくださ�
 
 Write-Host ''
 Write-Host ('=' * 76) -ForegroundColor Cyan
-Write-Host ' HbA1c・eGFR の判定に応じた定型文を 医師指示事項 に足す' -ForegroundColor Cyan
+Write-Host ' HbA1c・eGFR・中性脂肪 の判定に応じた定型文を 医師指示事項 に足す' -ForegroundColor Cyan
 Write-Host ('=' * 76) -ForegroundColor Cyan
 Write-Host ("  受診日    : {0}" -f ($dateList -join ', '))
 if ($ukeList.Count -gt 0) { Write-Host ("  受付番号  : {0}" -f ($ukeList -join ', ')) }
@@ -134,7 +143,7 @@ try {
     if ($ukeList.Count -gt 0) { $where += " AND s.UKE_NO_KENSA IN (" + ($ukeList -join ',') + ")" }
     if ($UkeFrom -gt 0) { $where += " AND s.UKE_NO_KENSA >= $UkeFrom" }
     if ($UkeTo -gt 0)   { $where += " AND s.UKE_NO_KENSA <= $UkeTo" }
-    $itemLit = "'" + (($RULES | ForEach-Object { $_.Item }) -join "','") + "'"
+    $itemLit = "'" + (@($RULE_OF.Keys) -join "','") + "'"
     $slotLit = "'" + ($SLOTS -join "','") + "'"
 
     # 対象者 (総合判定あり) と項目の判定
@@ -161,11 +170,20 @@ ORDER BY s.D_KENSIN, s.UKE_NO_KENSA, k.KOMOKU_CD
         $cur[$pk][[string]$r.CD] = @{ Kekka = (Normalize-Text ([string]$r.V)); KekkaCd = [string]$r.VC }
     }
 
+    # 同じ人・同じ規則 (例: 中性脂肪の未判別と空腹時) が 2 行あれば重い方だけ残す
+    $best = @{}
+    foreach ($r in $rows) {
+        $key = [string]$r.PK_SEQ + '|' + $RULE_OF[[string]$r.CD].Name
+        $rk = switch (([string]$r.H).ToUpper()) { 'D' {4} 'F' {6} 'G' {7} default {0} }
+        if (-not $best.ContainsKey($key) -or $rk -gt $best[$key].RK) { $best[$key] = @{ RK = $rk; Row = $r } }
+    }
+    $rows = @($best.Values | ForEach-Object { $_.Row } | Sort-Object { [string]$_.YMD }, { [int]$_.UKE }, { [string]$_.CD })
+
     # 計画
     $plan = @(); $used = @{}
     foreach ($r in $rows) {
         $pk = [string]$r.PK_SEQ; $cd = [string]$r.CD; $h = ([string]$r.H).ToUpper()
-        $rule = $RULES | Where-Object { $_.Item -eq $cd } | Select-Object -First 1
+        $rule = $RULE_OF[$cd]
         $t = if ($h -eq 'D') { $rule.D } else { $rule.F }
         $rep = New-Object PSObject -Property @{ PkSeq = $pk; 受診日 = [string]$r.YMD; 受付番号 = [string]$r.UKE; 氏名 = [string]$r.NAME
             検査 = $rule.Name; 値 = [string]$r.V; 判定 = $h; 枠 = ''; 状態 = ''; 文章 = $t.Text; 番号CD = $t.Cd; 今の文章 = ''; 今の番号 = '' }

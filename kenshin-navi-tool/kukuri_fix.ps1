@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  HbA1c・血小板・eGFR・中性脂肪 の判定を「くくり判定」と総合判定に反映する (kukuri_fix.ps1)
+  HbA1c・血小板・eGFR・中性脂肪・眼底 の判定を「くくり判定」と総合判定に反映する (kukuri_fix.ps1)
 
 .DESCRIPTION
   健診ナビの自動判定をかけ直さずに、check98 と同じ計算で次の判定欄 (HANTEI_KIGO) を上げる。
@@ -8,7 +8,8 @@
     血小板 069010 → 【判定】血液一般 600310
     eGFR  068676 → 【判定】腎機能 600220
     中性脂肪(未判別) R06-0002 → 【判定】脂質代謝 600320
-    4 項目の最も重い判定 → 総合判定(編集) 11000
+    【判定】眼底 600060 (業者の判定を mapping_gantei_hantei_* で入れたもの) → そのまま総合判定の材料に
+    5 項目の最も重い判定 → 総合判定(編集) 11000
   ・中性脂肪(未判別) には基準値が無く判定が付かない (自動判定は採血時間を見て 空腹時/随時中性脂肪 に写してから判定する)。
     自動判定のあとに採血時間を入れた 9/9・9/10 は写っていないので、このツールが空腹時の基準で判定と H/L 印を付ける
     (ユーザー決定: 9/9 以降は全員空腹)。空腹時/随時中性脂肪に判定が付いている人 (9/3 など) は触らない。
@@ -60,7 +61,8 @@ $ITEMS = @(
     @{ Src = '068689'; SrcName = 'HbA1c';  Dst = '600340'; DstName = '糖代謝' },
     @{ Src = '069010'; SrcName = '血小板'; Dst = '600310'; DstName = '血液一般' },
     @{ Src = '068676'; SrcName = 'eGFR';   Dst = '600220'; DstName = '腎機能' },
-    @{ Src = 'R06-0002'; SrcName = '中性脂肪'; Dst = '600320'; DstName = '脂質代謝'; Calc = $true; Alt = @('068702','R06-0003') }
+    @{ Src = 'R06-0002'; SrcName = '中性脂肪'; Dst = '600320'; DstName = '脂質代謝'; Calc = $true; Alt = @('068702','R06-0003') },
+    @{ Src = '600060'; SrcName = '眼底';   Dst = '600060'; DstName = '眼底' }   # くくり自身。総合判定にだけ効く (眼底 F → 総合判定 F)
 )
 $SOGO = '11000'
 # 中性脂肪の値 → 判定と H/L (空腹時の基準)
@@ -145,7 +147,7 @@ Write-Host ('=' * 76) -ForegroundColor Cyan
 Write-Host ("  受診日    : {0}" -f ($dateList -join ', '))
 if ($ukeList.Count -gt 0) { Write-Host ("  受付番号  : {0}" -f ($ukeList -join ', ')) }
 if ($UkeFrom -gt 0 -or $UkeTo -gt 0) { Write-Host ("  受付番号の範囲: {0}〜{1}" -f $UkeFrom, $UkeTo) }
-Write-Host '  糖代謝 600340 ← HbA1c / 血液一般 600310 ← 血小板 / 腎機能 600220 ← eGFR / 脂質代謝 600320 ← 中性脂肪 / 総合判定 11000 ← 4 項目の最重' -ForegroundColor DarkGray
+Write-Host '  糖代謝 600340 ← HbA1c / 血液一般 600310 ← 血小板 / 腎機能 600220 ← eGFR / 脂質代謝 600320 ← 中性脂肪 / 眼底 600060 / 総合判定 11000 ← 5 項目の最重' -ForegroundColor DarkGray
 Write-Host '  中性脂肪(未判別) に判定が無い人は、空腹時の基準で判定と H/L 印を付ける (空腹時/随時中性脂肪に判定がある人は触らない)。' -ForegroundColor DarkGray
 Write-Host '  ※ 重くする方向だけ。総合判定が付いていない人 (自動判定前) は対象外。' -ForegroundColor DarkGray
 Write-Host ''
@@ -207,13 +209,13 @@ ORDER BY s.D_KENSIN, s.UKE_NO_KENSA
             $dH = (Normalize-Text $c[$it.Dst].H).ToUpper()
             if ($r -gt (Rank $dH)) {
                 $plan += New-Object PSObject -Property @{ PkSeq = $pk; 受診日 = [string]$p.YMD; 受付番号 = [string]$p.UKE; 氏名 = [string]$p.NAME
-                    欄 = $it.DstName; KOMOKU_CD = $it.Dst; 前 = $dH; 後 = $h; HL = $null; 前HL = ''; 理由 = ("{0} {1} = {2}" -f $src, $c[$it.Src].V, $h) }
+                    欄 = $it.DstName; KOMOKU_CD = $it.Dst; 前 = $dH; 後 = $h; HL = $null; 前HL = ''; 理由 = ("{0} {1} = {2}" -f $src, $c[$it.Src].V, $h).Replace("  "," ") }
             }
         }
         $sH = (Normalize-Text $c[$SOGO].H).ToUpper()
         if ($maxR -gt (Rank $sH)) {
             $plan += New-Object PSObject -Property @{ PkSeq = $pk; 受診日 = [string]$p.YMD; 受付番号 = [string]$p.UKE; 氏名 = [string]$p.NAME
-                欄 = '総合判定'; KOMOKU_CD = $SOGO; 前 = $sH; 後 = $maxH; HL = $null; 前HL = ''; 理由 = ("4 項目の最重 = {0}" -f $maxH) }
+                欄 = '総合判定'; KOMOKU_CD = $SOGO; 前 = $sH; 後 = $maxH; HL = $null; 前HL = ''; 理由 = ("5 項目の最重 = {0}" -f $maxH) }
         }
     }
     if ($skipNoSogo -gt 0) { Write-Host ("  総合判定が付いていないので対象外: {0} 人 (自動判定前)" -f $skipNoSogo) -ForegroundColor DarkGray }

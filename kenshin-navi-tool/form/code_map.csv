@@ -159,3 +159,11 @@ SRL_HANTEI3,D,D,SRL の値から付けた HbA1c・血小板・eGFR の判定。�
 SRL_HANTEI3,E,E,SRL の値から付けた HbA1c・血小板・eGFR の判定。健診ナビの 8 段階の文字そのまま (2026/10/17 石屋)
 SRL_HANTEI3,F,F,SRL の値から付けた HbA1c・血小板・eGFR の判定。健診ナビの 8 段階の文字そのまま (2026/10/17 石屋)
 SRL_HANTEI3,G,G,SRL の値から付けた HbA1c・血小板・eGFR の判定。健診ナビの 8 段階の文字そのまま (2026/10/17 石屋)
+GANTEI_HANTEI,A：異常なし,A,眼底の業者判定 (9/3 59列目・123列版 123列目の「総合判定」) → 健診ナビの 8 段階。C 経過観察→D 要観察、D 要精検→F 要精検 (胸部X線・東振協と同じ読み替え)。F 要継続治療・G 判定不能 はわざと載せていない (プレビューで「変換表に無い判定」と出る → 先生と決めてから J 治療中 / E 要再検 などを足す) (2026/10/17 石屋)
+GANTEI_HANTEI,B：有所見正常,B,
+GANTEI_HANTEI,C：経過観察,D,
+GANTEI_HANTEI,D：要精検,F,
+GANTEI_HANTEI,A:異常なし,A,半角コロンで来たとき
+GANTEI_HANTEI,B:有所見正常,B,半角コロンで来たとき
+GANTEI_HANTEI,C:経過観察,D,半角コロンで来たとき
+GANTEI_HANTEI,D:要精検,F,半角コロンで来たとき

@@ -24,7 +24,8 @@ $R_A1C = $RANK -f 'b.A1C'
 $R_PLT = $RANK -f 'b.PLT'
 $R_EGF = $RANK -f 'b.EGF'
 $R_SG  = $RANK -f 'b.SOGO'
-$R_MAX = "(SELECT MAX(v) FROM (VALUES ($R_A1C), ($R_PLT), ($R_EGF)) AS t(v))"
+# GROUP BY でも使えるように、サブクエリではなく CASE で 3 つの最大を取る
+$R_MAX = "(CASE WHEN $R_A1C >= $R_PLT AND $R_A1C >= $R_EGF THEN $R_A1C WHEN $R_PLT >= $R_EGF THEN $R_PLT ELSE $R_EGF END)"
 $LETTER = "CASE {0} WHEN 7 THEN 'F以上' WHEN 6 THEN 'F' WHEN 5 THEN 'E' WHEN 4 THEN 'D' WHEN 3 THEN 'C' WHEN 2 THEN 'B' WHEN 1 THEN 'A' ELSE '' END"
 $MAX3 = $LETTER -f $R_MAX
 $BASE = @"

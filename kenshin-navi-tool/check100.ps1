@@ -51,9 +51,9 @@ GROUP BY p.YMD ORDER BY 1
 "@ 10
 
 Q '--- 3. 脂質代謝のくくり (600320) の判定分布 (受診日ごと)。中性脂肪が判定されていなければ、中性脂肪だけ高い人の脂質代謝が A のまま ---' @"
-SELECT CONVERT(varchar(10), s.D_KENSIN, 111) AS 受診日, $(Han '600320') AS 脂質代謝, COUNT(*) AS 人数
-FROM T_KENSIN s WHERE $ISHIYA
-GROUP BY CONVERT(varchar(10), s.D_KENSIN, 111), $(Han '600320') ORDER BY 1, 2
+SELECT p.YMD AS 受診日, p.SHI AS 脂質代謝, COUNT(*) AS 人数
+FROM (SELECT CONVERT(varchar(10), s.D_KENSIN, 111) AS YMD, $(Han '600320') AS SHI FROM T_KENSIN s WHERE $ISHIYA) p
+GROUP BY p.YMD, p.SHI ORDER BY 1, 2
 "@ 30
 
 Q '--- 4. ★中性脂肪の判定が無い人のうち、値が 150 以上 (判定が付けば B 以上になる人) ---' @"

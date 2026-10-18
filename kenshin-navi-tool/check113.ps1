@@ -63,6 +63,21 @@ foreach ($r in $base) {
 }
 function Comments($c) { return @($SLOTS | Where-Object { $c.ContainsKey($_) -and $c[$_].V -ne '' -and $c[$_].V -ne '#' } | ForEach-Object { $c[$_].V }) }
 
+# 分類: 先生に見てもらう必要が高いものを「その他」に残す
+$TEMPLATES = @(
+    '腎機能検査に軽度異常があります。経過観察し、定期的に検査して下さい。', '腎機能検査に異常があります。精査を受けて下さい。',
+    '【糖代謝】　高値です。経過観察の必要があります。', '【糖代謝】　糖尿病が疑われますので精密検査の必要があります。',
+    '【中性脂肪】　高値です。飲酒に注意しバランスの良い食事と適度な運動を心がけ、経過観察の必要があります。', '【中性脂肪】　高値です。精密検査の必要があります。',
+    '眼底に所見を認めますので、経過観察が必要です。症状があれば眼科を受診して下さい。', '眼底に異常があります。眼科受診し、精密検査を受けて下さい。'
+) | ForEach-Object { Squash $_ }
+$JK = @( @{ Kk = '600150'; Pat = '血圧' }, @{ Kk = '600340'; Pat = '糖代謝|糖尿病|血糖|ＨｂＡ１ｃ|HbA1c' }, @{ Kk = '600320'; Pat = '脂質|中性脂肪|コレステロール|ＬＤＬ|ＨＤＬ' } )
+function Classify([string]$old, $c, $now) {
+    if ($TEMPLATES -contains (Squash $old)) { return '1 ツールの定型文 (今は健診ナビの文などで説明あり)' }
+    foreach ($j in $JK) { if ($old -match $j.Pat -and $old -notmatch '^\s*【尿糖】' -and $c.ContainsKey($j.Kk) -and $c[$j.Kk].H -eq 'J') { return '2 治療中(J) のため治療継続の文に変わった' } }
+    if ($old -match '胸部' -and @($now | Where-Object { $_ -match '胸部' }).Count -gt 0) { return '3 胸部X線の文を差し替えた (先生確認)' }
+    if ($old -match '^\s*(【[^】]+】)') { $tag = $Matches[1]; if (@($now | Where-Object { $_.StartsWith($tag) }).Count -gt 0) { return '4 同じ【】の文が自動判定で言い回しを変えて入っている' } }
+    return '5 その他 (先生確認)'
+}
 # ---- A. 消えた医師指示事項 ----
 $A = @()
 foreach ($name in ($Keep -split ',')) {
@@ -74,7 +89,8 @@ foreach ($name in ($Keep -split ',')) {
         $now = Comments $Ppl[$pk].C
         $nowSq = @($now | ForEach-Object { Squash $_ })
         if ($nowSq -contains (Squash $k.値)) { continue }
-        $A += [PSCustomObject][ordered]@{ 受診日 = $Ppl[$pk].Ymd; 受付番号 = $Ppl[$pk].Uke; 氏名 = $Ppl[$pk].Name; 自動判定前にあった文 = $k.値; 今の医師指示事項 = ($now -join ' / ') }
+        $A += [PSCustomObject][ordered]@{ 受診日 = $Ppl[$pk].Ymd; 受付番号 = $Ppl[$pk].Uke; 氏名 = $Ppl[$pk].Name; 分類 = (Classify $k.値 $Ppl[$pk].C $now)
+            自動判定前にあった文 = $k.値; 今の医師指示事項 = ($now -join ' / ') }
     }
 }
 # ---- B. 行数 ----
@@ -111,6 +127,19 @@ foreach ($pk in $Ppl.Keys) {
     }
 }
 
+# ---- E. 参考: 2026 年の石屋以外の受診者で、判定眼底 600060 と 協会眼底指導区分 610100 の組み合わせ (読み替えの対応を見る) ----
+$conn = Open-Db
+try {
+    $E = @((Invoke-DbQuery $conn @"
+SELECT LTRIM(RTRIM(ISNULL(a.HANTEI_KIGO,''))) AS 判定眼底, LTRIM(RTRIM(ISNULL(b.HANTEI_KIGO,''))) AS 協会眼底指導区分, COUNT(*) AS 人数
+FROM T_KENSIN s JOIN T_KENSA a ON a.PK_SEQ = s.PK_SEQ AND LTRIM(RTRIM(a.KOMOKU_CD)) = '600060'
+JOIN T_KENSA b ON b.PK_SEQ = s.PK_SEQ AND LTRIM(RTRIM(b.KOMOKU_CD)) = '610100'
+WHERE s.F_TORIKESI = 0 AND s.D_KENSIN >= '2026/01/01' AND NOT ($ISHIYA) AND LTRIM(RTRIM(ISNULL(a.HANTEI_KIGO,''))) <> ''
+GROUP BY LTRIM(RTRIM(ISNULL(a.HANTEI_KIGO,''))), LTRIM(RTRIM(ISNULL(b.HANTEI_KIGO,'')))
+ORDER BY 1, 2
+"@).Rows | ForEach-Object { [PSCustomObject][ordered]@{ 判定眼底 = $_.判定眼底; 協会眼底指導区分 = $_.協会眼底指導区分; 人数 = $_.人数 } })
+} finally { $conn.Close() }
+
 Write-Host ''
 Write-Host ' 外部点検の指摘の確認 (読むだけ)' -ForegroundColor Cyan
 $fa = Save $A 'A_消えた文'; $fb = Save $B 'B_行数'; $fc = Save $Ceye 'C_眼底と協会'; $fd = Save $D 'D_服薬と既往歴'
@@ -118,5 +147,8 @@ Write-Host ("  A. 自動判定前にあって今は無い医師指示事項: {0}
 Write-Host ("  B. 11 行を超える・11012 以降に文がある・10 行以上で長い文がある人: {0} 人  {1}" -f $B.Count, $fb)
 Write-Host ("  C. 判定眼底と協会の眼底指導区分が違う人: {0} 人  {1}" -f $Ceye.Count, $fc)
 Write-Host ("  D. 服薬歴・既往歴・J がずれている: {0} 件  {1}" -f $D.Count, $fd)
+foreach ($g in ($A | Group-Object 分類 | Sort-Object Name)) { Write-Host ("     A の内訳 {0}: {1} 件" -f $g.Name, $g.Count) }
+Write-Host '  E. 参考 (石屋以外の 2026 年): 判定眼底 × 協会眼底指導区分'
+$E | Format-Table -AutoSize | Out-String -Width 120 | Write-Host
 Write-Host ''
 Write-Host '  A は先生に見てもらう一覧 (J の人の旧い文・自動判定が言い回しを変えた文も含む)。CSV は受診者の名前入り: 院内だけで使う。' -ForegroundColor Yellow

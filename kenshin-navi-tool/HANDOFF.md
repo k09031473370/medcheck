@@ -706,3 +706,6 @@ PSA 1,800(税込1,980) / 鉛 6,000(税込6,600) / 有機溶剤トルエン・メ
   kukuri_fix: くくりが J の項目は くくりも総合判定も上げない。comment_treat.ps1 (+ _93/_99/_910/_all.bat): 血圧・糖代謝・脂質代謝が J の人の
   同じ種類の医師指示事項を治療継続の文に差し替え (重複は消す、無ければ足す)。文は 2026 年の J の人の くくり結果/医師指示事項から拾う。
   手順: kiou_med.bat → 3 日分の自動判定 (事務員) → 眼底取込 (74 列・123 列) → kukuri_fix → kukuri_comment → comment_keep_restore → comment_treat。
+- kiou_med 書込 (2026/10/18 11:17): 117 件 / 70 人 (記録 backup\kiou_med_20261018_111711.csv、戻すときは kiou_med_undo.bat)。
+  次: 事務員が 3 日分の自動判定 (通常判定・判定強制実行・総合所見(編集)にコピー あり) → 眼底取込 → kukuri_fix → kukuri_comment → comment_keep_restore ×3 → comment_treat_all → check103。
+  自動判定のあと、血圧・糖代謝・脂質代謝が J (E ではなく) になったかを確認すること。

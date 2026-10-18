@@ -237,6 +237,8 @@ ORDER BY 3 DESC
             }
             # 眼底の J (治療中) は総合判定に上げない (業者判定「要継続治療」の人。総合判定は他の項目で決める)
             if ($it.Src -eq '600060' -and $h -eq 'J') { continue }
+            # くくりが J (治療中、服薬歴から既往歴を入れて自動判定で付いたもの) の項目は、くくりも総合判定も上げない (2026/10/18)
+            if ($c.ContainsKey($it.Dst) -and (Normalize-Text $c[$it.Dst].H).ToUpper() -eq 'J') { continue }
             $r = Rank $h
             if ($r -gt $maxR) { $maxR = $r; $maxH = $h }
             if ($r -eq 0 -or -not $c.ContainsKey($it.Dst)) { continue }

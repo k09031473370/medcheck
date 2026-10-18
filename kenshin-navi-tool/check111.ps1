@@ -44,8 +44,16 @@ WHERE ISNULL(p.AUTO,'') <> ISNULL(p.EDIT,'')
 ORDER BY p.YMD, p.UKE
 "@ 200
 
+Q '--- 2. 【判定】眼底 600060 に判定はあるのに、結果 (文字) が空欄の人 ---' @"
+SELECT p.YMD AS 受診日, p.UKE AS 受付番号, ISNULL(p.EYE,'') AS 眼底判定, ISNULL(p.EYEV,'') AS 眼底の文字
+FROM $P
+WHERE ISNULL(p.EYE,'') <> '' AND ISNULL(p.EYEV,'') = ''
+ORDER BY p.YMD, p.UKE
+"@ 200
+
 W ''
 W '=== 読み方 ==='
 W '  自動総合 = 自動判定が出した総合判定 (10000)、編集総合 = 結果票に出る総合判定 (11000)。'
 W '  編集総合と同じ文字が右のどの欄にあるかで、上げた理由が分かる (例: 眼底 F → 総合 F)。'
+W '  2: 結果票の眼底の判定欄が空になる人。画面で結果に判定の文字 (A〜J) を入れる。'
 notepad $out

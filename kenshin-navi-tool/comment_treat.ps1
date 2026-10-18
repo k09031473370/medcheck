@@ -22,6 +22,7 @@ param(
     [int]$UkeFrom = 0,
     [int]$UkeTo = 0,
     [switch]$Commit,
+    [switch]$UrineGlucose,   # 糖代謝が J の人の【尿糖】の文も同じ種類として消す (先生の判断 2026/10/18: 服薬中は尿糖陽性でも精検をすすめない)
     [string]$ConnFile = '\\KNSV\KenshinNavi\SQLSV\SQLServerConnect.txt',
     [string]$ConnectionString
 )
@@ -44,7 +45,7 @@ if (-not (Test-Path $BackupDir)) { [void](New-Item -ItemType Directory -Path $Ba
 function Line { Write-Host ('-' * 76) -ForegroundColor DarkGray }
 function Split-List([string]$s) { return @(($s -split '[,、\s]+') | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }) }
 
-$SLOTS = @('11001','11002','11003','11004','11005','11006','11007','11008','11009')
+$SLOTS = @(1..20 | ForEach-Object { [string](11000 + $_) })   # 総合判定N(編集) は 11020 まで (2026/10/18 から 11010 以降にも文がある)
 $SOGO  = '11000'
 # J になるくくりと、同じ種類の文の見分け方
 $KINDS = @(
@@ -52,6 +53,11 @@ $KINDS = @(
     @{ Cd = '600340'; Name = '糖';   Pat = '糖代謝|糖尿病|血糖|ＨｂＡ１ｃ|HbA1c|ヘモグロビンA1c'; Not = '^\s*【尿糖】'; Like = @('糖代謝','糖尿病'); Fallback = '【糖代謝】　治療を継続してください。' },
     @{ Cd = '600320'; Name = '脂質'; Pat = '脂質|中性脂肪|コレステロール|ｺﾚｽﾃﾛｰﾙ|ＬＤＬ|LDL|ＨＤＬ|HDL'; Not = ''; Like = @('脂質','コレステロール','中性脂肪'); Fallback = '【脂質代謝】　治療を継続してください。' }
 )
+if ($UrineGlucose) {
+    # 糖の種類に【尿糖】を含める。治療継続の文は既にあるので、【尿糖】の文は「消す」になる
+    $KINDS[1].Pat = $KINDS[1].Pat + '|尿糖'; $KINDS[1].Not = ''
+    $KINDS = @($KINDS[1])   # 血圧・脂質は今回は触らない
+}
 function Is-Kind($k, [string]$t) { if ($t -eq '' -or $t -eq '#') { return $false }; if ($k.Not -ne '' -and $t -match $k.Not) { return $false }; return ($t -match $k.Pat) }
 
 $dateList = @(Split-List $Dates | ForEach-Object { $y = Normalize-Ymd $_; if (-not $y) { throw "受診日が読めません: $_" }; $y })

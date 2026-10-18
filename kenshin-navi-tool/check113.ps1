@@ -148,6 +148,14 @@ Write-Host ("  B. 11 行を超える・11012 以降に文がある・10 行以�
 Write-Host ("  C. 判定眼底と協会の眼底指導区分が違う人: {0} 人  {1}" -f $Ceye.Count, $fc)
 Write-Host ("  D. 服薬歴・既往歴・J がずれている: {0} 件  {1}" -f $D.Count, $fd)
 foreach ($g in ($A | Group-Object 分類 | Sort-Object Name)) { Write-Host ("     A の内訳 {0}: {1} 件" -f $g.Name, $g.Count) }
+Write-Host ''
+Write-Host '  ★先生確認 (A の分類 3・5。名前は出さない):' -ForegroundColor Yellow
+foreach ($x in @($A | Where-Object { $_.分類 -match '^[35] ' })) {
+    Write-Host ("   {0} {1}  [{2}]" -f $x.受診日, $x.受付番号, $x.分類)
+    Write-Host ("      前にあった文: {0}" -f $x.自動判定前にあった文)
+    Write-Host ("      今の文      : {0}" -f $x.今の医師指示事項)
+}
+Write-Host ''
 Write-Host '  E. 参考 (石屋以外の 2026 年): 判定眼底 × 協会眼底指導区分'
 $E | Format-Table -AutoSize | Out-String -Width 120 | Write-Host
 Write-Host ''

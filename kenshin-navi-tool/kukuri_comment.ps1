@@ -77,7 +77,8 @@ $RULES = @(
 $RULE_OF = @{}
 foreach ($r in $RULES) { $RULE_OF[$r.Item] = $r; if ($r.Alt) { foreach ($a in $r.Alt) { $RULE_OF[$a] = $r } } }
 $HEAVY = '精密|精査|治療'      # これを含む文は F 相当
-$SLOTS = @('11001','11002','11003','11004','11005','11006','11007','11008','11009')
+# 総合判定N(編集) は 11020 まであるが、結果票の医師指示事項の欄に入るのは 11 行くらい (2026/10/18 4666 の結果票で 10 行印字を確認)
+$SLOTS = @('11001','11002','11003','11004','11005','11006','11007','11008','11009','11010','11011')
 $SOGO  = '11000'
 
 # ============================================================
@@ -135,7 +136,7 @@ Write-Host ('=' * 76) -ForegroundColor Cyan
 Write-Host ("  受診日    : {0}" -f ($dateList -join ', '))
 if ($ukeList.Count -gt 0) { Write-Host ("  受付番号  : {0}" -f ($ukeList -join ', ')) }
 if ($UkeFrom -gt 0 -or $UkeTo -gt 0) { Write-Host ("  受付番号の範囲: {0}〜{1}" -f $UkeFrom, $UkeTo) }
-Write-Host '  入れる先: 総合判定N(編集) 11001〜11009 の空いている枠。総合判定が付いていない人は対象外。' -ForegroundColor DarkGray
+Write-Host '  入れる先: 総合判定N(編集) 11001〜11011 の空いている枠。総合判定が付いていない人は対象外。' -ForegroundColor DarkGray
 foreach ($r in $RULES) {
     Write-Host ('    {0,-6} D: {1}' -f $r.Name, $r.D.Text)
     Write-Host ('    {0,-6} F: {1}' -f '',      $r.F.Text)

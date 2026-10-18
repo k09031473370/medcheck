@@ -60,7 +60,8 @@ $RULES = @(
     @{ Name = 'HbA1c'; Item = '068689'; Alt = @('068682'); Dst = '600340'; Kind = '糖';    KindPat = '糖代謝|糖尿病';   # 「糖」だけだと【尿糖】の文に当たって「既にあり」になる (2026/10/17 に発覚)
        D = @{ Cd = '';    Text = '【糖代謝】　高値です。経過観察の必要があります。' }
        F = @{ Cd = '';    Text = '【糖代謝】　糖尿病が疑われますので精密検査の必要があります。' } }
-    @{ Name = 'eGFR';  Item = '068676'; Dst = '600220'; Kind = '腎機能'; KindPat = '腎機能';
+    # eGFR: 自動判定をかけ直すと健診ナビが「【ｅＧＦＲ】　低値です。…」を入れるので、それも同じ種類として見る (2026/10/18)
+    @{ Name = 'eGFR';  Item = '068676'; Dst = '600220'; Kind = '腎機能'; KindPat = '腎機能|ｅＧＦＲ|eGFR|ＥＧＦＲ';
        D = @{ Cd = '159'; Text = '腎機能検査に軽度異常があります。経過観察し、定期的に検査して下さい。' }
        F = @{ Cd = '161'; Text = '腎機能検査に異常があります。精査を受けて下さい。' } }
     @{ Name = '中性脂肪'; Item = 'R06-0002'; Alt = @('068702','R06-0003'); Dst = '600320'; Kind = '中性脂肪'; KindPat = '中性脂肪';
@@ -192,6 +193,23 @@ ORDER BY s.D_KENSIN, s.UKE_NO_KENSA, k.KOMOKU_CD
 
     # 計画
     $plan = @(); $used = @{}
+    # 重複を消す: 健診ナビの自動判定の文「【ｅＧＦＲ】…」があるのに、このツールの腎機能の定型文も入っている人は、定型文の方を消す (2026/10/18)
+    $egfr = @($RULES | Where-Object { $_.Name -eq 'eGFR' })[0]
+    $mine = @($egfr.D.Text, $egfr.F.Text)
+    $nameOf = @{}; foreach ($r in $rows) { $nameOf[[string]$r.PK_SEQ] = $r }
+    foreach ($pk in @($cur.Keys)) {
+        $auto = @($SLOTS | Where-Object { $cur[$pk].ContainsKey($_) -and $cur[$pk][$_].Kekka -match '^\s*【(ｅＧＦＲ|eGFR|ＥＧＦＲ)】' })
+        if ($auto.Count -eq 0) { continue }
+        foreach ($sc in $SLOTS) {
+            if (-not $cur[$pk].ContainsKey($sc) -or $mine -notcontains $cur[$pk][$sc].Kekka) { continue }
+            $r0 = $nameOf[$pk]
+            $plan += New-Object PSObject -Property @{ PkSeq = $pk; 受診日 = [string]$r0.YMD; 受付番号 = [string]$r0.UKE; 氏名 = [string]$r0.NAME
+                検査 = 'eGFR'; 値 = ''; 判定 = ''; 枠 = $sc; 状態 = '重複を消す'; 文章 = ''; 番号CD = ''; 今の文章 = $cur[$pk][$sc].Kekka; 今の番号 = $cur[$pk][$sc].KekkaCd }
+            if (-not $used.ContainsKey($pk)) { $used[$pk] = @{} }
+            $used[$pk][$sc] = 1
+            $cur[$pk][$sc] = @{ Kekka = '#消す'; KekkaCd = '' }   # このあとの「同じ種類があるか」「空き枠」で使わない
+        }
+    }
     foreach ($r in $rows) {
         $pk = [string]$r.PK_SEQ; $cd = [string]$r.CD; $h = ([string]$r.H).ToUpper()
         $rule = $RULE_OF[$cd]
@@ -238,23 +256,24 @@ ORDER BY s.D_KENSIN, s.UKE_NO_KENSA, k.KOMOKU_CD
     Write-Host ''
     Write-Host '=== 追加する内容 ===' -ForegroundColor Cyan
     $plan | Select-Object 受診日, 受付番号, 氏名, 検査, 値, 判定, 枠, 状態, 今の文章 | Format-Table -AutoSize -Wrap | Out-String -Width 220 | Write-Host
-    $ok   = @($plan | Where-Object { $_.状態 -eq 'OK' -or $_.状態 -eq '文章を直す' })
+    $ok   = @($plan | Where-Object { $_.状態 -in @('OK','文章を直す','重複を消す') })
     $add  = @($plan | Where-Object { $_.状態 -eq 'OK' })
     $fix  = @($plan | Where-Object { $_.状態 -eq '文章を直す' })
     $skip = @($plan | Where-Object { $_.状態 -eq '既にあり' -or $_.状態 -eq '治療中(J)' })
-    $err  = @($plan | Where-Object { $_.状態 -notin @('OK','文章を直す','既にあり','治療中(J)') })
+    $del  = @($plan | Where-Object { $_.状態 -eq '重複を消す' })
+    $err  = @($plan | Where-Object { $_.状態 -notin @('OK','文章を直す','既にあり','治療中(J)','重複を消す') })
     Write-Host '=== 入れる文章 ===' -ForegroundColor Cyan
-    foreach ($t in ($ok | Sort-Object 文章 -Unique)) {
+    foreach ($t in ($ok | Where-Object { $_.文章 -ne '' } | Sort-Object 文章 -Unique)) {
         $n = @($ok | Where-Object { $_.文章 -eq $t.文章 }).Count
         Write-Host ("  ({0}件)  {1}" -f $n, $t.文章)
     }
     Line
-    Write-Host ("追加: {0} 件 / 文章を直す: {1} 件 / 既にあり: {2} 件 / 要確認: {3} 件" -f $add.Count, $fix.Count, $skip.Count, $err.Count) -ForegroundColor $(if ($err.Count -gt 0) { 'Yellow' } else { 'Green' })
+    Write-Host ("追加: {0} 件 / 文章を直す: {1} 件 / 重複を消す: {2} 件 / 既にあり: {3} 件 / 要確認: {4} 件" -f $add.Count, $fix.Count, $del.Count, $skip.Count, $err.Count) -ForegroundColor $(if ($err.Count -gt 0) { 'Yellow' } else { 'Green' })
     Line
     if ($ok.Count -eq 0) { Write-Host '追加するものがありません。'; return }
     if (-not $Commit) {
         Write-Host ''
-        Write-Host '※ まだ何も書き込んでいません。「文章を直す」は今の文章を消して置き換えます。' -ForegroundColor Yellow
+        Write-Host '※ まだ何も書き込んでいません。「文章を直す」は今の文章を消して置き換えます。「重複を消す」はこのツールの腎機能の文を空にします (健診ナビの【ｅＧＦＲ】の文が残る)。' -ForegroundColor Yellow
         $a = Read-Host '書き込みますか (y = 書き込む / それ以外 = やめる)'
         if (($a -as [string]).Trim().ToLower() -ne 'y') { Write-Host 'やめました。何も変えていません。'; return }
     }

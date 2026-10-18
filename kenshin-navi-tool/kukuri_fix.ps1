@@ -16,6 +16,7 @@
     (ユーザー決定: 9/9 以降は全員空腹)。空腹時/随時中性脂肪に判定が付いている人 (9/3 など) は触らない。
       29 以下 F(L) / 30〜149 A / 150〜299 B(H) / 300〜499 D(H) / 500〜700 F(H) / 701 以上 G(H)  … 健診ナビの 068702 の基準値と同じ
   ・項目の判定の方が重いときだけ、その欄を項目の判定に上げる (軽くする方向には触らない)。
+  ・総合判定を上げるときは 結果 の文章 (要精検 等) も文字に合わせる。前に文字だけ上げて文章が古い人も直す (2026/10/18)。
   ・総合判定が付いていない人 (自動判定前) は対象外。
   ・必ずプレビューを出し、y を押したときだけ書く。書く前に本人の T_KENSA を backup\ に保存し、
     直した欄の元の値を backup\kukuri_fix_<日時>.csv に残す。-Undo でその値に戻せる。
@@ -79,7 +80,12 @@ function TgJudge([string]$v) {
     return @{ H = 'G'; HL = 'H' }
 }
 
-function Write-Hantei($conn, $tran, $pk, [string]$cd, [string]$h, $hl) {
+function Write-Hantei($conn, $tran, $pk, [string]$cd, [string]$h, $hl, $v) {
+    # $v が $null でなければ 結果 (KEKKA) も書く (総合判定の文章「要精検」等 / くくりの文字)
+    if ($null -ne $v) {
+        $n = Invoke-DbExec $conn $tran 'UPDATE T_KENSA SET KEKKA = @v WHERE PK_SEQ = @p AND LTRIM(RTRIM(KOMOKU_CD)) = @cd' @{ v = [string]$v; p = $pk; cd = $cd }
+        if ($n -ne 1) { throw ("UPDATE 影響行数が {0} でした (PK_SEQ {1} / {2} 結果)。ロールバックします。" -f $n, $pk, $cd) }
+    }
     if ($null -ne $hl) {
         $n = Invoke-DbExec $conn $tran 'UPDATE T_KENSA SET HANTEI_KIGO = @h, HL = @hl WHERE PK_SEQ = @p AND LTRIM(RTRIM(KOMOKU_CD)) = @cd' @{ h = $h; hl = [string]$hl; p = $pk; cd = $cd }
     } else {
@@ -118,6 +124,11 @@ if ($Undo) {
                 Acquire-AppLock $conn $tran ("KENSA_IMPORT:" + $pk)
                 foreach ($r in $grp.Group) {
                     $hasHL = ($r.PSObject.Properties.Name -contains '後HL') -and ([string]$r.後HL) -ne ''
+                    $hasV  = ($r.PSObject.Properties.Name -contains '後の結果') -and ([string]$r.後の結果) -ne ''
+                    if ($hasV) {
+                        [void](Invoke-DbExec $conn $tran "UPDATE T_KENSA SET KEKKA = @oldv WHERE PK_SEQ = @p AND LTRIM(RTRIM(KOMOKU_CD)) = @cd AND LTRIM(RTRIM(ISNULL(KEKKA,''))) = @newv AND LTRIM(RTRIM(ISNULL(HANTEI_KIGO,''))) = @new" `
+                            @{ oldv = [string]$r.前の結果; p = $pk; cd = [string]$r.KOMOKU_CD; newv = [string]$r.後の結果; new = [string]$r.後 })
+                    }
                     if ($hasHL) {
                         $n = Invoke-DbExec $conn $tran "UPDATE T_KENSA SET HANTEI_KIGO = @old, HL = @oldhl WHERE PK_SEQ = @p AND LTRIM(RTRIM(KOMOKU_CD)) = @cd AND LTRIM(RTRIM(ISNULL(HANTEI_KIGO,''))) = @new" `
                             @{ old = [string]$r.前; oldhl = [string]$r.前HL; p = $pk; cd = [string]$r.KOMOKU_CD; new = [string]$r.後 }
@@ -181,13 +192,32 @@ ORDER BY s.D_KENSIN, s.UKE_NO_KENSA
         $cur[$pk][[string]$r.CD] = @{ H = [string]$r.H; V = [string]$r.V; HL = [string]$r.HL }
     }
 
+    # 総合判定(編集) 11000 の 結果 (文章) は判定の文字ごとに決まった言葉 (例 F = 要精検)。結果票は文字と文章の両方を印字する。
+    # 2026 年の全員分から、文字ごとにいちばん多い文章を拾う (健診ナビの決まりを DB から読むだけ。マスタは変えない)。
+    $CANON = @{}; $CANON_ALL = @{}
+    foreach ($r in (Invoke-DbQuery $conn @"
+SELECT LTRIM(RTRIM(ISNULL(k.HANTEI_KIGO,''))) AS H, LTRIM(RTRIM(ISNULL(k.KEKKA,''))) AS V, COUNT(*) AS N
+FROM T_KENSIN s JOIN T_KENSA k ON k.PK_SEQ = s.PK_SEQ
+WHERE s.F_TORIKESI = 0 AND s.D_KENSIN >= '2026/01/01' AND LTRIM(RTRIM(k.KOMOKU_CD)) = '$SOGO'
+  AND LTRIM(RTRIM(ISNULL(k.KEKKA,''))) <> '' AND LTRIM(RTRIM(ISNULL(k.HANTEI_KIGO,''))) <> ''
+GROUP BY LTRIM(RTRIM(ISNULL(k.HANTEI_KIGO,''))), LTRIM(RTRIM(ISNULL(k.KEKKA,'')))
+ORDER BY 3 DESC
+"@).Rows) {
+        $h = ([string]$r.H).ToUpper(); $v = [string]$r.V
+        if (-not $CANON.ContainsKey($h)) { $CANON[$h] = $v }
+        $CANON_ALL[$v] = 1
+    }
+    Write-Host ('  総合判定の文章 (2026 年にいちばん多い組み合わせ): ' + (($CANON.Keys | Sort-Object | ForEach-Object { "{0}={1}" -f $_, $CANON[$_] }) -join ' / ')) -ForegroundColor DarkGray
+    function SogoText([string]$h) { if ($CANON.ContainsKey($h)) { return $CANON[$h] } else { return $null } }
+    function LetterV([string]$v, [string]$h) { if ($v -match '^[A-J]$') { return $h } else { return $null } }
+
     # ---- 計画 ----
     $plan = @(); $skipNoSogo = 0
     foreach ($p in $people) {
         $pk = [string]$p.PK_SEQ
         if (-not $cur.ContainsKey($pk) -or -not $cur[$pk].ContainsKey($SOGO) -or (Normalize-Text $cur[$pk][$SOGO].H) -eq '') { $skipNoSogo++; continue }
         $c = $cur[$pk]
-        $maxR = 0; $maxH = ''
+        $maxR = 0; $maxH = ''; $pend = @{}
         foreach ($it in $ITEMS) {
             if (-not $c.ContainsKey($it.Src)) { continue }
             $h = (Normalize-Text $c[$it.Src].H).ToUpper()
@@ -201,7 +231,7 @@ ORDER BY s.D_KENSIN, s.UKE_NO_KENSA
                 if ($null -eq $j) { continue }
                 $h = $j.H
                 $plan += New-Object PSObject -Property @{ PkSeq = $pk; 受診日 = [string]$p.YMD; 受付番号 = [string]$p.UKE; 氏名 = [string]$p.NAME
-                    欄 = '中性脂肪の判定'; KOMOKU_CD = $it.Src; 前 = ''; 後 = $h; HL = $j.HL; 前HL = (Normalize-Text $c[$it.Src].HL)
+                    欄 = '中性脂肪の判定'; KOMOKU_CD = $it.Src; 前 = ''; 後 = $h; HL = $j.HL; 前HL = (Normalize-Text $c[$it.Src].HL); V = $null; 前V = ''
                     理由 = ("中性脂肪 {0} を空腹時の基準で判定 (印 {1})" -f $c[$it.Src].V, $(if ($j.HL) { $j.HL } else { 'なし' })) }
                 $src = '中性脂肪(空腹時基準)'
             }
@@ -212,21 +242,47 @@ ORDER BY s.D_KENSIN, s.UKE_NO_KENSA
             if ($r -eq 0 -or -not $c.ContainsKey($it.Dst)) { continue }
             $dH = (Normalize-Text $c[$it.Dst].H).ToUpper()
             if ($r -gt (Rank $dH)) {
-                $plan += New-Object PSObject -Property @{ PkSeq = $pk; 受診日 = [string]$p.YMD; 受付番号 = [string]$p.UKE; 氏名 = [string]$p.NAME
-                    欄 = $it.DstName; KOMOKU_CD = $it.Dst; 前 = $dH; 後 = $h; HL = $null; 前HL = ''; 理由 = ("{0} {1} = {2}" -f $src, $c[$it.Src].V, $h).Replace("  "," ") }
+                $why = ("{0} {1} = {2}" -f $src, $c[$it.Src].V, $h).Replace("  "," ")
+                $dV = Normalize-Text $c[$it.Dst].V
+                if ($pend.ContainsKey($it.Dst)) {
+                    # 同じくくりに 2 項目 (HbA1c と血糖) が効くときは重い方 1 行にまとめる
+                    if ($r -gt (Rank $pend[$it.Dst].後)) { $pend[$it.Dst].後 = $h; $pend[$it.Dst].理由 = $why; if ($null -ne $pend[$it.Dst].V) { $pend[$it.Dst].V = $h } }
+                } else {
+                    $row = New-Object PSObject -Property @{ PkSeq = $pk; 受診日 = [string]$p.YMD; 受付番号 = [string]$p.UKE; 氏名 = [string]$p.NAME
+                        欄 = $it.DstName; KOMOKU_CD = $it.Dst; 前 = $dH; 後 = $h; HL = $null; 前HL = ''; 理由 = $why; V = (LetterV $dV $h); 前V = $dV }
+                    $pend[$it.Dst] = $row; $plan += $row
+                }
             }
         }
         $sH = (Normalize-Text $c[$SOGO].H).ToUpper()
         if ($maxR -gt (Rank $sH)) {
             $plan += New-Object PSObject -Property @{ PkSeq = $pk; 受診日 = [string]$p.YMD; 受付番号 = [string]$p.UKE; 氏名 = [string]$p.NAME
-                欄 = '総合判定'; KOMOKU_CD = $SOGO; 前 = $sH; 後 = $maxH; HL = $null; 前HL = ''; 理由 = ("6 項目の最重 = {0}" -f $maxH) }
+                欄 = '総合判定'; KOMOKU_CD = $SOGO; 前 = $sH; 後 = $maxH; HL = $null; 前HL = ''; 理由 = ("6 項目の最重 = {0}" -f $maxH)
+                V = (SogoText $maxH); 前V = (Normalize-Text $c[$SOGO].V) }
+        } else {
+            # 前に判定の文字だけ上げていて、文章が古いまま (例 G なのに「要精検」) の人を直す
+            $sV = Normalize-Text $c[$SOGO].V; $want = SogoText $sH
+            if ($want -and $sV -ne $want -and $CANON_ALL.ContainsKey($sV)) {
+                $plan += New-Object PSObject -Property @{ PkSeq = $pk; 受診日 = [string]$p.YMD; 受付番号 = [string]$p.UKE; 氏名 = [string]$p.NAME
+                    欄 = '総合判定の文章'; KOMOKU_CD = $SOGO; 前 = $sH; 後 = $sH; HL = $null; 前HL = ''; 理由 = ("判定 {0} に合う文章にする" -f $sH); V = $want; 前V = $sV }
+            }
+        }
+        # くくり欄の 結果 が 1 文字 (A〜J) で判定とずれている (前に判定だけ上げた) ものを判定に合わせる
+        foreach ($dst in @($ITEMS | ForEach-Object { $_.Dst } | Sort-Object -Unique)) {
+            if ($pend.ContainsKey($dst) -or -not $c.ContainsKey($dst)) { continue }
+            $dH2 = (Normalize-Text $c[$dst].H).ToUpper(); $dV2 = Normalize-Text $c[$dst].V
+            if ($dH2 -ne '' -and $dV2 -match '^[A-J]$' -and $dV2 -ne $dH2) {
+                $nm = @($ITEMS | Where-Object { $_.Dst -eq $dst })[0].DstName
+                $plan += New-Object PSObject -Property @{ PkSeq = $pk; 受診日 = [string]$p.YMD; 受付番号 = [string]$p.UKE; 氏名 = [string]$p.NAME
+                    欄 = ($nm + 'の文字'); KOMOKU_CD = $dst; 前 = $dH2; 後 = $dH2; HL = $null; 前HL = ''; 理由 = ("結果 {0} を判定 {1} に合わせる" -f $dV2, $dH2); V = $dH2; 前V = $dV2 }
+            }
         }
     }
     if ($skipNoSogo -gt 0) { Write-Host ("  総合判定が付いていないので対象外: {0} 人 (自動判定前)" -f $skipNoSogo) -ForegroundColor DarkGray }
 
     Write-Host ''
     Write-Host '=== 直す欄 ===' -ForegroundColor Cyan
-    $plan | Select-Object 受診日, 受付番号, 氏名, 欄, 前, 後, @{n='印';e={ if ($null -ne $_.HL) { $_.HL } else { '' } }}, 理由 | Format-Table -AutoSize | Out-String -Width 200 | Write-Host
+    $plan | Select-Object 受診日, 受付番号, 氏名, 欄, 前, 後, @{n='印';e={ if ($null -ne $_.HL) { $_.HL } else { '' } }}, @{n='結果';e={ if ($null -ne $_.V -and $_.V -ne $_.前V) { "{0}→{1}" -f $_.前V, $_.V } else { '' } }}, 理由 | Format-Table -AutoSize | Out-String -Width 220 | Write-Host
     Line
     Write-Host ("直す: {0} か所 ({1} 人)" -f $plan.Count, @($plan | Group-Object PkSeq).Count) -ForegroundColor Green
     Line
@@ -255,9 +311,11 @@ ORDER BY s.D_KENSIN, s.UKE_NO_KENSA
                 # プレビュー後に値が変わっていたら、その欄は触らない
                 $now = Invoke-DbQuery $conn "SELECT LTRIM(RTRIM(ISNULL(HANTEI_KIGO,''))) AS H FROM T_KENSA WHERE PK_SEQ = @p AND LTRIM(RTRIM(KOMOKU_CD)) = @cd" @{ p = $pk; cd = $t.KOMOKU_CD } $tran
                 if ($now.Rows.Count -ne 1 -or ([string]$now.Rows[0].H).ToUpper() -ne $t.前) { Write-Host ("  [変わっていたので触らず] {0} {1}" -f $t.氏名, $t.欄) -ForegroundColor Yellow; continue }
-                Write-Hantei $conn $tran $pk $t.KOMOKU_CD $t.後 $t.HL
+                $wv = $(if ($null -ne $t.V -and $t.V -ne $t.前V) { $t.V } else { $null })
+                Write-Hantei $conn $tran $pk $t.KOMOKU_CD $t.後 $t.HL $wv
                 $undoRows += New-Object PSObject -Property @{ PK_SEQ = [string]$pk; KOMOKU_CD = $t.KOMOKU_CD; 欄 = $t.欄; 前 = $t.前; 後 = $t.後
-                    前HL = $(if ($null -ne $t.HL) { $t.前HL } else { '' }); 後HL = $(if ($null -ne $t.HL) { [string]$t.HL } else { '' }); 受付番号 = $t.受付番号; 氏名 = $t.氏名 }
+                    前HL = $(if ($null -ne $t.HL) { $t.前HL } else { '' }); 後HL = $(if ($null -ne $t.HL) { [string]$t.HL } else { '' })
+                    前の結果 = $(if ($null -ne $wv) { $t.前V } else { '' }); 後の結果 = $(if ($null -ne $wv) { [string]$wv } else { '' }); 受付番号 = $t.受付番号; 氏名 = $t.氏名 }
                 $done++
             }
             $tran.Commit()
@@ -266,7 +324,7 @@ ORDER BY s.D_KENSIN, s.UKE_NO_KENSA
         catch { $tran.Rollback(); throw }
     }
     if ($undoRows.Count -gt 0) {
-        $undoRows | Select-Object PK_SEQ, KOMOKU_CD, 欄, 前, 後, 前HL, 後HL, 受付番号, 氏名 | Export-Csv -Path $undoFile -NoTypeInformation -Encoding UTF8
+        $undoRows | Select-Object PK_SEQ, KOMOKU_CD, 欄, 前, 後, 前HL, 後HL, 前の結果, 後の結果, 受付番号, 氏名 | Export-Csv -Path $undoFile -NoTypeInformation -Encoding UTF8
     }
     Write-Host ''
     Write-Host ("[完了] {0} か所を直しました。記録: {1}" -f $done, $undoFile) -ForegroundColor Green

@@ -33,12 +33,12 @@ $P = @"
 "@
 
 Q '--- 1. 総合判定(編集) 11000 と 自動判定 10000 が違う人 ---' @"
-SELECT p.YMD AS 受診日, p.UKE AS 受付番号, p.NAME AS 氏名, ISNULL(p.AUTO,'') AS 自動総合, ISNULL(p.EDIT,'') AS 編集総合,
-       ISNULL(p.A1C,'') AS HbA1c, ISNULL(p.GLU,'') AS 血糖, ISNULL(p.TOU,'') AS 糖代謝,
-       ISNULL(p.PLT,'') AS 血小板, ISNULL(p.BLD,'') AS 血液一般,
-       ISNULL(p.EGFR,'') AS eGFR, ISNULL(p.JIN,'') AS 腎機能,
-       ISNULL(p.TG,'') AS 中性脂肪, ISNULL(p.SISITU,'') AS 脂質代謝,
-       ISNULL(p.EYE,'') AS 眼底, ISNULL(p.EYEV,'') AS 眼底の文字
+SELECT p.UKE AS 受付番号, ISNULL(p.AUTO,'') AS 自動, ISNULL(p.EDIT,'') AS 編集,
+       '糖' + ISNULL(p.TOU,'-') + ' A1c' + ISNULL(p.A1C,'-') + ' 血糖' + ISNULL(p.GLU,'-')
+       + ' / 血液' + ISNULL(p.BLD,'-') + ' 血小板' + ISNULL(p.PLT,'-')
+       + ' / 腎' + ISNULL(p.JIN,'-') + ' eGFR' + ISNULL(p.EGFR,'-')
+       + ' / 脂質' + ISNULL(p.SISITU,'-') + ' TG' + ISNULL(p.TG,'-')
+       + ' / 眼底' + ISNULL(p.EYE,'-') + '(' + ISNULL(p.EYEV,'') + ')' AS 判定
 FROM $P
 WHERE ISNULL(p.AUTO,'') <> ISNULL(p.EDIT,'')
 ORDER BY p.YMD, p.UKE

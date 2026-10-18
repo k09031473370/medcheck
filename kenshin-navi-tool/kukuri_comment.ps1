@@ -57,18 +57,18 @@ function Split-List([string]$s) { return @(($s -split '[,、\s]+') | ForEach-Obj
 # ---- 入れる文章 ----
 #   Item … 判定を見る項目 / Kind … 同じ種類のコメントを見分ける文字 / Heavy … F のときの文に含まれる言葉 (重さの判定用)
 $RULES = @(
-    @{ Name = 'HbA1c'; Item = '068689'; Alt = @('068682'); Kind = '糖';    KindPat = '糖代謝|糖尿病';   # 「糖」だけだと【尿糖】の文に当たって「既にあり」になる (2026/10/17 に発覚)
+    @{ Name = 'HbA1c'; Item = '068689'; Alt = @('068682'); Dst = '600340'; Kind = '糖';    KindPat = '糖代謝|糖尿病';   # 「糖」だけだと【尿糖】の文に当たって「既にあり」になる (2026/10/17 に発覚)
        D = @{ Cd = '';    Text = '【糖代謝】　高値です。経過観察の必要があります。' }
        F = @{ Cd = '';    Text = '【糖代謝】　糖尿病が疑われますので精密検査の必要があります。' } }
-    @{ Name = 'eGFR';  Item = '068676'; Kind = '腎機能'; KindPat = '腎機能';
+    @{ Name = 'eGFR';  Item = '068676'; Dst = '600220'; Kind = '腎機能'; KindPat = '腎機能';
        D = @{ Cd = '159'; Text = '腎機能検査に軽度異常があります。経過観察し、定期的に検査して下さい。' }
        F = @{ Cd = '161'; Text = '腎機能検査に異常があります。精査を受けて下さい。' } }
-    @{ Name = '中性脂肪'; Item = 'R06-0002'; Alt = @('068702','R06-0003'); Kind = '中性脂肪'; KindPat = '中性脂肪';
+    @{ Name = '中性脂肪'; Item = 'R06-0002'; Alt = @('068702','R06-0003'); Dst = '600320'; Kind = '中性脂肪'; KindPat = '中性脂肪';
        D = @{ Cd = '';    Text = '【中性脂肪】　高値です。飲酒に注意しバランスの良い食事と適度な運動を心がけ、経過観察の必要があります。' }
        F = @{ Cd = '';    Text = '【中性脂肪】　高値です。精密検査の必要があります。' } }
     # 眼底: 【判定】眼底 600060 (業者の判定を mapping_gantei_hantei_* で入れたもの) が D/F の人。文章は 2026 年に使われていた定型文 (番号 235/236)。
     #       先生の言い回しに変えるときはこの 2 行の Text を直す (Cd は番号。分からなければ空でよい)。
-    @{ Name = '眼底';  Item = '600060'; Kind = '眼底'; KindPat = '眼底';
+    @{ Name = '眼底';  Item = '600060'; Dst = '600060'; Kind = '眼底'; KindPat = '眼底';
        D = @{ Cd = '235'; Text = '眼底に所見を認めますので、経過観察が必要です。症状があれば眼科を受診して下さい。' }
        F = @{ Cd = '236'; Text = '眼底に異常があります。眼科受診し、精密検査を受けて下さい。' } }
 )
@@ -175,6 +175,12 @@ ORDER BY s.D_KENSIN, s.UKE_NO_KENSA, k.KOMOKU_CD
         $cur[$pk][[string]$r.CD] = @{ Kekka = (Normalize-Text ([string]$r.V)); KekkaCd = [string]$r.VC }
     }
 
+    # くくり判定 (糖代謝・脂質代謝・腎機能・眼底) が J (治療中) の人には、精密検査などの文を足さない (2026/10/18。既往歴から J が付くようになったため)
+    $dstLit = "'" + ((@($RULES | ForEach-Object { $_.Dst } | Where-Object { $_ }) | Sort-Object -Unique) -join "','") + "'"
+    $kk = @{}
+    foreach ($r in (Invoke-DbQuery $conn "SELECT PK_SEQ, LTRIM(RTRIM(KOMOKU_CD)) AS CD, LTRIM(RTRIM(ISNULL(HANTEI_KIGO,''))) AS H FROM T_KENSA WHERE PK_SEQ IN ($pkLit) AND LTRIM(RTRIM(KOMOKU_CD)) IN ($dstLit)").Rows) {
+        $kk[[string]$r.PK_SEQ + '|' + [string]$r.CD] = ([string]$r.H).ToUpper()
+    }
     # 同じ人・同じ規則 (例: 中性脂肪の未判別と空腹時) が 2 行あれば重い方だけ残す
     $best = @{}
     foreach ($r in $rows) {
@@ -192,6 +198,7 @@ ORDER BY s.D_KENSIN, s.UKE_NO_KENSA, k.KOMOKU_CD
         $t = if ($h -eq 'D') { $rule.D } else { $rule.F }
         $rep = New-Object PSObject -Property @{ PkSeq = $pk; 受診日 = [string]$r.YMD; 受付番号 = [string]$r.UKE; 氏名 = [string]$r.NAME
             検査 = $rule.Name; 値 = [string]$r.V; 判定 = $h; 枠 = ''; 状態 = ''; 文章 = $t.Text; 番号CD = $t.Cd; 今の文章 = ''; 今の番号 = '' }
+        if ($rule.Dst -and $kk.ContainsKey($pk + '|' + $rule.Dst) -and $kk[$pk + '|' + $rule.Dst] -eq 'J') { $rep.状態 = '治療中(J)'; $plan += $rep; continue }
         if (-not $cur.ContainsKey($pk)) { $rep.状態 = '医師指示事項の枠がありません'; $plan += $rep; continue }
         if (-not $used.ContainsKey($pk)) { $used[$pk] = @{} }
 
@@ -234,8 +241,8 @@ ORDER BY s.D_KENSIN, s.UKE_NO_KENSA, k.KOMOKU_CD
     $ok   = @($plan | Where-Object { $_.状態 -eq 'OK' -or $_.状態 -eq '文章を直す' })
     $add  = @($plan | Where-Object { $_.状態 -eq 'OK' })
     $fix  = @($plan | Where-Object { $_.状態 -eq '文章を直す' })
-    $skip = @($plan | Where-Object { $_.状態 -eq '既にあり' })
-    $err  = @($plan | Where-Object { $_.状態 -notin @('OK','文章を直す','既にあり') })
+    $skip = @($plan | Where-Object { $_.状態 -eq '既にあり' -or $_.状態 -eq '治療中(J)' })
+    $err  = @($plan | Where-Object { $_.状態 -notin @('OK','文章を直す','既にあり','治療中(J)') })
     Write-Host '=== 入れる文章 ===' -ForegroundColor Cyan
     foreach ($t in ($ok | Sort-Object 文章 -Unique)) {
         $n = @($ok | Where-Object { $_.文章 -eq $t.文章 }).Count

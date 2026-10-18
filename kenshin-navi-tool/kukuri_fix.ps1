@@ -273,10 +273,11 @@ ORDER BY 3 DESC
         foreach ($dst in @($ITEMS | ForEach-Object { $_.Dst } | Sort-Object -Unique)) {
             if ($pend.ContainsKey($dst) -or -not $c.ContainsKey($dst)) { continue }
             $dH2 = (Normalize-Text $c[$dst].H).ToUpper(); $dV2 = Normalize-Text $c[$dst].V
-            if ($dH2 -ne '' -and $dV2 -match '^[A-J]$' -and $dV2 -ne $dH2) {
+            # 眼底は結果が空欄の人もいる (結果票の判定欄が空になる) ので判定の文字を入れる (2026/10/18)
+            if ($dH2 -ne '' -and ($dV2 -match '^[A-J]$' -or ($dst -eq '600060' -and $dV2 -eq '')) -and $dV2 -ne $dH2) {
                 $nm = @($ITEMS | Where-Object { $_.Dst -eq $dst })[0].DstName
                 $plan += New-Object PSObject -Property @{ PkSeq = $pk; 受診日 = [string]$p.YMD; 受付番号 = [string]$p.UKE; 氏名 = [string]$p.NAME
-                    欄 = ($nm + 'の文字'); KOMOKU_CD = $dst; 前 = $dH2; 後 = $dH2; HL = $null; 前HL = ''; 理由 = ("結果 {0} を判定 {1} に合わせる" -f $dV2, $dH2); V = $dH2; 前V = $dV2 }
+                    欄 = ($nm + 'の文字'); KOMOKU_CD = $dst; 前 = $dH2; 後 = $dH2; HL = $null; 前HL = ''; 理由 = ("結果 {0} を判定 {1} に合わせる" -f $(if ($dV2 -eq '') { '(空欄)' } else { $dV2 }), $dH2); V = $dH2; 前V = $dV2 }
             }
         }
     }

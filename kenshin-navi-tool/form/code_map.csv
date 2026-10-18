@@ -167,3 +167,7 @@ GANTEI_HANTEI,A:異常なし,A,半角コロンで来たとき
 GANTEI_HANTEI,B:有所見正常,B,半角コロンで来たとき
 GANTEI_HANTEI,C:経過観察,D,半角コロンで来たとき
 GANTEI_HANTEI,D:要精検,F,半角コロンで来たとき
+GANTEI_HANTEI,F：要継続治療,J,業者 F 要継続治療 → J 治療中 (2026/10/18 ユーザー決定)。kukuri_fix は眼底の J を総合判定に上げない
+GANTEI_HANTEI,G：判定不能,E,業者 G 判定不能 (判読不能) → E 要再検 (2026/10/18 ユーザー決定)。システムの G (要治療) とは別物
+GANTEI_HANTEI,F:要継続治療,J,半角コロンで来たとき
+GANTEI_HANTEI,G:判定不能,E,半角コロンで来たとき

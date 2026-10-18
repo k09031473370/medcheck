@@ -127,6 +127,19 @@ foreach ($pk in $Ppl.Keys) {
     }
 }
 
+# ---- F. 治療中 (J) の人で、別の病気の精密検査・治療の文がある人 / 糖代謝 J なのに尿糖の精密検査の文がある人 (先生確認) ----
+$Fj = @()
+foreach ($pk in $Ppl.Keys) {
+    $c = $Ppl[$pk].C
+    $js = @(@('600150','600340','600320','600060') | Where-Object { $c.ContainsKey($_) -and $c[$_].H -eq 'J' })
+    if ($js.Count -eq 0) { continue }
+    $hv = @((Comments $c) | Where-Object { $_ -match '精密|精査|治療の必要|受診' -and $_ -notmatch '継続' })
+    $ur = @($hv | Where-Object { $_ -match '^\s*【尿糖】' })
+    if ($hv.Count -gt 0) {
+        $Fj += [PSCustomObject][ordered]@{ 受診日 = $Ppl[$pk].Ymd; 受付番号 = $Ppl[$pk].Uke; 氏名 = $Ppl[$pk].Name; J = ($js -join ','); 糖代謝Jで尿糖精検 = $(if ($c.ContainsKey('600340') -and $c['600340'].H -eq 'J' -and $ur.Count -gt 0) { 'あり' } else { '' }); 精検などの文 = ($hv -join ' / ') }
+    }
+}
+
 # ---- E. 参考: 2026 年の石屋以外の受診者で、判定眼底 600060 と 協会眼底指導区分 610100 の組み合わせ (読み替えの対応を見る) ----
 $conn = Open-Db
 try {
@@ -142,11 +155,12 @@ ORDER BY 1, 2
 
 Write-Host ''
 Write-Host ' 外部点検の指摘の確認 (読むだけ)' -ForegroundColor Cyan
-$fa = Save $A 'A_消えた文'; $fb = Save $B 'B_行数'; $fc = Save $Ceye 'C_眼底と協会'; $fd = Save $D 'D_服薬と既往歴'
+$ff = Save $Fj 'F_Jと精検'; $fa = Save $A 'A_消えた文'; $fb = Save $B 'B_行数'; $fc = Save $Ceye 'C_眼底と協会'; $fd = Save $D 'D_服薬と既往歴'
 Write-Host ("  A. 自動判定前にあって今は無い医師指示事項: {0} 件 ({1} 人)  {2}" -f $A.Count, @($A | Group-Object 受付番号).Count, $fa)
 Write-Host ("  B. 11 行を超える・11012 以降に文がある・10 行以上で長い文がある人: {0} 人  {1}" -f $B.Count, $fb)
 Write-Host ("  C. 判定眼底と協会の眼底指導区分が違う人: {0} 人  {1}" -f $Ceye.Count, $fc)
 Write-Host ("  D. 服薬歴・既往歴・J がずれている: {0} 件  {1}" -f $D.Count, $fd)
+Write-Host ("  F. 治療中(J) で別の病気の精検・受診の文もある人: {0} 人 (うち糖代謝 J で尿糖の精検文: {1} 人)  {2}" -f $Fj.Count, @($Fj | Where-Object { $_.糖代謝Jで尿糖精検 }).Count, $ff)
 foreach ($g in ($A | Group-Object 分類 | Sort-Object Name)) { Write-Host ("     A の内訳 {0}: {1} 件" -f $g.Name, $g.Count) }
 Write-Host ''
 Write-Host '  ★先生確認 (A の分類 3・5。名前は出さない):' -ForegroundColor Yellow

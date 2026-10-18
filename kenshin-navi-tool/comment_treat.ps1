@@ -94,16 +94,16 @@ JOIN T_KENSA k ON k.PK_SEQ = s.PK_SEQ AND LTRIM(RTRIM(k.KOMOKU_CD)) IN ($cds)
 WHERE $where
 ORDER BY s.D_KENSIN, s.UKE_NO_KENSA
 "@).Rows
-    $P = [ordered]@{}
+    $People = [ordered]@{}
     foreach ($r in $rows) {
         $pk = [string]$r.PK_SEQ
-        if (-not $P.Contains($pk)) { $P[$pk] = @{ Uke = [string]$r.UKE; Ymd = [string]$r.YMD; Name = [string]$r.NAME; C = @{} } }
-        $P[$pk].C[[string]$r.CD] = @{ H = ([string]$r.H).ToUpper(); V = [string]$r.V; VC = [string]$r.VC }
+        if (-not $People.Contains($pk)) { $People[$pk] = @{ Uke = [string]$r.UKE; Ymd = [string]$r.YMD; Name = [string]$r.NAME; C = @{} } }
+        $People[$pk].C[[string]$r.CD] = @{ H = ([string]$r.H).ToUpper(); V = [string]$r.V; VC = [string]$r.VC }
     }
 
     $plan = @()
-    foreach ($pk in $P.Keys) {
-        $p = $P[$pk]; $c = $p.C; $used = @{}
+    foreach ($pk in $People.Keys) {
+        $p = $People[$pk]; $c = $p.C; $used = @{}
         foreach ($k in $KINDS) {
             if (-not $c.ContainsKey($k.Cd) -or $c[$k.Cd].H -ne 'J') { continue }
             $want = $TEXT[$k.Cd]
@@ -133,7 +133,7 @@ ORDER BY s.D_KENSIN, s.UKE_NO_KENSA
     Line
     Write-Host ("差し替え: {0} / 追加: {1} / 消す: {2} / 枠が足りない: {3}  (J の欄がある人: {4} 人)" -f @($ok | Where-Object { $_.操作 -eq '差し替え' }).Count, @($ok | Where-Object { $_.操作 -eq '追加' }).Count,
         @($ok | Where-Object { $_.操作 -eq '消す' }).Count, @($plan | Where-Object { $_.操作 -eq '枠が足りない' }).Count,
-        @($P.Keys | Where-Object { $pp = $P[$_]; @($KINDS | Where-Object { $pp.C.ContainsKey($_.Cd) -and $pp.C[$_.Cd].H -eq 'J' }).Count -gt 0 }).Count) -ForegroundColor Green
+        @($People.Keys | Where-Object { $pp = $People[$_]; @($KINDS | Where-Object { $pp.C.ContainsKey($_.Cd) -and $pp.C[$_.Cd].H -eq 'J' }).Count -gt 0 }).Count) -ForegroundColor Green
     Line
     if ($ok.Count -eq 0) { Write-Host '直すものがありません。'; return }
     if (-not $Commit) {

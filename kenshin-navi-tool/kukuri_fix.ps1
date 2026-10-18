@@ -68,6 +68,7 @@ $ITEMS = @(
     @{ Src = '600060'; SrcName = '眼底';   Dst = '600060'; DstName = '眼底' }   # くくり自身。総合判定にだけ効く (眼底 F → 総合判定 F)
 )
 $SOGO = '11000'
+$KYOKAI_EYE = '610100'   # 【協会判定】眼底指導区分
 # 中性脂肪の値 → 判定と H/L (空腹時の基準)
 function TgJudge([string]$v) {
     $d = 0.0
@@ -160,7 +161,7 @@ Write-Host ('=' * 76) -ForegroundColor Cyan
 Write-Host ("  受診日    : {0}" -f ($dateList -join ', '))
 if ($ukeList.Count -gt 0) { Write-Host ("  受付番号  : {0}" -f ($ukeList -join ', ')) }
 if ($UkeFrom -gt 0 -or $UkeTo -gt 0) { Write-Host ("  受付番号の範囲: {0}〜{1}" -f $UkeFrom, $UkeTo) }
-Write-Host '  糖代謝 600340 ← HbA1c・血糖 / 血液一般 600310 ← 血小板 / 腎機能 600220 ← eGFR / 脂質代謝 600320 ← 中性脂肪 / 眼底 600060 / 総合判定 11000 ← 6 項目の最重' -ForegroundColor DarkGray
+Write-Host '  糖代謝 600340 ← HbA1c・血糖 / 血液一般 600310 ← 血小板 / 腎機能 600220 ← eGFR / 脂質代謝 600320 ← 中性脂肪 / 眼底 600060 / 総合判定 11000 ← 6 項目の最重 / 協会 眼底指導区分 610100 ← 判定眼底と同じ文字' -ForegroundColor DarkGray
 Write-Host '  中性脂肪(未判別) に判定が無い人は、空腹時の基準で判定と H/L 印を付ける (空腹時/随時中性脂肪に判定がある人は触らない)。' -ForegroundColor DarkGray
 Write-Host '  ※ 重くする方向だけ。総合判定が付いていない人 (自動判定前) は対象外。' -ForegroundColor DarkGray
 Write-Host ''
@@ -182,7 +183,7 @@ ORDER BY s.D_KENSIN, s.UKE_NO_KENSA
     Write-Host ("  対象者: {0} 人" -f $people.Count)
 
     $pkLit = ($people | ForEach-Object { [string]$_.PK_SEQ }) -join ','
-    $allCds = @($ITEMS | ForEach-Object { $_.Src }) + @($ITEMS | ForEach-Object { $_.Dst }) + @($SOGO)
+    $allCds = @($ITEMS | ForEach-Object { $_.Src }) + @($ITEMS | ForEach-Object { $_.Dst }) + @($SOGO, $KYOKAI_EYE)
     foreach ($it in $ITEMS) { if ($it.Alt) { $allCds += $it.Alt } }
     $cdLit = "'" + ($allCds -join "','") + "'"
     $cur = @{}   # pk -> cd -> @{ H = 判定; V = 値; HL = 印 }
@@ -278,6 +279,16 @@ ORDER BY 3 DESC
                 $nm = @($ITEMS | Where-Object { $_.Dst -eq $dst })[0].DstName
                 $plan += New-Object PSObject -Property @{ PkSeq = $pk; 受診日 = [string]$p.YMD; 受付番号 = [string]$p.UKE; 氏名 = [string]$p.NAME
                     欄 = ($nm + 'の文字'); KOMOKU_CD = $dst; 前 = $dH2; 後 = $dH2; HL = $null; 前HL = ''; 理由 = ("結果 {0} を判定 {1} に合わせる" -f $(if ($dV2 -eq '') { '(空欄)' } else { $dV2 }), $dH2); V = $dH2; 前V = $dV2 }
+            }
+        }
+        # 【協会判定】眼底指導区分 610100 は自動判定のときの眼底 (業者判定の取込前) で付いたまま。判定眼底 600060 と同じ文字にする。
+        #   2026 年の他団体では 600060 と 610100 は全員同じ文字 (check113 の E)。外部点検の指摘 (2026/10/18)
+        if ($c.ContainsKey('600060') -and $c.ContainsKey($KYOKAI_EYE)) {
+            $eH = (Normalize-Text $c['600060'].H).ToUpper(); $kH = (Normalize-Text $c[$KYOKAI_EYE].H).ToUpper(); $kV = Normalize-Text $c[$KYOKAI_EYE].V
+            if ($eH -ne '' -and $kH -ne $eH) {
+                $plan += New-Object PSObject -Property @{ PkSeq = $pk; 受診日 = [string]$p.YMD; 受付番号 = [string]$p.UKE; 氏名 = [string]$p.NAME
+                    欄 = '協会 眼底指導区分'; KOMOKU_CD = $KYOKAI_EYE; 前 = $kH; 後 = $eH; HL = $null; 前HL = ''; 理由 = ("判定眼底 {0} に合わせる" -f $eH)
+                    V = $(if ($kV -eq '' -or $kV -match '^[A-J]$') { $eH } else { $null }); 前V = $kV }
             }
         }
     }

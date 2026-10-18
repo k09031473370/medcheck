@@ -4,17 +4,25 @@
     python zip_tool.py          # GUI を起動
     python zip_tool.py compress <フォルダ> <出力.zip> [-p パスワード]
     python zip_tool.py extract  <入力.zip> <展開先>  [-p パスワード]
+
+exe 版では「自己解凍形式」で保存でき、受け取った人は exe をダブルクリックして
+パスワードを入れるだけで展開できる（Windows のみ・追加ソフト不要）。
 """
 import argparse
 import getpass
 import os
+import shutil
 import sys
+import tempfile
 import threading
 
 import pyzipper
 
 
-def compress_folder(folder, zip_path, password=None, progress=None):
+SFX_MARK = b"KANTAN-SFX"  # 自己解凍 exe に埋め込んだ ZIP の目印（ZIP コメント）
+
+
+def compress_folder(folder, zip_path, password=None, progress=None, comment=b""):
     """フォルダを ZIP に圧縮する。password があれば AES-256 で暗号化。"""
     folder = os.path.abspath(folder)
     base = os.path.dirname(folder)
@@ -34,6 +42,7 @@ def compress_folder(folder, zip_path, password=None, progress=None):
 
     out = os.path.abspath(zip_path)
     with zf:
+        zf.comment = comment
         for i, (path, is_dir) in enumerate(files, 1):
             if os.path.abspath(path) == out:
                 continue  # 出力先がフォルダ内にある場合は自分自身を含めない
@@ -62,6 +71,65 @@ def extract_zip(zip_path, dest, password=None, progress=None):
             if progress:
                 progress(i, len(members))
     return len(members)
+
+
+def make_sfx(folder, exe_path, password=None, progress=None, stub=None):
+    """自己解凍 exe を作る。stub（このツールの exe）の後ろに ZIP を連結する。"""
+    stub = stub or sys.executable
+    fd, tmp = tempfile.mkstemp(suffix=".zip")
+    os.close(fd)
+    try:
+        n = compress_folder(folder, tmp, password, progress, comment=SFX_MARK)
+        with open(exe_path, "wb") as out:
+            for src in (stub, tmp):
+                with open(src, "rb") as f:
+                    shutil.copyfileobj(f, out)
+    finally:
+        os.remove(tmp)
+    return n
+
+
+def sfx_payload_path():
+    """自分自身が自己解凍 exe なら exe のパスを返す。"""
+    if not getattr(sys, "frozen", False):
+        return None
+    try:
+        with pyzipper.AESZipFile(sys.executable) as zf:
+            return sys.executable if zf.comment == SFX_MARK else None
+    except Exception:
+        return None
+
+
+def run_sfx(exe):
+    """自己解凍: パスワードを聞いて exe と同じ場所に展開し、フォルダを開く。"""
+    import tkinter as tk
+    from tkinter import messagebox, simpledialog
+
+    root = tk.Tk()
+    root.withdraw()
+    dest = os.path.dirname(exe)
+    with pyzipper.AESZipFile(exe) as zf:
+        encrypted = any(m.flag_bits & 0x1 for m in zf.infolist())
+        top = zf.namelist()[0].split("/")[0] if zf.namelist() else ""
+    while True:
+        pw = None
+        if encrypted:
+            pw = simpledialog.askstring("パスワード", "パスワードを入力してください:",
+                                        show="●", parent=root)
+            if pw is None:
+                return  # キャンセル
+        try:
+            extract_zip(exe, dest, pw)
+            break
+        except RuntimeError:
+            if not messagebox.askretrycancel("エラー", "パスワードが違います。"):
+                return
+        except Exception as e:
+            return messagebox.showerror("エラー", str(e))
+    opened = os.path.join(dest, top)
+    messagebox.showinfo("完了", f"展開しました:\n{opened}")
+    if hasattr(os, "startfile"):
+        os.startfile(opened)
 
 
 # ---------------- GUI ----------------
@@ -127,12 +195,12 @@ def run_gui():
         if d:
             c_src.set(d)
             if not c_out.get():
-                c_out.set(d.rstrip("/\\") + ".zip")
+                c_out.set(d.rstrip("/\\") + (".exe" if c_sfx.get() else ".zip"))
 
     def pick_out():
         p = filedialog.asksaveasfilename(defaultextension=".zip", filetypes=[("ZIP", "*.zip")])
         if p:
-            c_out.set(p)
+            c_out.set(os.path.splitext(p)[0] + (".exe" if c_sfx.get() else ".zip"))
 
     row(c, 0, "フォルダ:", c_src, pick_src)
     row(c, 1, "保存先:", c_out, pick_out)
@@ -140,6 +208,22 @@ def run_gui():
     row(c, 3, "確認用:", c_pw2, None, show="●")
     ttk.Label(c, text="※パスワード空欄なら暗号化なし", foreground="gray").grid(
         row=4, column=1, sticky="w")
+
+    c_sfx = tk.BooleanVar()
+    frozen = getattr(sys, "frozen", False)
+
+    def on_sfx():
+        out = c_out.get()
+        if out:
+            stem = os.path.splitext(out)[0]
+            c_out.set(stem + (".exe" if c_sfx.get() else ".zip"))
+
+    ttk.Checkbutton(
+        c, variable=c_sfx, command=on_sfx,
+        text="自己解凍形式（相手はダブルクリック→パスワードで開ける）"
+             + ("" if frozen else " ※exe版のみ"),
+        state="normal" if frozen else "disabled",
+    ).grid(row=5, column=1, sticky="w")
 
     def do_compress():
         if not os.path.isdir(c_src.get()):
@@ -151,11 +235,12 @@ def run_gui():
         if os.path.exists(c_out.get()) and not messagebox.askyesno("確認", "上書きしますか？"):
             return
         src, out, pw = c_src.get(), c_out.get(), c_pw.get() or None
-        run_task(lambda: compress_folder(src, out, pw, set_progress),
+        fn = make_sfx if c_sfx.get() else compress_folder
+        run_task(lambda: fn(src, out, pw, set_progress),
                  "圧縮しました（{n} 件）", [c_btn, e_btn])
 
     c_btn = ttk.Button(c, text="圧縮する", command=do_compress)
-    c_btn.grid(row=5, column=1, pady=8)
+    c_btn.grid(row=6, column=1, pady=8)
 
     # --- 展開タブ ---
     e = make_tab("展開")
@@ -195,6 +280,11 @@ def run_gui():
 # ---------------- CLI ----------------
 
 def main(argv=None):
+    if argv is None and len(sys.argv) == 1:
+        exe = sfx_payload_path()
+        if exe:
+            return run_sfx(exe)
+
     p = argparse.ArgumentParser(description="パスワード付きフォルダ圧縮ツール")
     sub = p.add_subparsers(dest="cmd")
     for name, a, b in [("compress", "folder", "zip"), ("extract", "zip", "dest")]:
@@ -202,6 +292,8 @@ def main(argv=None):
         s.add_argument(a)
         s.add_argument(b)
         s.add_argument("-p", "--password", help="省略時は入力を求めます（空 Enter で暗号化なし）")
+        if name == "compress":
+            s.add_argument("--sfx", action="store_true", help="自己解凍 exe で保存（exe 版のみ）")
     args = p.parse_args(argv)
 
     if args.cmd is None:
@@ -212,7 +304,11 @@ def main(argv=None):
         pw = getpass.getpass("パスワード（なしなら Enter）: ")
     pw = pw or None
     try:
-        if args.cmd == "compress":
+        if args.cmd == "compress" and args.sfx:
+            if not getattr(sys, "frozen", False):
+                sys.exit("エラー: 自己解凍形式は exe 版でのみ作れます。")
+            n = make_sfx(args.folder, args.zip, pw)
+        elif args.cmd == "compress":
             n = compress_folder(args.folder, args.zip, pw)
         else:
             n = extract_zip(args.zip, args.dest, pw)

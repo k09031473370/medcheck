@@ -1,25 +1,27 @@
 ﻿<#
 .SYNOPSIS
-  人間ドック学会の判定を出して、健診ナビの判定と見比べる (dock_hantei.ps1)
+  人間ドック学会の文字で判定を出して、健診ナビの判定と見比べる (dock_hantei.ps1)
 
 .DESCRIPTION
-  健診ナビのDBから値を読み、form\dock_kijun.csv (学会の判定区分 + 院内ルール) で判定する。
-  判定の文字は学会の 4 段階: A 異常なし / B 軽度異常 / C 要再検査・生活改善 / D 要精密検査・治療。J (治療中) は使わない。
-    ・項目 → くくり (脂質代謝など) → 総合 の順に、いちばん重い判定を上に上げる。
-    ・院内ルールは基準表の「上限」行 (例: 視力は悪くても B) と「判定」行 (業者の読影をそのまま使う) で入れる。
-    ・血糖・中性脂肪は 空腹時 → 随時 → 未判別 の順に値を探す。未判別 (食事の記録なし) は空腹時の基準で見る。
-    ・血圧は 2 回目があれば 2 回目、無ければ 1 回目 (-BpFirst で 1 回目を使う)。
-  健診ナビの判定は form\dock_moji.csv で学会の文字に読み替えて並べ、違うところに印を付ける。
+  健診ナビのDBから値を読み、次の表で判定する。どの団体・コースでも使える。
+    form\dock_kijun.csv       院内の決まり (手で直す)。ここに行がある項目は、こちらだけで判定する。上限・除外もここ
+    form\dock_kijun_navi.csv  健診ナビの基準値の設定から作った表 (dock_setup.bat で作る。手で直さない)
+    form\dock_kukuri.csv      項目 → くくり (脂質代謝など) の表
+    form\dock_moji.csv        健診ナビの判定記号 (8段階) → 学会の文字 (4段階)
+  判定の文字は A 異常なし / B 軽度異常 / C 要再検査・生活改善 / D 要精密検査・治療。J (治療中) は使わない。
+  項目 → くくり → 総合 の順に、いちばん重い判定を上に上げる。
+  健診ナビに入っている判定も学会の文字に読み替えて並べ、違うところに色を付ける (違いがゼロなら、記号が違うだけで結果は同じ)。
   DBは読むだけで、一切変更しない。結果は out\ に HTML (ブラウザで開く) と CSV で出す。氏名は出さない。
   例:
     dock_hantei.ps1 -Dates 2026/09/03,2026/09/09,2026/09/10 -UkeFrom 4631 -UkeTo 4831
+    dock_hantei.ps1 -Dates 2026/08/21 -Course YSA1
 #>
 [CmdletBinding()]
 param(
     [string]$Dates,
     [int]$UkeFrom = 0,
     [int]$UkeTo = 0,
-    [switch]$BpFirst,
+    [string]$Course,
     [switch]$NoOpen,
     [string]$ConnFile = '\\KNSV\KenshinNavi\SQLSV\SQLServerConnect.txt',
     [string]$ConnectionString
@@ -41,20 +43,9 @@ $FormDir = Join-Path $PSScriptRoot 'form'
 $OutDir  = Join-Path $PSScriptRoot 'out'
 if (-not (Test-Path $OutDir)) { [void](New-Item -ItemType Directory -Path $OutDir) }
 $Inv = [Globalization.CultureInfo]::InvariantCulture
-
-$RANK  = @{ 'A' = 1; 'B' = 2; 'C' = 3; 'D' = 4 }
-$LABEL = [ordered]@{ 'A' = '異常なし'; 'B' = '軽度異常'; 'C' = '要再検査・生活改善'; 'D' = '要精密検査・治療' }
-# くくりの名前 → 健診ナビのくくり判定の項目CD (見比べ用)。並び順は画面の列の順
-$KUKURI = [ordered]@{
-    '身体計測' = '600020'; '視力' = '600040'; '聴力' = '600070'; '血圧' = '600150'; '胸部X線' = '600090'; '心電図' = '600130'
-    '胃部' = '600160'; '眼底' = '600060'; '肝機能' = '600331'; '脂質代謝' = '600320'; '糖代謝' = '600340'; '腎機能' = '600220'
-    '尿酸' = '600460'; '血液一般' = '600310'; '便潜血' = '600200'
-}
-$TOTAL_CD = '11000'   # 総合判定(編集)。無ければ 10000 (自動判定の総合) を見る
-$TOTAL_AUTO = '10000'
-# ツールが作る項目の元になる項目CD
-$SRC_CDS = @('001211','001212','001253','001254','001255','001256','067012','067013','067018','067019',
-             '068705','068708','H30-0011','H30-0012','068682','068702','R06-0003','R06-0002')
+$RANK = @{ 'A' = 1; 'B' = 2; 'C' = 3; 'D' = 4 }
+$OTHER = 'その他'
+$TOTAL_CDS = @('11000', '10000')   # 総合判定(編集)、無ければ自動判定の総合
 
 function Line { Write-Host ('-' * 76) -ForegroundColor DarkGray }
 function H([string]$s) { return [System.Net.WebUtility]::HtmlEncode($s) }
@@ -67,7 +58,7 @@ function To-Num([string]$s) {
 }
 function Read-Form([string]$name) {
     $path = Join-Path $FormDir $name
-    if (-not (Test-Path $path)) { throw "基準表がありません: $path" }
+    if (-not (Test-Path $path)) { throw "表がありません: $path" }
     return @(Get-Content $path -Encoding UTF8 | Where-Object { $_ -notmatch '^\s*#' -and $_.Trim() -ne '' } | ConvertFrom-Csv)
 }
 function Worse([string]$a, [string]$b) {
@@ -76,33 +67,60 @@ function Worse([string]$a, [string]$b) {
     if ($RANK[$b] -gt $RANK[$a]) { return $b } else { return $a }
 }
 
-# ---- 基準表を読む ----
-$Rules = Read-Form 'dock_kijun.csv'
+# ---- 表を読む ----
 $NAVI = @{}
 foreach ($m in (Read-Form 'dock_moji.csv')) { $NAVI[([string]$m.'ナビ').Trim()] = ([string]$m.'学会').Trim() }
-$bad = @()
-$n = 0
-foreach ($r in $Rules) {
-    $n++
-    foreach ($c in @('種類','項目','項目名','くくり','性別','以上','未満','文字','判定','出典','メモ')) {
-        if ($null -eq $r.$c) { $r | Add-Member -NotePropertyName $c -NotePropertyValue '' -Force }
-        $r.$c = ([string]$r.$c).Trim()
-    }
-    $r | Add-Member -NotePropertyName Lo -NotePropertyValue (To-Num $r.'以上') -Force
-    $r | Add-Member -NotePropertyName Hi -NotePropertyValue (To-Num $r.'未満') -Force
-    if ($r.'種類' -notin @('数値','文字','判定','上限')) { $bad += "$n 行目: 種類「$($r.'種類')」が分かりません" }
-    if ($r.'種類' -ne '判定' -and -not $RANK.ContainsKey($r.'判定')) { $bad += "$n 行目 ($($r.'項目名')): 判定は A〜D で書いてください" }
-    if ($r.'性別' -notin @('','男','女')) { $bad += "$n 行目 ($($r.'項目名')): 性別は 空欄・男・女" }
-    if (-not $KUKURI.Contains($r.'くくり')) { $bad += "$n 行目 ($($r.'項目名')): くくり「$($r.'くくり')」は一覧にありません" }
-    if ($r.'種類' -eq '文字') { try { [void][regex]::new($r.'文字') } catch { $bad += "$n 行目 ($($r.'項目名')): 文字の書き方が正しくありません" } }
+$KUKURI = [ordered]@{}   # くくり名 → くくりCD
+$ItemK = @{}             # 項目CD → @{ Kukuri; Name }
+foreach ($k in (Read-Form 'dock_kukuri.csv')) {
+    $cd = ([string]$k.'項目').Trim(); $kn = ([string]$k.'くくり').Trim(); $kc = ([string]$k.'くくりCD').Trim()
+    if ($cd -eq '' -or $kn -eq '') { continue }
+    $ItemK[$cd] = @{ Kukuri = $kn; Name = ([string]$k.'項目名').Trim() }
+    if (-not $KUKURI.Contains($kn)) { $KUKURI[$kn] = $kc } elseif ($KUKURI[$kn] -eq '' -and $kc -ne '') { $KUKURI[$kn] = $kc }
 }
-if ($bad.Count -gt 0) { $bad | ForEach-Object { Write-Host " $_" -ForegroundColor Red }; throw '基準表 dock_kijun.csv を直してください' }
-# 項目の並び (基準表の順) と、項目 → くくり・名前
-$KEYS = [ordered]@{}
-foreach ($r in $Rules) { if (-not $KEYS.Contains($r.'項目')) { $KEYS[$r.'項目'] = @{ Kukuri = $r.'くくり'; Name = $r.'項目名' } } }
+$navPath = Join-Path $FormDir 'dock_kijun_navi.csv'
+if (-not (Test-Path $navPath)) { throw '健診ナビの設定から作る表 form\dock_kijun_navi.csv がありません。先に dock_setup.bat を実行してください。' }
+
+$COLS_RULE = @('種類','項目','項目名','基準CD','性別','年齢以上','年齢以下','以上','以下','未満','文字','判定','ナビ判定','出典','メモ')
+$bad = @()
+function Prep-Rules($list, [string]$file, [bool]$fromNavi) {
+    $n = 0
+    foreach ($r in $list) {
+        $n++
+        foreach ($c in $COLS_RULE) {
+            if ($null -eq $r.$c) { $r | Add-Member -NotePropertyName $c -NotePropertyValue '' -Force }
+            $r.$c = ([string]$r.$c).Trim()
+        }
+        if ($fromNavi) { $r.'判定' = $(if ($NAVI.ContainsKey($r.'ナビ判定')) { $NAVI[$r.'ナビ判定'] } else { '' }) }   # dock_moji を直したらすぐ効くように
+        foreach ($p in @(@('Lo','以上'), @('Le','以下'), @('Hi','未満'), @('AgeF','年齢以上'), @('AgeT','年齢以下'))) {
+            $r | Add-Member -NotePropertyName $p[0] -NotePropertyValue (To-Num $r.($p[1])) -Force
+        }
+        $tag = "$file $n 行目 ($($r.'項目') $($r.'項目名'))"
+        if ($r.'種類' -notin @('数値','文字','判定','上限','除外')) { $script:bad += "${tag}: 種類「$($r.'種類')」が分かりません" }
+        if ($r.'種類' -in @('数値','文字','上限') -and -not $RANK.ContainsKey($r.'判定')) { $script:bad += "${tag}: 判定は A〜D (健診ナビの表なら dock_moji.csv に「$($r.'ナビ判定')」が無い)" }
+        if ($r.'性別' -notin @('','男','女')) { $script:bad += "${tag}: 性別は 空欄・男・女" }
+        if ($r.'種類' -eq '文字') { try { [void][regex]::new($r.'文字') } catch { $script:bad += "${tag}: 文字の書き方が正しくありません" } }
+    }
+}
+$Inai  = Read-Form 'dock_kijun.csv'
+$NavR  = Read-Form 'dock_kijun_navi.csv'
+Prep-Rules $Inai 'dock_kijun.csv' $false
+Prep-Rules $NavR 'dock_kijun_navi.csv' $true
+if ($bad.Count -gt 0) { $bad | Select-Object -First 30 | ForEach-Object { Write-Host " $_" -ForegroundColor Red }; throw '表を直してください (dock_kijun_navi.csv なら dock_setup.bat で作り直し)' }
+
+$InaiBy = @{}; $CapBy = @{}; $NavBy = @{}; $Excl = @{}
+foreach ($r in $Inai) {
+    switch ($r.'種類') {
+        '上限' { if (-not $CapBy.ContainsKey($r.'項目')) { $CapBy[$r.'項目'] = @() }; $CapBy[$r.'項目'] += $r }
+        '除外' { $Excl[$r.'項目'] = $true }
+        default { if (-not $InaiBy.ContainsKey($r.'項目')) { $InaiBy[$r.'項目'] = @() }; $InaiBy[$r.'項目'] += $r }
+    }
+}
+foreach ($r in $NavR) { if (-not $NavBy.ContainsKey($r.'項目')) { $NavBy[$r.'項目'] = @() }; $NavBy[$r.'項目'] += $r }
 
 # ---- 対象 ----
-if (-not $Dates) { $Dates = Read-Host '受診日 (例 2026/09/03。いくつかなら 2026/09/03,2026/09/09)' }
+$ask = -not $Dates
+if ($ask) { $Dates = Read-Host '受診日 (例 2026/09/03。いくつかなら 2026/09/03,2026/09/09)' }
 $DL = @()
 foreach ($d in @(($Dates -split '[,、\s]+') | Where-Object { $_ -ne '' })) {
     $t = $d.Trim() -replace '-', '/'
@@ -110,27 +128,36 @@ foreach ($d in @(($Dates -split '[,、\s]+') | Where-Object { $_ -ne '' })) {
     $DL += [datetime]::ParseExact($t, 'yyyy/M/d', $Inv).ToString('yyyy/MM/dd')
 }
 if ($DL.Count -eq 0) { throw '受診日を入れてください' }
+if ($ask) {
+    $u = Read-Host '受付番号の範囲 (例 4631-4831。全員なら空のまま Enter)'
+    if ($u -match '^\s*(\d+)\s*[-〜~]\s*(\d+)\s*$') { $UkeFrom = [int]$Matches[1]; $UkeTo = [int]$Matches[2] }
+}
 $WHERE = "s.F_TORIKESI = 0 AND s.D_KENSIN IN ('" + ($DL -join "','") + "')"
 if ($UkeFrom -gt 0) { $WHERE += " AND s.UKE_NO_KENSA >= $UkeFrom" }
 if ($UkeTo -gt 0)   { $WHERE += " AND s.UKE_NO_KENSA <= $UkeTo" }
-
-$cds = @($KEYS.Keys) + $SRC_CDS + @($KUKURI.Values) + @($TOTAL_CD, $TOTAL_AUTO)
-$cds = @($cds | Where-Object { $_ -match '^[0-9A-Z-]+$' } | Select-Object -Unique)
+$CL = @(($Course -split '[,、\s]+') | Where-Object { $_ -match '^[0-9A-Za-z_-]+$' })
+if ($CL.Count -gt 0) { $WHERE += " AND LTRIM(RTRIM(s.COURSE_CD)) IN ('" + ($CL -join "','") + "')" }
 
 Write-Host ''
-Write-Host ' 人間ドック学会の判定を出して、健診ナビの判定と見比べる (DBは読むだけ)' -ForegroundColor Cyan
-Write-Host (" 受診日 {0}{1}" -f ($DL -join '・'), $(if ($UkeFrom -or $UkeTo) { "  受付番号 $UkeFrom〜$UkeTo" } else { '' }))
+Write-Host ' 学会の文字で判定を出して、健診ナビの判定と見比べる (DBは読むだけ)' -ForegroundColor Cyan
+$cond = "受診日 $($DL -join '・')" + $(if ($UkeFrom -or $UkeTo) { "  受付番号 $UkeFrom〜$UkeTo" } else { '' }) + $(if ($CL.Count) { "  コース $($CL -join ',')" } else { '' })
+Write-Host " $cond"
 $conn = Open-Db
 try {
     $people = (Invoke-DbQuery $conn @"
-SELECT s.PK_SEQ AS PK, CONVERT(varchar(10), s.D_KENSIN, 111) AS YMD, LTRIM(RTRIM(s.UKE_NO_KENSA)) AS UKE, LTRIM(RTRIM(ISNULL(j.SEIBETU,''))) AS SEX
-FROM T_KENSIN s JOIN T_KOJIN1 j ON j.KOJIN_ID = s.KOJIN_ID
+SELECT s.PK_SEQ AS PK, CONVERT(varchar(10), s.D_KENSIN, 111) AS YMD, LTRIM(RTRIM(s.UKE_NO_KENSA)) AS UKE,
+       LTRIM(RTRIM(ISNULL(j.SEIBETU,''))) AS SEX, j.D_SEINEN AS BIRTH, s.D_KENSIN AS KDATE,
+       LTRIM(RTRIM(ISNULL(s.COURSE_CD,''))) AS COURSE, LTRIM(RTRIM(ISNULL(CONVERT(varchar(20), c1.KIJUN_CD),''))) AS KIJUN
+FROM T_KENSIN s
+JOIN T_KOJIN1 j ON j.KOJIN_ID = s.KOJIN_ID
+LEFT JOIN T_COURSE1 c1 ON c1.COURSE_CD = s.COURSE_CD AND c1.DANTAI_CD1 = s.DANTAI_CD1
 WHERE $WHERE
 "@).Rows
     $items = (Invoke-DbQuery $conn @"
-SELECT k.PK_SEQ AS PK, LTRIM(RTRIM(k.KOMOKU_CD)) AS CD, LTRIM(RTRIM(ISNULL(k.KEKKA,''))) AS V, LTRIM(RTRIM(ISNULL(k.HANTEI_KIGO,''))) AS HK
+SELECT k.PK_SEQ AS PK, LTRIM(RTRIM(k.KOMOKU_CD)) AS CD, LTRIM(RTRIM(ISNULL(k.KEKKA,''))) AS V,
+       LTRIM(RTRIM(ISNULL(k.KEKKA_CD,''))) AS VC, LTRIM(RTRIM(ISNULL(k.HANTEI_KIGO,''))) AS HK
 FROM T_KENSA k JOIN T_KENSIN s ON s.PK_SEQ = k.PK_SEQ
-WHERE $WHERE AND LTRIM(RTRIM(k.KOMOKU_CD)) IN ('$($cds -join "','")')
+WHERE $WHERE
 "@).Rows
 } finally { $conn.Close() }
 if (@($people).Count -eq 0) { Write-Host ' 該当する受診者がいません。' -ForegroundColor Yellow; return }
@@ -140,63 +167,46 @@ $DB = @{}
 foreach ($it in $items) {
     $pk = [string]$it.PK
     if (-not $DB.ContainsKey($pk)) { $DB[$pk] = @{} }
-    $DB[$pk][[string]$it.CD] = @{ V = [string]$it.V; HK = [string]$it.HK }
+    $DB[$pk][[string]$it.CD] = @{ V = [string]$it.V; VC = [string]$it.VC; HK = [string]$it.HK; N = (To-Num ([string]$it.V)) }
 }
 
-# ---- 1 人分の値 (ツールが作る項目も含む) ----
-function Get-Values($d) {
-    $vals = @{}
-    function Num($cd) { if ($d.ContainsKey($cd)) { return (To-Num $d[$cd].V) } return $null }
-    foreach ($cd in $d.Keys) { $vals[$cd] = @{ V = $d[$cd].V; N = (To-Num $d[$cd].V); HK = $d[$cd].HK } }
-    $ht = Num '001211'; $wt = Num '001212'
-    if ($null -ne $ht -and $null -ne $wt -and $ht -gt 0) {
-        $bmi = [math]::Round($wt / [math]::Pow($ht / 100, 2), 1)
-        $vals['BMI'] = @{ V = $bmi.ToString('0.0', $Inv); N = $bmi; HK = '' }
+# ---- 判定 ----
+function Cond-Ok($r, $who) {
+    if ($r.'基準CD' -ne '' -and $who.Kijun -ne '' -and $r.'基準CD' -ne $who.Kijun) { return $false }
+    if ($r.'性別' -ne '' -and $r.'性別' -ne $who.Sex) { return $false }
+    if ($null -ne $who.Age) {
+        if ($null -ne $r.AgeF -and $who.Age -lt $r.AgeF) { return $false }
+        if ($null -ne $r.AgeT -and $who.Age -gt $r.AgeT) { return $false }
     }
-    $s2 = Num '001255'; $d2 = Num '001256'
-    if (-not $BpFirst -and $null -ne $s2 -and $null -ne $d2) { $sbp = $s2; $dbp = $d2; $bpNote = '2回目' } else { $sbp = Num '001253'; $dbp = Num '001254'; $bpNote = '1回目' }
-    if ($null -ne $sbp) { $vals['収縮期'] = @{ V = "$sbp ($bpNote)"; N = $sbp; HK = '' } }
-    if ($null -ne $dbp) { $vals['拡張期'] = @{ V = "$dbp ($bpNote)"; N = $dbp; HK = '' } }
-    $eyes = @()
-    foreach ($pair in @(@('067018','067012','右'), @('067019','067013','左'))) {
-        $v = Num $pair[0]; $kind = '矯正'
-        if ($null -eq $v) { $v = Num $pair[1]; $kind = '裸眼' }
-        if ($null -ne $v) { $eyes += [PSCustomObject]@{ N = $v; T = "$($pair[2]) $v ($kind)" } }
-    }
-    if ($eyes.Count -gt 0) {
-        $worst = @($eyes | Sort-Object N)[0]
-        $vals['視力'] = @{ V = (($eyes | ForEach-Object { $_.T }) -join ' / '); N = $worst.N; HK = '' }
-    }
-    $tc = Num '068705'; $hdl = Num '068708'
-    if ($null -ne $tc -and $null -ne $hdl) { $nh = $tc - $hdl; $vals['nonHDL'] = @{ V = "$nh"; N = $nh; HK = '' } }
-    foreach ($g in @(@('H30-0011','空腹時血糖','空腹時'), @('H30-0012','随時血糖','随時'), @('068682','空腹時血糖','食事の記録なし → 空腹時で見る')),
-                    @(@('068702','空腹時中性脂肪','空腹時'), @('R06-0003','随時中性脂肪','随時'), @('R06-0002','空腹時中性脂肪','食事の記録なし → 空腹時で見る'))) {
-        foreach ($c in $g) {
-            $v = Num $c[0]
-            if ($null -ne $v) { $vals[$c[1]] = @{ V = "$v ($($c[2]))"; N = $v; HK = '' }; break }
+    return $true
+}
+function Eval-Rule($r, $info) {
+    switch ($r.'種類') {
+        '数値' {
+            if ($null -eq $info.N) { return '' }
+            if ($null -ne $r.Lo -and $info.N -lt $r.Lo) { return '' }
+            if ($null -ne $r.Le -and $info.N -gt $r.Le) { return '' }
+            if ($null -ne $r.Hi -and $info.N -ge $r.Hi) { return '' }
+            return $r.'判定'
         }
+        '文字' { if (($info.V -ne '' -and $info.V -match $r.'文字') -or ($info.VC -ne '' -and $info.VC -match $r.'文字')) { return $r.'判定' }; return '' }
+        '判定' { if ($info.HK -ne '' -and $NAVI.ContainsKey($info.HK)) { return $NAVI[$info.HK] }; return '' }
     }
-    return $vals
+    return ''
 }
-
-# ---- 1 項目の判定 ----
-function Judge($key, [string]$sex, $info) {
+function Judge([string]$key, $who, $info) {
     $res = ''; $note = ''
-    foreach ($r in $Rules) {
-        if ($r.'項目' -ne $key -or $r.'種類' -eq '上限') { continue }
-        if ($r.'性別' -ne '' -and $r.'性別' -ne $sex) { continue }
-        switch ($r.'種類') {
-            '数値' { if ($null -ne $info.N -and ($null -eq $r.Lo -or $info.N -ge $r.Lo) -and ($null -eq $r.Hi -or $info.N -lt $r.Hi)) { $res = $r.'判定' } }
-            '文字' { if ($info.V -ne '' -and $info.V -match $r.'文字') { $res = $r.'判定' } }
-            '判定' { if ($info.HK -ne '') { if ($NAVI.ContainsKey($info.HK)) { $res = $NAVI[$info.HK]; $note = "健診ナビ $($info.HK) を読み替え" } else { $note = "判定「$($info.HK)」は dock_moji.csv に無い" } } }
-        }
-        if ($res -ne '') { break }
+    if ($InaiBy.ContainsKey($key)) {
+        foreach ($r in $InaiBy[$key]) { if (Cond-Ok $r $who) { $res = Eval-Rule $r $info; if ($res -ne '') { $note = "院内: $($r.'メモ')"; break } } }
+        if ($res -eq '') { $note = '基準なし (院内の表)' }
+    } elseif ($NavBy.ContainsKey($key)) {
+        foreach ($r in $NavBy[$key]) { if (Cond-Ok $r $who) { $res = Worse $res (Eval-Rule $r $info) } }
+        $note = $(if ($res -eq '') { '基準なし (健診ナビの設定)' } else { '健診ナビの設定' })
+    } else {
+        return $null
     }
-    if ($res -eq '' -and $note -eq '') { $note = '基準なし' }
-    foreach ($r in $Rules) {
-        if ($r.'項目' -ne $key -or $r.'種類' -ne '上限' -or $res -eq '') { continue }
-        if ($r.'性別' -ne '' -and $r.'性別' -ne $sex) { continue }
-        if ($RANK[$res] -gt $RANK[$r.'判定']) { $note = "院内ルールで $res → $($r.'判定')"; $res = $r.'判定' }
+    if ($res -ne '' -and $CapBy.ContainsKey($key)) {
+        foreach ($r in $CapBy[$key]) { if ((Cond-Ok $r $who) -and $RANK[$res] -gt $RANK[$r.'判定']) { $note = "院内: $($r.'メモ') ($res → $($r.'判定'))"; $res = $r.'判定' } }
     }
     return @{ L = $res; Note = $note }
 }
@@ -206,53 +216,6 @@ function Navi-To([string]$hk) {
     if ($NAVI.ContainsKey($hk)) { return $NAVI[$hk] }
     return '?'
 }
-
-# ---- 全員 ----
-$Results = @()
-$Detail = @()
-$NoRule = @{}
-foreach ($pp in $people) {
-    $pk = [string]$pp.PK
-    $sex = switch ([string]$pp.SEX) { '1' { '男' } '2' { '女' } default { '' } }
-    $d = $(if ($DB.ContainsKey($pk)) { $DB[$pk] } else { @{} })
-    $vals = Get-Values $d
-    $kk = [ordered]@{}
-    foreach ($name in $KUKURI.Keys) { $kk[$name] = @{ L = ''; Items = @() } }
-    foreach ($key in $KEYS.Keys) {
-        if (-not $vals.ContainsKey($key)) { continue }
-        $info = $vals[$key]
-        if ($info.V -eq '' -and $info.HK -eq '') { continue }
-        $jr = Judge $key $sex $info
-        $kname = $KEYS[$key].Kukuri
-        $kk[$kname].L = Worse $kk[$kname].L $jr.L
-        $shown = $(if ($info.V -ne '') { $info.V } else { '(判定のみ)' })
-        $kk[$kname].Items += ("{0} {1} → {2}{3}" -f $KEYS[$key].Name, $shown, $(if ($jr.L) { $jr.L } else { '-' }), $(if ($jr.Note) { " ($($jr.Note))" } else { '' }))
-        if ($jr.Note -eq '基準なし' -or $jr.Note -like '*dock_moji*') { $NoRule["$($KEYS[$key].Name)|$shown"] = 1 + [int]$NoRule["$($KEYS[$key].Name)|$shown"] }
-        $naviItem = $(if ($key -match '^[0-9A-Z-]+$' -and $d.ContainsKey($key)) { $d[$key].HK } else { '' })
-        $Detail += [PSCustomObject][ordered]@{
-            受診日 = $pp.YMD; 受付番号 = $pp.UKE; 性別 = $sex; くくり = $kname; 項目 = $KEYS[$key].Name; 値 = $shown
-            学会判定 = $jr.L; メモ = $jr.Note; ナビ判定 = $naviItem; ナビ換算 = (Navi-To $naviItem)
-        }
-    }
-    $total = ''
-    $o = [ordered]@{ 受診日 = $pp.YMD; 受付番号 = $pp.UKE; 性別 = $sex; PK = $pk }
-    foreach ($name in $KUKURI.Keys) {
-        $total = Worse $total $kk[$name].L
-        $nk = $(if ($d.ContainsKey($KUKURI[$name])) { $d[$KUKURI[$name]].HK } else { '' })
-        $o[$name] = @{ L = $kk[$name].L; Navi = $nk; NaviTo = (Navi-To $nk); Items = $kk[$name].Items }
-    }
-    $nt = ''
-    foreach ($tc in @($TOTAL_CD, $TOTAL_AUTO)) {
-        if ($nt -eq '' -and $d.ContainsKey($tc)) {
-            $nt = $d[$tc].HK
-            if ($nt -eq '' -and $d[$tc].V -match '^\s*([A-J])') { $nt = $Matches[1] }
-        }
-    }
-    $o['総合'] = @{ L = $total; Navi = $nt; NaviTo = (Navi-To $nt); Items = @() }
-    $Results += [PSCustomObject]$o
-}
-$Results = @($Results | Sort-Object 受診日, @{ Expression = { $u = 0; if ([int]::TryParse([string]$_.受付番号, [ref]$u)) { $u } else { [int]::MaxValue } } })
-
 function Cmp($c) {
     if ($c.L -eq '' -or $c.Navi -eq '') { return '' }
     if ($c.NaviTo -eq 'J') { return 'J' }
@@ -261,17 +224,83 @@ function Cmp($c) {
     if ($RANK[$c.L] -gt $RANK[$c.NaviTo]) { return '学会が重い' } else { return '学会が軽い' }
 }
 
+$Results = @()
+$Detail = @()
+$NoRule = @{}
+$useOther = $false
+foreach ($pp in $people) {
+    $pk = [string]$pp.PK
+    $who = @{ Sex = $(switch ([string]$pp.SEX) { '1' { '男' } '2' { '女' } default { '' } }); Kijun = [string]$pp.KIJUN; Age = $null }
+    $bd = [datetime]::MinValue
+    if ($pp.BIRTH -isnot [DBNull] -and [datetime]::TryParse([string]$pp.BIRTH, [ref]$bd) -and $pp.KDATE -isnot [DBNull]) {
+        $kd = [datetime]$pp.KDATE
+        $age = $kd.Year - $bd.Year; if ($kd.Month -lt $bd.Month -or ($kd.Month -eq $bd.Month -and $kd.Day -lt $bd.Day)) { $age-- }
+        $who.Age = [double]$age
+    }
+    $d = $(if ($DB.ContainsKey($pk)) { $DB[$pk] } else { @{} })
+    # BMI の値が無ければ身長・体重から出す
+    if ((-not $d.ContainsKey('001217') -or $null -eq $d['001217'].N) -and $d.ContainsKey('001211') -and $d.ContainsKey('001212') -and $d['001211'].N -gt 0 -and $null -ne $d['001212'].N) {
+        $bmi = [math]::Round($d['001212'].N / [math]::Pow($d['001211'].N / 100, 2), 1)
+        $d['001217'] = @{ V = $bmi.ToString('0.0', $Inv); VC = ''; HK = ''; N = $bmi }
+    }
+    $kk = [ordered]@{}
+    foreach ($name in $KUKURI.Keys) { $kk[$name] = @{ L = ''; Items = @() } }
+    $kk[$OTHER] = @{ L = ''; Items = @() }
+    foreach ($key in ($d.Keys | Sort-Object)) {
+        if ($Excl.ContainsKey($key)) { continue }
+        $info = $d[$key]
+        if ($info.V -eq '' -and $info.VC -eq '' -and $info.HK -eq '') { continue }
+        $jr = Judge $key $who $info
+        if ($null -eq $jr) { continue }
+        $kname = $(if ($ItemK.ContainsKey($key)) { $ItemK[$key].Kukuri } else { $OTHER })
+        if ($kname -eq $OTHER) { $useOther = $true }
+        $iname = $(if ($ItemK.ContainsKey($key) -and $ItemK[$key].Name) { $ItemK[$key].Name } elseif ($NavBy.ContainsKey($key)) { $NavBy[$key][0].'項目名' } elseif ($InaiBy.ContainsKey($key)) { $InaiBy[$key][0].'項目名' } else { $key })
+        $kk[$kname].L = Worse $kk[$kname].L $jr.L
+        $shown = $(if ($info.V -ne '') { $info.V } elseif ($info.VC -ne '') { "(結果CD $($info.VC))" } else { '(判定のみ)' })
+        $kk[$kname].Items += ("{0} {1} → {2} ({3})" -f $iname, $shown, $(if ($jr.L) { $jr.L } else { '-' }), $jr.Note)
+        if ($jr.L -eq '') { $nk = "$key $iname|$shown"; $NoRule[$nk] = 1 + [int]$NoRule[$nk] }
+        $Detail += [PSCustomObject][ordered]@{
+            受診日 = $pp.YMD; 受付番号 = $pp.UKE; 性別 = $who.Sex; 年齢 = $who.Age; コース = $pp.COURSE; くくり = $kname; 項目CD = $key; 項目 = $iname; 値 = $shown
+            学会判定 = $jr.L; 根拠 = $jr.Note; ナビ判定 = $info.HK; ナビ換算 = (Navi-To $info.HK); 見比べ = (Cmp @{ L = $jr.L; Navi = $info.HK; NaviTo = (Navi-To $info.HK) })
+        }
+    }
+    $total = ''
+    $o = [ordered]@{ 受診日 = $pp.YMD; 受付番号 = $pp.UKE; 性別 = $who.Sex; コース = $pp.COURSE }
+    foreach ($name in @($KUKURI.Keys) + @($OTHER)) {
+        if ($name -ne $OTHER) { $total = Worse $total $kk[$name].L }
+        $ccd = $(if ($name -eq $OTHER) { '' } else { $KUKURI[$name] })
+        $nkh = $(if ($ccd -ne '' -and $d.ContainsKey($ccd)) { $d[$ccd].HK } else { '' })
+        $o[$name] = @{ L = $kk[$name].L; Navi = $nkh; NaviTo = (Navi-To $nkh); Items = $kk[$name].Items }
+    }
+    $nt = ''
+    foreach ($tc in $TOTAL_CDS) {
+        if ($nt -eq '' -and $d.ContainsKey($tc)) {
+            $nt = $d[$tc].HK
+            if ($nt -eq '' -and $d[$tc].V -match '^\s*([A-J])') { $nt = $Matches[1] }
+        }
+    }
+    $o['総合'] = @{ L = $total; Navi = $nt; NaviTo = (Navi-To $nt); Items = @() }
+    $Results += [PSCustomObject]$o
+}
+$Results = @($Results | Sort-Object 受診日, @{ Expression = { $x = 0; if ([int]::TryParse([string]$_.'受付番号', [ref]$x)) { $x } else { [int]::MaxValue } } })
+
 # ---- 見比べの集計 ----
-$COLS = @($KUKURI.Keys) + @('総合')
-$Sum = foreach ($name in $COLS) {
+$SHOW = @('総合') + @($KUKURI.Keys) + $(if ($useOther) { @($OTHER) } else { @() })
+$Sum = foreach ($name in $SHOW) {
     $cnt = @{ '一致' = 0; '学会が重い' = 0; '学会が軽い' = 0; 'J' = 0; '?' = 0; '' = 0 }
     $dist = @{ 'A' = 0; 'B' = 0; 'C' = 0; 'D' = 0 }
     foreach ($r in $Results) { $cnt[(Cmp $r.$name)]++; if ($RANK.ContainsKey($r.$name.L)) { $dist[$r.$name.L]++ } }
     [PSCustomObject][ordered]@{ くくり = $name; A = $dist.A; B = $dist.B; C = $dist.C; D = $dist.D
         一致 = $cnt['一致']; 学会が重い = $cnt['学会が重い']; 学会が軽い = $cnt['学会が軽い']; ナビ治療中 = $cnt['J'] }
 }
+$ItemSum = @($Detail | Where-Object { $_.'見比べ' -in @('学会が重い','学会が軽い') } | Group-Object 項目CD, 項目, 見比べ | Sort-Object Count -Descending |
+    ForEach-Object { [PSCustomObject][ordered]@{ 項目 = $_.Group[0].'項目'; 項目CD = $_.Group[0].'項目CD'; 見比べ = $_.Group[0].'見比べ'; 人数 = $_.Count } })
 Line
 $Sum | Format-Table -AutoSize | Out-String -Width 200 | Write-Host
+if ($ItemSum.Count -gt 0) {
+    Write-Host ' 項目ごとに健診ナビと違ったもの:' -ForegroundColor Yellow
+    $ItemSum | Format-Table -AutoSize | Out-String -Width 200 | Write-Host
+}
 
 # ---- 出力 ----
 $ts = Get-Date -Format 'yyyyMMdd_HHmmss'
@@ -292,22 +321,28 @@ th{background:#eef2f7;position:sticky;top:0} td.l{text-align:left}
 td.heavy{background:#ffe0e0} td.light{background:#e0ecff} td.j{background:#f2f2f2}
 small{color:#777} .note{color:#555;margin:4px 0} .warn{color:#c00}
 </style></head><body>
-<h1>人間ドック学会の判定 と 健診ナビの判定 の見比べ</h1>
-<p class="note">受診日 $(H ($DL -join '・'))$(if ($UkeFrom -or $UkeTo) { H "　受付番号 $UkeFrom〜$UkeTo" })　／　$(@($Results).Count) 人　／　作成 $(Get-Date -Format 'yyyy/MM/dd HH:mm')　／　DBは読むだけ</p>
-<p class="note">判定: A 異常なし ／ B 軽度異常 ／ C 要再検査・生活改善 ／ D 要精密検査・治療。　各マスの上が学会の判定、下の小さい字が健診ナビの判定 (→ 学会の文字に読み替え)。</p>
-<p class="note"><span style="background:#ffe0e0">赤</span> = 学会の方が重い　<span style="background:#e0ecff">青</span> = 学会の方が軽い　<span style="background:#f2f2f2">灰</span> = 健診ナビが J (治療中)。マスにマウスを乗せると項目ごとの値と判定が出る。</p>
-<p class="warn">基準表 form\dock_kijun.csv の「★要確認」の行は、学会の判定区分 (PDF) と照らしてから使ってください。</p>
+<h1>人間ドック学会の文字の判定 と 健診ナビの判定 の見比べ</h1>
+<p class="note">$(H $cond)　／　$(@($Results).Count) 人　／　作成 $(Get-Date -Format 'yyyy/MM/dd HH:mm')　／　DBは読むだけ</p>
+<p class="note">判定: A 異常なし ／ B 軽度異常 ／ C 要再検査・生活改善 ／ D 要精密検査・治療。　マスの上が学会の文字の判定、下の小さい字が健診ナビの判定 (→ 学会の文字に読み替え)。</p>
+<p class="note"><span style="background:#ffe0e0">赤</span> = 学会の方が重い　<span style="background:#e0ecff">青</span> = 学会の方が軽い　<span style="background:#f2f2f2">灰</span> = 健診ナビが J (治療中)。マスにマウスを乗せると項目ごとの値・判定・根拠が出る。</p>
+<p class="note">基準: 院内の表 dock_kijun.csv ($(@($Inai).Count) 行) → 健診ナビの設定から作った表 dock_kijun_navi.csv ($(@($NavR).Count) 行)。</p>
 <h2>1. くくりごとの人数と見比べ</h2><table><tr><th>くくり</th><th>A</th><th>B</th><th>C</th><th>D</th><th>一致</th><th>学会が重い</th><th>学会が軽い</th><th>ナビ治療中</th></tr>
 "@
 foreach ($s in $Sum) {
     A ("<tr><td class=l>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td><td>{5}</td><td>{6}</td><td>{7}</td><td>{8}</td></tr>" -f (H $s.'くくり'), $s.A, $s.B, $s.C, $s.D, $s.'一致', $s.'学会が重い', $s.'学会が軽い', $s.'ナビ治療中')
 }
-A '</table><h2>2. 1 人ずつ</h2><table><tr><th>受診日</th><th>受付番号</th><th>性別</th><th>総合</th>'
-foreach ($name in $KUKURI.Keys) { A "<th>$(H $name)</th>" }
+A '</table>'
+if ($ItemSum.Count -gt 0) {
+    A '<h2>2. 項目ごとに健診ナビと違ったもの (院内の表に行を足す手がかり)</h2><table><tr><th>項目</th><th>項目CD</th><th>見比べ</th><th>人数</th></tr>'
+    foreach ($s in $ItemSum) { A ("<tr><td class=l>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td></tr>" -f (H $s.'項目'), (H $s.'項目CD'), (H $s.'見比べ'), $s.'人数') }
+    A '</table>'
+}
+A '<h2>3. 1 人ずつ</h2><table><tr><th>受診日</th><th>受付番号</th><th>性別</th><th>コース</th>'
+foreach ($name in $SHOW) { A "<th>$(H $name)</th>" }
 A '</tr>'
 foreach ($r in $Results) {
-    A ("<tr><td>{0}</td><td>{1}</td><td>{2}</td>" -f (H $r.'受診日'), (H $r.'受付番号'), (H $r.'性別'))
-    foreach ($name in @('総合') + @($KUKURI.Keys)) {
+    A ("<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td>" -f (H $r.'受診日'), (H $r.'受付番号'), (H $r.'性別'), (H $r.'コース'))
+    foreach ($name in $SHOW) {
         $c = $r.$name
         $cls = switch (Cmp $c) { '学会が重い' { 'heavy' } '学会が軽い' { 'light' } 'J' { 'j' } default { '' } }
         $tip = (@($c.Items) -join "`n")
@@ -319,19 +354,19 @@ foreach ($r in $Results) {
 }
 A '</table>'
 if ($NoRule.Count -gt 0) {
-    A '<h2>3. 基準表に当てはまらなかった値 (判定を付けていない)</h2><table><tr><th>項目</th><th>値</th><th>人数</th></tr>'
+    A '<h2>4. 基準に当てはまらなかった値 (判定を付けていない)</h2><table><tr><th>項目</th><th>値</th><th>人数</th></tr>'
     foreach ($k in ($NoRule.Keys | Sort-Object)) { $kv = $k -split '\|', 2; A ("<tr><td class=l>{0}</td><td class=l>{1}</td><td>{2}</td></tr>" -f (H $kv[0]), (H $kv[1]), $NoRule[$k]) }
-    A '</table><p class="note">基準表に行を足すか、値の入れ方を確かめてください。</p>'
+    A '</table><p class="note">院内の表 dock_kijun.csv に行を足すか、値の入れ方を確かめてください。</p>'
 }
-A '<h2>4. 使った基準表 (form\dock_kijun.csv)</h2><table><tr><th>種類</th><th>項目</th><th>くくり</th><th>性別</th><th>以上</th><th>未満</th><th>文字</th><th>判定</th><th>出典</th><th>メモ</th></tr>'
-foreach ($r in $Rules) {
-    A ("<tr><td>{0}</td><td class=l>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td><td>{5}</td><td class=l>{6}</td><td><span class='{7}'>{7}</span></td><td>{8}</td><td class=l>{9}</td></tr>" -f (H $r.'種類'), (H $r.'項目名'), (H $r.'くくり'), (H $r.'性別'), (H $r.'以上'), (H $r.'未満'), (H $r.'文字'), (H $r.'判定'), (H $r.'出典'), (H $r.'メモ'))
+A '<h2>5. 院内の表 (form\dock_kijun.csv)</h2><table><tr><th>種類</th><th>項目</th><th>性別</th><th>以上</th><th>以下</th><th>未満</th><th>文字</th><th>判定</th><th>出典</th><th>メモ</th></tr>'
+foreach ($r in $Inai) {
+    A ("<tr><td>{0}</td><td class=l>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td><td>{5}</td><td class=l>{6}</td><td><span class='{7}'>{7}</span></td><td>{8}</td><td class=l>{9}</td></tr>" -f (H $r.'種類'), (H "$($r.'項目') $($r.'項目名')"), (H $r.'性別'), (H $r.'以上'), (H $r.'以下'), (H $r.'未満'), (H $r.'文字'), (H $r.'判定'), (H $r.'出典'), (H $r.'メモ'))
 }
 A '</table></body></html>'
 [System.IO.File]::WriteAllText($htmlPath, $sbH.ToString(), (New-Object System.Text.UTF8Encoding $true))
 
 Write-Host " 書き出しました (氏名なし):" -ForegroundColor Green
 Write-Host "   $htmlPath"
-Write-Host "   $csvPath  (項目ごとの値と判定)"
-if ($NoRule.Count -gt 0) { Write-Host (" 基準表に当てはまらなかった値が {0} 種類あります (HTML の 3)。" -f $NoRule.Count) -ForegroundColor Yellow }
+Write-Host "   $csvPath  (項目ごとの値・判定・根拠)"
+if ($NoRule.Count -gt 0) { Write-Host (" 基準に当てはまらなかった値が {0} 種類あります (HTML の 4)。" -f $NoRule.Count) -ForegroundColor Yellow }
 if (-not $NoOpen) { Start-Process $htmlPath }

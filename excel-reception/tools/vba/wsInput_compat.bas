@@ -9,6 +9,35 @@ Attribute VB_Customizable = True
 Option Explicit
 
 ' ========================================================================================
+' プルダウン拡大表示
+' 会社名・氏名セルを選択している間だけ表示倍率を上げ、リストの文字を大きく見せる
+' ========================================================================================
+Private mSavedZoom As Long
+
+Private Sub Worksheet_SelectionChange(ByVal Target As Range)
+    Const DROPDOWN_ZOOM As Long = 180
+    Dim ddRange As Range
+    
+    On Error GoTo SafeExit
+    Set ddRange = Union(Me.Range("会社名"), Me.Range("氏名"))
+    
+    If Not Intersect(Target, ddRange) Is Nothing Then
+        ' プルダウンセルに入った: 現在の倍率を覚えて拡大
+        If ActiveWindow.Zoom < DROPDOWN_ZOOM Then
+            mSavedZoom = ActiveWindow.Zoom
+            ActiveWindow.Zoom = DROPDOWN_ZOOM
+        End If
+    Else
+        ' プルダウンセルから出た: 元の倍率に戻す
+        If mSavedZoom > 0 Then
+            ActiveWindow.Zoom = mSavedZoom
+            mSavedZoom = 0
+        End If
+    End If
+SafeExit:
+End Sub
+
+' ========================================================================================
 ' 各種ボタン
 ' ========================================================================================
 

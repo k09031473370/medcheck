@@ -50,8 +50,8 @@ const children = [];
 children.push(new Paragraph({ spacing: { before: 1200, after: 200 }, alignment: AlignmentType.CENTER, children: [run('インフルエンザ予防接種', { size: 40, bold: true, color: NAVY })] }));
 children.push(new Paragraph({ spacing: { after: 200 }, alignment: AlignmentType.CENTER, children: [run('受付ファイル作成手順書', { size: 52, bold: true, color: TEAL })] }));
 children.push(new Paragraph({ spacing: { after: 600 }, alignment: AlignmentType.CENTER, children: [run('事務員向け', { size: 28, color: NAVY })] }));
-children.push(new Paragraph({ spacing: { after: 120 }, alignment: AlignmentType.CENTER, children: [run('対象ファイル：インフル予防接種受付_テンプレート.xlsm', { size: 21 })] }));
-children.push(new Paragraph({ spacing: { after: 120 }, alignment: AlignmentType.CENTER, children: [run('必要環境：Microsoft 365 または Excel 2021 以降（マクロ有効）', { size: 21 })] }));
+children.push(new Paragraph({ spacing: { after: 120 }, alignment: AlignmentType.CENTER, children: [run('対象ファイル：インフル予防接種受付_テンプレート.xlsm（Microsoft 365 / Excel 2021 以降）', { size: 21 })] }));
+children.push(new Paragraph({ spacing: { after: 120 }, alignment: AlignmentType.CENTER, children: [run('　　　　　　　インフル予防接種受付_テンプレート_Excel2019以前用.xlsm（Excel 2016 / 2019）', { size: 21 })] }));
 children.push(new Paragraph({ spacing: { after: 120 }, alignment: AlignmentType.CENTER, children: [run('作成日：2026年10月', { size: 21 })] }));
 children.push(new Paragraph({ children: [new PageBreak()] }));
 
@@ -60,7 +60,15 @@ children.push(h1('1. この手順書について'));
 children.push(p('事業所から申込名簿（Excel）を受け取ったら、この手順で「その事業所・その実施日用の受付ファイル」を1つ作ります。現場のスタッフはそのファイルを開いて、当日の受付を行います。'));
 children.push(bul([run('ルール：', { bold: true }), run('1事業所 × 1実施日 ＝ 1ファイル（同じ事業所で複数日ある場合は第10章参照）')]));
 children.push(bul([run('所要時間：', { bold: true }), run('慣れれば5分程度')]));
-children.push(bul([run('必要なもの：', { bold: true }), run('Excel、テンプレート「インフル予防接種受付_テンプレート.xlsm」、申込名簿')]));
+children.push(bul([run('必要なもの：', { bold: true }), run('Excel、テンプレート（下記の2種類から1つ）、申込名簿')]));
+children.push(spacer());
+children.push(h2('テンプレートはExcelのバージョンで選ぶ'));
+children.push(p('Excel の「ファイル → アカウント」を開くと、右側に製品名が表示されます。それに合わせてテンプレートを選びます。'));
+children.push(table(['お使いの Excel', '使うテンプレート', '違い'], [
+  ['Microsoft 365 / Excel 2021 / 2024', 'インフル予防接種受付_テンプレート.xlsm', '氏名プルダウンが「選んだ会社の人だけ・カナ順」で出る'],
+  ['Excel 2019 / 2016', 'インフル予防接種受付_テンプレート_Excel2019以前用.xlsm', '氏名プルダウンは「名簿の全員・名簿の並び順」で出る。1事業所1ファイルなので実用上は同じ'],
+], scale([3, 4, 5]), -1));
+children.push(note(['新しい方のテンプレートを古い Excel で開くと、カナ氏名などが「#NAME?」になり、氏名プルダウンが空になります。その場合は「Excel2019以前用」に切り替えてください。', '古い Excel 用テンプレートを使うときは、名簿をカナ順に並べてから貼ると、プルダウンがカナ順になって探しやすくなります。']));
 children.push(spacer());
 children.push(h2('ファイルの構成（参考）'));
 children.push(table(['シート名', '役割'], [
@@ -76,7 +84,7 @@ children.push(table(['シート名', '役割'], [
 
 // Step 1
 children.push(h1('2. 手順1　テンプレートをコピーして名前を付ける'));
-children.push(num('「インフル予防接種受付_テンプレート.xlsm」を右クリック → コピー → 貼り付け でコピーします。テンプレート本体は直接編集しないでください。', 'steps1'));
+children.push(num('お使いの Excel に合ったテンプレート（第1章の表を参照）を右クリック → コピー → 貼り付け でコピーします。テンプレート本体は直接編集しないでください。', 'steps1'));
 children.push(num([run('コピーしたファイルの名前を変えます。例：'), run('20261105_KENWOOD.xlsm', { bold: true }), run('（実施日8桁_事業所名）')], 'steps1'));
 children.push(num('拡張子は「.xlsm」のままにします。「.xlsx」にするとボタンが動かなくなります。', 'steps1'));
 
@@ -145,7 +153,7 @@ children.push(h1('7. 手順6　動作確認'));
 children.push(num('「入力シート」を開きます。', 'steps6'));
 children.push(num('右上の受付No.が「1」になっている（初回はこの番号から採番されます。別の番号から始めたい場合は C3 セルを書き換える）。', 'steps6'));
 children.push(num('「会社名」のプルダウンに手順3で入れた事業所名が出る。', 'steps6'));
-children.push(num('会社名を選ぶと「氏名」のプルダウンに名簿の人がカナ順で出る。', 'steps6'));
+children.push(num('会社名を選ぶと「氏名」のプルダウンに名簿の人が出る（365/2021 以降はカナ順、2019 以前用は名簿の並び順）。', 'steps6'));
 children.push(num('氏名を選ぶと、カナ氏名・フリー1〜3 が自動表示される。', 'steps6'));
 children.push(num('確認が終わったら「🧹 クリア」ボタンで入力を消す。', 'steps6'));
 children.push(note(['確認で「受付登録」は押さないでください。押してしまった場合は、日付シートのその行を削除し、受診者マスタの「済」を消し、入力シートの受付No.を 1 に戻してください。']));
@@ -172,7 +180,8 @@ children.push(table(['症状', '原因と対処'], [
   ['ボタンを押しても何も起きない', 'マクロが無効。手順2を確認。拡張子が .xlsx になっていないか確認'],
   ['「○月○日のシートが存在しません」', '実施日のシートが未作成。手順5を実施。入力シートの日付（F2）は今日の日付が自動で入るため、前日にテストする場合は F2 を実施日に手で書き換える'],
   ['氏名のプルダウンに誰も出ない', '受診者マスタの会社名（I列）と会社マスタの名前が一致していない。または C列の検索キー数式が消えている'],
-  ['氏名プルダウンが「#NAME?」になる', 'Excel が古い（FILTER / SORTBY 関数が無い）。Microsoft 365 か Excel 2021 以降を使う'],
+  ['カナ氏名などが「#NAME?」になる、氏名プルダウンが空', 'Excel が 2019 以前。「インフル予防接種受付_テンプレート_Excel2019以前用.xlsm」で作り直す'],
+  ['（2019 以前用）氏名プルダウンに誰も出ない', '受診者マスタに名簿が入っているか確認。出ない場合でも、氏名欄に名簿どおりの氏名を直接入力するか、「フリー3で検索」ボタンで呼び出せば受付登録できる'],
   ['受付No.が 1 から始まらない', '動作確認で登録してしまった、または日付シートにデータが残っている。日付シートの行を削除し、C3 を 1 に戻す'],
   ['「既に受付済み」が誤って出る', '同姓同名が名簿にいる。「はい」で登録を続けるか、備考で区別する'],
 ], scale([3.5, 6.5]), 0));

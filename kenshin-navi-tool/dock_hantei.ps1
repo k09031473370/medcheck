@@ -111,8 +111,8 @@ function Prep-Rules($list, [string]$file, [bool]$fromNavi) {
         if ($fromNavi) { $r['判定'] = $(if ($NAVI.ContainsKey($r['ナビ判定'])) { $NAVI[$r['ナビ判定']] } else { '' }) }   # dock_moji を直したらすぐ効くように
         $r.Lo = To-Num $r['以上']; $r.Le = To-Num $r['以下']; $r.Hi = To-Num $r['未満']; $r.AgeF = To-Num $r['年齢以上']; $r.AgeT = To-Num $r['年齢以下']
         $tag = "$file $n 行目 ($($r['項目']) $($r['項目名']))"
-        if ($r['種類'] -notin @('数値','文字','判定','上限','除外')) { $script:bad += "${tag}: 種類「$($r['種類'])」が分かりません" }
-        if ($r['種類'] -in @('数値','文字','上限') -and -not $RANK.ContainsKey($r['判定'])) { $script:bad += "${tag}: 判定は A〜D (健診ナビの表なら dock_moji.csv に「$($r['ナビ判定'])」が無い)" }
+        if ($r['種類'] -notin @('数値','文字','判定','上限','除外','総合上限')) { $script:bad += "${tag}: 種類「$($r['種類'])」が分かりません" }
+        if ($r['種類'] -in @('数値','文字','上限','総合上限') -and -not $RANK.ContainsKey($r['判定'])) { $script:bad += "${tag}: 判定は A〜D (健診ナビの表なら dock_moji.csv に「$($r['ナビ判定'])」が無い)" }
         if ($r['性別'] -notin @('','男','女')) { $script:bad += "${tag}: 性別は 空欄・男・女" }
         if ($r['種類'] -eq '文字') { try { $r.Rx = [regex]::new($r['文字']) } catch { $script:bad += "${tag}: 文字の書き方が正しくありません" } }
         $res.Add($r)
@@ -123,11 +123,12 @@ $Inai  = Prep-Rules (Read-Form 'dock_kijun.csv') 'dock_kijun.csv' $false
 $NavR  = Prep-Rules (Read-Form 'dock_kijun_navi.csv') 'dock_kijun_navi.csv' $true
 if ($bad.Count -gt 0) { $bad | Select-Object -First 30 | ForEach-Object { Write-Host " $_" -ForegroundColor Red }; throw '表を直してください (dock_kijun_navi.csv なら dock_setup.bat で作り直し)' }
 
-$InaiBy = @{}; $CapBy = @{}; $NavBy = @{}; $Excl = @{}
+$InaiBy = @{}; $CapBy = @{}; $NavBy = @{}; $Excl = @{}; $TotCap = @{}
 foreach ($r in $Inai) {
     switch ($r.'種類') {
         '上限' { if (-not $CapBy.ContainsKey($r.'項目')) { $CapBy[$r.'項目'] = @() }; $CapBy[$r.'項目'] += $r }
         '除外' { $Excl[$r.'項目'] = $true }
+        '総合上限' { $TotCap[$r.'項目'] = $r.'判定' }   # 項目 = くくりCD。総合判定を決めるときだけ、このくくりをこの判定までとして数える
         default { if (-not $InaiBy.ContainsKey($r.'項目')) { $InaiBy[$r.'項目'] = @() }; $InaiBy[$r.'項目'] += $r }
     }
 }
@@ -296,7 +297,12 @@ foreach ($pp in $people) {
     $total = ''
     $o = [ordered]@{ 受診日 = $pp.YMD; 受付番号 = $pp.UKE; 性別 = $who.Sex; コース = $pp.COURSE }
     foreach ($name in @($KUKURI.Keys) + @($OTHER)) {
-        if ($name -ne $OTHER) { $total = Worse $total $kk[$name].L }
+        if ($name -ne $OTHER) {
+            $tl = $kk[$name].L
+            $tcd = $KUKURI[$name]
+            if ($tl -ne '' -and $TotCap.ContainsKey($tcd) -and $RANK[$tl] -gt $RANK[$TotCap[$tcd]]) { $tl = $TotCap[$tcd] }
+            $total = Worse $total $tl
+        }
         $ccd = $(if ($name -eq $OTHER) { '' } else { $KUKURI[$name] })
         $nkh = $(if ($ccd -ne '' -and $d.ContainsKey($ccd)) { $d[$ccd].HK } else { '' })
         $o[$name] = @{ L = $kk[$name].L; Navi = $nkh; NaviTo = (Navi-To $nkh); Items = $kk[$name].Items }

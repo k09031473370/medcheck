@@ -210,7 +210,7 @@ function Eval-Rule($r, $info) {
 }
 $MEMO = @{}
 $HasAge = @{}
-foreach ($r in @($Inai) + @($NavR)) { if ($null -ne $r.AgeF -or $null -ne $r.AgeT) { $HasAge[$r['項目']] = $true } }
+foreach ($lst in @($Inai, $NavR)) { foreach ($r in $lst) { if ($null -ne $r.AgeF -or $null -ne $r.AgeT) { $HasAge[$r['項目']] = $true } } }   # List どうしは + でつなげない (PowerShell 5.1 でエラーになる)
 function Judge([string]$key, $who, $info) {
     # 同じ項目・同じ値・同じ性別 (・年齢の決まりがあれば年齢) の判定は覚えておいて使い回す
     $mk = "$key|$($who.Sex)|$($who.Kijun)|$(if ($HasAge.ContainsKey($key)) { $who.Age })|$($info.V)|$($info.VC)|$($info.HK)"

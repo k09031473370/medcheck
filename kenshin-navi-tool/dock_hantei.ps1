@@ -6,7 +6,7 @@
   健診ナビのDBから値を読み、次の表で判定する。どの団体・コースでも使える。
     form\dock_kijun.csv       院内の決まり (手で直す)。ここに行がある項目は、こちらだけで判定する。上限・除外もここ
     form\dock_kijun_navi.csv  健診ナビの基準値の設定から作った表 (dock_setup.bat で作る。手で直さない)
-    form\dock_kukuri.csv      項目 → くくり (脂質代謝など) の表
+    form\dock_kukuri.csv      項目 → くくり (脂質代謝など) の表 (手で決めたもの。無い項目は dock_kukuri_navi.csv = 健診ナビの実際の判定から作った表)
     form\dock_moji.csv        健診ナビの判定記号 (8段階) → 学会の文字 (4段階)
   判定の文字は A 異常なし / B 軽度異常 / C 要再検査・生活改善 / D 要精密検査・治療。J (治療中) は使わない。
   項目 → くくり → 総合 の順に、いちばん重い判定を上に上げる。
@@ -77,6 +77,19 @@ foreach ($k in (Read-Form 'dock_kukuri.csv')) {
     if ($cd -eq '' -or $kn -eq '') { continue }
     $ItemK[$cd] = @{ Kukuri = $kn; Name = ([string]$k.'項目名').Trim() }
     if (-not $KUKURI.Contains($kn)) { $KUKURI[$kn] = $kc } elseif ($KUKURI[$kn] -eq '' -and $kc -ne '') { $KUKURI[$kn] = $kc }
+}
+# 手の表に無い項目は、dock_setup が健診ナビの実際の判定から作った表 (dock_kukuri_navi.csv) で補う
+$CdName = @{}
+foreach ($kn in $KUKURI.Keys) { if ($KUKURI[$kn] -ne '') { $CdName[$KUKURI[$kn]] = $kn } }
+$kukAuto = Join-Path $FormDir 'dock_kukuri_navi.csv'
+if (Test-Path $kukAuto) {
+    foreach ($k in (Read-Form 'dock_kukuri_navi.csv')) {
+        $cd = ([string]$k.'項目').Trim(); $kc = ([string]$k.'くくりCD').Trim()
+        if ($cd -eq '' -or $kc -eq '' -or $ItemK.ContainsKey($cd)) { continue }
+        $kn = $(if ($CdName.ContainsKey($kc)) { $CdName[$kc] } else { ([string]$k.'くくり').Trim() })
+        if (-not $KUKURI.Contains($kn)) { $KUKURI[$kn] = $kc; $CdName[$kc] = $kn }
+        $ItemK[$cd] = @{ Kukuri = $kn; Name = ([string]$k.'項目名').Trim() }
+    }
 }
 $navPath = Join-Path $FormDir 'dock_kijun_navi.csv'
 if (-not (Test-Path $navPath)) { throw '健診ナビの設定から作る表 form\dock_kijun_navi.csv がありません。先に dock_setup.bat を実行してください。' }

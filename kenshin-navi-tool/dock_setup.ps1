@@ -61,8 +61,14 @@ function Col($row, [string]$name) {
 
 $NAVI = @{}
 foreach ($m in (Read-Form 'dock_moji.csv')) { $NAVI[([string]$m.'ナビ').Trim()] = ([string]$m.'学会').Trim() }
-$KUK = @{}
-foreach ($k in (Read-Form 'dock_kukuri.csv')) { $KUK[([string]$k.'項目').Trim()] = ([string]$k.'くくり').Trim() }
+$KUK = @{}; $KUKCD = @{}; $CDNAME = @{}
+foreach ($k in (Read-Form 'dock_kukuri.csv')) {
+    $kcd = ([string]$k.'くくりCD').Trim()
+    $KUK[([string]$k.'項目').Trim()] = ([string]$k.'くくり').Trim()
+    $KUKCD[([string]$k.'項目').Trim()] = $kcd
+    if ($kcd -ne '' -and -not $CDNAME.ContainsKey($kcd)) { $CDNAME[$kcd] = ([string]$k.'くくり').Trim() }
+}
+$OutKuk = Join-Path $FormDir 'dock_kukuri_navi.csv'
 
 Write-Host ''
 Write-Host ' 健診ナビの基準値の設定を読んで、学会判定の表を作る (DBは読むだけ)' -ForegroundColor Cyan
@@ -96,6 +102,32 @@ GROUP BY LTRIM(RTRIM(k.KOMOKU_CD)), LTRIM(RTRIM(ISNULL(j.SEIBETU,''))), LTRIM(RT
     }
     # くくりの作りの手がかり: くくり項目 (600xxx) の計算式・区分と、くくりを含むセット
     $kukuriKomoku = Invoke-DbQuery $conn "SELECT LTRIM(RTRIM(KOMOKU_CD)) AS 項目CD, LTRIM(RTRIM(ISNULL(MEISYO1,''))) AS 名前, LTRIM(RTRIM(ISNULL(K_KOMOKU,''))) AS 区分, CALC_ORDER AS 計算順, LTRIM(RTRIM(ISNULL(CALC_FORM,''))) AS 計算式, LTRIM(RTRIM(ISNULL(KEKKA_GRP,''))) AS 結果グループ FROM T_KOMOKU WHERE KOMOKU_CD LIKE '600%' OR KOMOKU_CD LIKE '610%' ORDER BY KOMOKU_CD"
+    # 項目 → くくり を、健診ナビが過去 1 年に付けた判定から推し量る:
+    #   その項目が悪い人で、くくりの判定がその項目より軽いことがほとんど無く (= くくりに入っている)、
+    #   くくりの判定がその項目と同じ (= その項目がくくりを重くした) 人がいちばん多いくくり
+    $kukStat = @()
+    $kukErr = ''
+    if ($codes.Count -gt 0) {
+        Write-Host ' 項目とくくりの関係を数えています (数分かかることがあります) ...' -ForegroundColor DarkGray
+        $RK = "CASE LTRIM(RTRIM(k.HANTEI_KIGO)) WHEN 'A' THEN 1 WHEN 'B' THEN 2 WHEN 'C' THEN 3 WHEN 'D' THEN 4 WHEN 'E' THEN 5 WHEN 'D3' THEN 5 WHEN 'F' THEN 6 WHEN 'D2' THEN 6 WHEN 'G' THEN 7 WHEN 'D1' THEN 7 ELSE 0 END"
+        try {
+            $kukStat = @((Query-Long $conn @"
+WITH R AS (
+  SELECT k.PK_SEQ AS PK, LTRIM(RTRIM(k.KOMOKU_CD)) AS CD, $RK AS RK
+  FROM T_KENSA k JOIN T_KENSIN s ON s.PK_SEQ = k.PK_SEQ
+  WHERE s.F_TORIKESI = 0 AND s.D_KENSIN >= DATEADD(year, -1, GETDATE()) AND LTRIM(RTRIM(ISNULL(k.HANTEI_KIGO,''))) <> ''
+    AND (LTRIM(RTRIM(k.KOMOKU_CD)) LIKE '600%' OR LTRIM(RTRIM(k.KOMOKU_CD)) IN ('$($codes -join "','")'))
+)
+SELECT x.CD AS ITEM, g.CD AS KUK,
+       SUM(CASE WHEN x.RK > 1 THEN 1 ELSE 0 END) AS ABN,
+       SUM(CASE WHEN x.RK > g.RK THEN 1 ELSE 0 END) AS VIOL,
+       SUM(CASE WHEN x.RK = g.RK AND x.RK > 1 THEN 1 ELSE 0 END) AS EXPL
+FROM R x JOIN R g ON g.PK = x.PK
+WHERE g.CD LIKE '600%' AND x.CD NOT LIKE '600%' AND x.RK > 0 AND g.RK > 0
+GROUP BY x.CD, g.CD
+"@).Rows)
+        } catch { $kukErr = $_.Exception.Message }
+    }
     $kukuriSet = Invoke-DbQuery $conn "SELECT LTRIM(RTRIM(t.SET_CD)) AS セット, LTRIM(RTRIM(t.KOMOKU_CD)) AS 項目CD, LTRIM(RTRIM(ISNULL(m.MEISYO1,''))) AS 名前 FROM T_SET2 t LEFT JOIN T_KOMOKU m ON LTRIM(RTRIM(m.KOMOKU_CD)) = LTRIM(RTRIM(t.KOMOKU_CD)) WHERE t.SET_CD IN (SELECT SET_CD FROM T_SET2 WHERE LTRIM(RTRIM(KOMOKU_CD)) IN ('600320','600340','600310')) ORDER BY 1, 2"
     $komokuCols = Invoke-DbQuery $conn "SELECT COLUMN_NAME AS 列, DATA_TYPE AS 型 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'T_KOMOKU' ORDER BY ORDINAL_POSITION"
     # くくり (どの項目がどのくくりに入るか) の設定がありそうなテーブル: KOMOKU_CD 列を持ち、くくりの 600320 (脂質代謝) が入っているもの
@@ -184,6 +216,14 @@ function Overlap($x, $y) {
     $hi = [math]::Min($(if ($null -eq $xh) { 1e18 } else { $xh }), $(if ($null -eq $yh) { 1e18 } else { $yh }))
     return ($lo -le $hi)
 }
+function Tie-Win([string]$p, [string]$q) {
+    $pd = $p -match '^D\d$'; $qd = $q -match '^D\d$'
+    if ($pd -and -not $qd) { return 2 }
+    if ($qd -and -not $pd) { return 1 }
+    if ($p -eq 'C' -and $q -match '^[DEFG]$') { return 2 }
+    if ($q -eq 'C' -and $p -match '^[DEFG]$') { return 1 }
+    return 0
+}
 $drop = @{}
 $conflicts = @()
 foreach ($g in ($cand2 | Group-Object 項目)) {
@@ -195,6 +235,11 @@ foreach ($g in ($cand2 | Group-Object 項目)) {
             $sx = $INFO[$x._i].Score; $sy = $INFO[$y._i].Score
             $res = '決められない (どちらも使う。重い方になる)'
             if ($sx -gt $sy) { $drop[$y._i] = $true; $res = "$($x.'ナビ判定') を使う" } elseif ($sy -gt $sx) { $drop[$x._i] = $true; $res = "$($y.'ナビ判定') を使う" }
+            else {
+                # 実際の判定で決められないとき: 学会そのままの組 (D1/D2/D3、C) より当院の組 (D/E/F/G など) を使う (5 で効いているのはいつも当院の組だった)
+                $tw = Tie-Win $x.'ナビ判定' $y.'ナビ判定'
+                if ($tw -eq 1) { $drop[$y._i] = $true; $res = "$($x.'ナビ判定') を使う (当院の組)" } elseif ($tw -eq 2) { $drop[$x._i] = $true; $res = "$($y.'ナビ判定') を使う (当院の組)" }
+            }
             $conflicts += ("  {0} {1} {2}  [{3}〜{4}{5} {6} 一致{7}/不一致{8}] と [{9}〜{10}{11} {12} 一致{13}/不一致{14}] → {15}" -f $x.'項目', $x.'項目名', $x.'性別',
                 $x.'以上', $x.'以下', $(if ($x.'種類' -eq '文字') { $x.'文字' } else { '' }), $x.'ナビ判定', $INFO[$x._i].Ag, $INFO[$x._i].Di,
                 $y.'以上', $y.'以下', $(if ($y.'種類' -eq '文字') { $y.'文字' } else { '' }), $y.'ナビ判定', $INFO[$y._i].Ag, $INFO[$y._i].Di, $res)
@@ -213,6 +258,34 @@ $head = @(
 $body = @($rows | Select-Object * -ExcludeProperty _i | ConvertTo-Csv -NoTypeInformation)
 $lines = @($body[0]) + $head + @($body | Select-Object -Skip 1)
 [System.IO.File]::WriteAllLines($OutCsv, [string[]]$lines, (New-Object System.Text.UTF8Encoding $true))
+
+# ---- 項目 → くくり (健診ナビの実際の判定から) ----
+$KNAME = @{}
+foreach ($r in $kukuriKomoku.Rows) { $KNAME[[string]$r.'項目CD'] = (([string]$r.'名前') -replace '^【判定】', '' -replace '×$', '').Trim() }
+$kukRows = @()
+$kukNone = @()
+foreach ($g in ($kukStat | Group-Object ITEM)) {
+    $okList = @($g.Group | Where-Object { [int]$_.ABN -ge 3 -and [int]$_.EXPL -ge 1 -and [int]$_.VIOL -le [math]::Max(1, [math]::Floor(0.05 * [int]$_.ABN)) } |
+        Sort-Object @{ Expression = { [int]$_.EXPL }; Descending = $true }, @{ Expression = { [int]$_.VIOL } })
+    $item = [string]$g.Name
+    if ($okList.Count -eq 0) {
+        $mx = @($g.Group | Sort-Object @{ Expression = { [int]$_.ABN }; Descending = $true })[0]
+        $kukNone += ("  {0} {1}  (悪い人 {2} 人)" -f $item, $names[$item], $mx.ABN)
+        continue
+    }
+    $best = $okList[0]; $kc = [string]$best.KUK
+    $kukRows += [PSCustomObject][ordered]@{
+        項目 = $item; 項目名 = $names[$item]; くくり = $(if ($CDNAME.ContainsKey($kc)) { $CDNAME[$kc] } elseif ($KNAME.ContainsKey($kc)) { $KNAME[$kc] } else { $kc }); くくりCD = $kc
+        悪い人 = [int]$best.ABN; くくりと同じ = [int]$best.EXPL; くくりより重い = [int]$best.VIOL
+    }
+}
+$kukRows = @($kukRows | Sort-Object くくりCD, 項目)
+$kb = @($kukRows | ConvertTo-Csv -NoTypeInformation)
+$kl = @($(if ($kb.Count) { $kb[0] } else { '"項目","項目名","くくり","くくりCD"' })) + @(
+    "# 項目 → くくり を健診ナビが過去 1 年に付けた判定から推し量った表 ($(Get-Date -Format 'yyyy/MM/dd HH:mm') dock_setup.ps1)。★手で直さない",
+    '# 手で決めたものは dock_kukuri.csv に書く (そちらが優先)。悪い人 = その項目が B 以上の人、くくりと同じ = くくりの判定がその項目と同じ人、くくりより重い = 項目の方が重かった人'
+) + @($kb | Select-Object -Skip 1)
+[System.IO.File]::WriteAllLines($OutKuk, [string[]]$kl, (New-Object System.Text.UTF8Encoding $true))
 
 # ---- 報告 ----
 "=== 健診ナビの基準値の設定から 学会判定の表を作った $(Get-Date -Format 'yyyy/MM/dd HH:mm') ===" | Out-File $Report -Encoding Default
@@ -241,21 +314,18 @@ W ''
 W "--- 5b. 使う行なのに、実際の判定と合わないことが多いもの $($poor.Count) 行 (院内の決まりがある・手で直している などの手がかり) ---"
 foreach ($p in $poor) { W ("  {0} {1} {2}  {3}〜{4}{5} {6}  一致 {7}・不一致 {8}" -f $p.'項目', $p.'項目名', $p.'性別', $p.'以上', $p.'以下', $(if ($p.'種類' -eq '文字') { $p.'文字' } else { '' }), $p.'ナビ判定', $INFO[$p._i].Ag, $INFO[$p._i].Di) }
 W ''
-W '--- 6. ★くくりの設定がありそうなテーブル (KOMOKU_CD に 600320・600340・600310 が入っている) ---'
-if ($found.Count -eq 0) { W '  見つかりませんでした' } else { foreach ($f in $found) { W ("  {0} ({1} 行): {2}" -f $f.'テーブル', $f.'くくりの行', $f.'列') } }
+W "--- 6. ★項目 → くくり を健診ナビの実際の判定から推し量った表 (form\dock_kukuri_navi.csv) $($kukRows.Count) 項目 ---"
+if ($kukErr) { W "  ★数えられませんでした: $kukErr" }
+W '  ・dock_kukuri.csv (手で決めた表) と違うもの:'
+foreach ($r in $kukRows) { if ($KUKCD.ContainsKey($r.'項目') -and $KUKCD[$r.'項目'] -ne $r.'くくりCD') { W ("    {0} {1}: 手の表 {2} ({3}) / 実際の判定 {4} ({5})  悪い人 {6}・同じ {7}・重い {8}" -f $r.'項目', $r.'項目名', $KUK[$r.'項目'], $KUKCD[$r.'項目'], $r.'くくり', $r.'くくりCD', $r.'悪い人', $r.'くくりと同じ', $r.'くくりより重い') } }
+W '  ・手の表に無く、実際の判定から足したもの:'
+foreach ($g in ($kukRows | Where-Object { -not $KUKCD.ContainsKey($_.'項目') } | Group-Object くくりCD)) { W ("    {0} {1}: {2}" -f $g.Name, $g.Group[0].'くくり', (($g.Group | ForEach-Object { "$($_.'項目名')($($_.'項目'))" }) -join '、')) }
+W "  ・どのくくりか決められなかった項目 $($kukNone.Count) 個 (悪い人が少ない・どのくくりとも合わない):"
+foreach ($t in ($kukNone | Select-Object -First 80)) { W "  $t" }
 W ''
-W '--- 6b. ★くくり項目 (600xxx・610xxx) の計算式・区分 (T_KOMOKU) ---'
-W ($kukuriKomoku | Format-Table -AutoSize | Out-String -Width 300)
-W '--- 6c. ★くくりを含むセット (T_SET2) ---'
-W ($kukuriSet | Format-Table -AutoSize | Out-String -Width 200)
-W '--- 7. 参考: T_KOMOKU の列 ---'
-W (($komokuCols.Rows | ForEach-Object { "$($_.'列')($($_.'型'))" }) -join ', ')
-W ''
-W '--- 8. 参考: 判定記号の意味 (T_HANTEIS) ---'
-W ($hanteis | Format-Table -AutoSize | Out-String -Width 200)
 W '=== 読み方 ==='
 W '  4 に出た項目は dock_kukuri.csv に「項目,項目名,くくり,くくりCD」の行を足すと総合判定に入る。'
-W '  6 は、健診ナビの「くくり」の決まりがどのテーブルにあるかの手がかり。貼ってもらえれば dock_kukuri.csv を自動で作れるようにする。'
+W '  6 の「手の表と違うもの」は、どちらが正しいか確かめる。実際の判定の方が正しければ dock_kukuri.csv の行を直すか消す (消せば実際の判定の表が使われる)。'
 Write-Host " 書き出しました: $OutCsv" -ForegroundColor Green
 Write-Host " 報告: $Report"
-notepad $Report
+Start-Process notepad.exe $Report

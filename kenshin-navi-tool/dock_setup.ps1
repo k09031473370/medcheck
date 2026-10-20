@@ -17,6 +17,8 @@ param(
     [string]$ConnectionString
 )
 $ErrorActionPreference = 'Stop'
+# 止まったときに何行目かを出す (原因を調べるため)
+trap { Write-Host (" エラー: {0}`n   {1} 行目: {2}" -f $_.Exception.Message, $_.InvocationInfo.ScriptLineNumber, ([string]$_.InvocationInfo.Line).Trim()) -ForegroundColor Red; break }
 
 $Core = Join-Path $PSScriptRoot 'form_import.ps1'
 if (-not (Test-Path $Core)) { throw "form_import.ps1 が同じフォルダにありません: $PSScriptRoot" }

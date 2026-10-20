@@ -27,6 +27,8 @@ param(
     [string]$ConnectionString
 )
 $ErrorActionPreference = 'Stop'
+# 止まったときに何行目かを出す (原因を調べるため)
+trap { Write-Host (" エラー: {0}`n   {1} 行目: {2}" -f $_.Exception.Message, $_.InvocationInfo.ScriptLineNumber, ([string]$_.InvocationInfo.Line).Trim()) -ForegroundColor Red; break }
 
 $Core = Join-Path $PSScriptRoot 'form_import.ps1'
 if (-not (Test-Path $Core)) { throw "form_import.ps1 が同じフォルダにありません: $PSScriptRoot" }
@@ -52,7 +54,7 @@ function H([string]$s) { return [System.Net.WebUtility]::HtmlEncode($s) }
 function To-Num([string]$s) {
     if ($null -eq $s) { return $null }
     $t = $s.Trim()
-    if ($t -match '[０-９．－]') { $t = -join @($t.ToCharArray() | ForEach-Object { if ($_ -ge [char]0xFF0D -and $_ -le [char]0xFF19) { [char]([int]$_ - 0xFEE0) } else { $_ } }) }
+    if ($t -match '[０-９．－]') { $t = $t.Normalize([System.Text.NormalizationForm]::FormKC) }   # 全角の数字・点・マイナスを半角に
     # 数字だけの結果のときだけ数値にする (「0.1未満」「凝固」などは文字の行で見る)
     if ($t -notmatch '^-?\d+(\.\d+)?$') { return $null }
     return [double]::Parse($t, $Inv)

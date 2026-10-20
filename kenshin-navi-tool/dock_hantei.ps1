@@ -51,7 +51,8 @@ function Line { Write-Host ('-' * 76) -ForegroundColor DarkGray }
 function H([string]$s) { return [System.Net.WebUtility]::HtmlEncode($s) }
 function To-Num([string]$s) {
     if ($null -eq $s) { return $null }
-    $t = [regex]::Replace($s.Trim(), '[０-９．－]', [System.Text.RegularExpressions.MatchEvaluator]{ param($m) [string][char]([int][char]$m.Value[0] - 0xFEE0) })
+    $t = $s.Trim()
+    if ($t -match '[０-９．－]') { $t = -join @($t.ToCharArray() | ForEach-Object { if ($_ -ge [char]0xFF0D -and $_ -le [char]0xFF19) { [char]([int]$_ - 0xFEE0) } else { $_ } }) }
     # 数字だけの結果のときだけ数値にする (「0.1未満」「凝固」などは文字の行で見る)
     if ($t -notmatch '^-?\d+(\.\d+)?$') { return $null }
     return [double]::Parse($t, $Inv)
@@ -97,28 +98,26 @@ if (-not (Test-Path $navPath)) { throw '健診ナビの設定から作る表 for
 $COLS_RULE = @('種類','項目','項目名','基準CD','性別','年齢以上','年齢以下','以上','以下','未満','文字','判定','ナビ判定','出典','メモ')
 $bad = @()
 function Prep-Rules($list, [string]$file, [bool]$fromNavi) {
+    # 速さのため、表の 1 行を hashtable にする (Add-Member は遅い)。文字の行は正規表現を先に作っておく
+    $res = New-Object System.Collections.Generic.List[object]
     $n = 0
-    foreach ($r in $list) {
+    foreach ($row0 in $list) {
         $n++
-        foreach ($c in $COLS_RULE) {
-            if ($null -eq $r.$c) { $r | Add-Member -NotePropertyName $c -NotePropertyValue '' -Force }
-            $r.$c = ([string]$r.$c).Trim()
-        }
-        if ($fromNavi) { $r.'判定' = $(if ($NAVI.ContainsKey($r.'ナビ判定')) { $NAVI[$r.'ナビ判定'] } else { '' }) }   # dock_moji を直したらすぐ効くように
-        foreach ($p in @(@('Lo','以上'), @('Le','以下'), @('Hi','未満'), @('AgeF','年齢以上'), @('AgeT','年齢以下'))) {
-            $r | Add-Member -NotePropertyName $p[0] -NotePropertyValue (To-Num $r.($p[1])) -Force
-        }
-        $tag = "$file $n 行目 ($($r.'項目') $($r.'項目名'))"
-        if ($r.'種類' -notin @('数値','文字','判定','上限','除外')) { $script:bad += "${tag}: 種類「$($r.'種類')」が分かりません" }
-        if ($r.'種類' -in @('数値','文字','上限') -and -not $RANK.ContainsKey($r.'判定')) { $script:bad += "${tag}: 判定は A〜D (健診ナビの表なら dock_moji.csv に「$($r.'ナビ判定')」が無い)" }
-        if ($r.'性別' -notin @('','男','女')) { $script:bad += "${tag}: 性別は 空欄・男・女" }
-        if ($r.'種類' -eq '文字') { try { [void][regex]::new($r.'文字') } catch { $script:bad += "${tag}: 文字の書き方が正しくありません" } }
+        $r = @{}
+        foreach ($c in $COLS_RULE) { $v = $row0.$c; $r[$c] = $(if ($null -eq $v) { '' } else { ([string]$v).Trim() }) }
+        if ($fromNavi) { $r['判定'] = $(if ($NAVI.ContainsKey($r['ナビ判定'])) { $NAVI[$r['ナビ判定']] } else { '' }) }   # dock_moji を直したらすぐ効くように
+        $r.Lo = To-Num $r['以上']; $r.Le = To-Num $r['以下']; $r.Hi = To-Num $r['未満']; $r.AgeF = To-Num $r['年齢以上']; $r.AgeT = To-Num $r['年齢以下']
+        $tag = "$file $n 行目 ($($r['項目']) $($r['項目名']))"
+        if ($r['種類'] -notin @('数値','文字','判定','上限','除外')) { $script:bad += "${tag}: 種類「$($r['種類'])」が分かりません" }
+        if ($r['種類'] -in @('数値','文字','上限') -and -not $RANK.ContainsKey($r['判定'])) { $script:bad += "${tag}: 判定は A〜D (健診ナビの表なら dock_moji.csv に「$($r['ナビ判定'])」が無い)" }
+        if ($r['性別'] -notin @('','男','女')) { $script:bad += "${tag}: 性別は 空欄・男・女" }
+        if ($r['種類'] -eq '文字') { try { $r.Rx = [regex]::new($r['文字']) } catch { $script:bad += "${tag}: 文字の書き方が正しくありません" } }
+        $res.Add($r)
     }
+    return ,$res
 }
-$Inai  = Read-Form 'dock_kijun.csv'
-$NavR  = Read-Form 'dock_kijun_navi.csv'
-Prep-Rules $Inai 'dock_kijun.csv' $false
-Prep-Rules $NavR 'dock_kijun_navi.csv' $true
+$Inai  = Prep-Rules (Read-Form 'dock_kijun.csv') 'dock_kijun.csv' $false
+$NavR  = Prep-Rules (Read-Form 'dock_kijun_navi.csv') 'dock_kijun_navi.csv' $true
 if ($bad.Count -gt 0) { $bad | Select-Object -First 30 | ForEach-Object { Write-Host " $_" -ForegroundColor Red }; throw '表を直してください (dock_kijun_navi.csv なら dock_setup.bat で作り直し)' }
 
 $InaiBy = @{}; $CapBy = @{}; $NavBy = @{}; $Excl = @{}
@@ -202,12 +201,23 @@ function Eval-Rule($r, $info) {
             if ($null -ne $r.Hi -and $info.N -ge $r.Hi) { return '' }
             return $r.'判定'
         }
-        '文字' { if (($info.V -ne '' -and $info.V -match $r.'文字') -or ($info.VC -ne '' -and $info.VC -match $r.'文字')) { return $r.'判定' }; return '' }
+        '文字' { if (($info.V -ne '' -and $r.Rx.IsMatch($info.V)) -or ($info.VC -ne '' -and $r.Rx.IsMatch($info.VC))) { return $r.'判定' }; return '' }
         '判定' { if ($info.HK -ne '' -and $NAVI.ContainsKey($info.HK)) { return $NAVI[$info.HK] }; return '' }
     }
     return ''
 }
+$MEMO = @{}
+$HasAge = @{}
+foreach ($r in @($Inai) + @($NavR)) { if ($null -ne $r.AgeF -or $null -ne $r.AgeT) { $HasAge[$r['項目']] = $true } }
 function Judge([string]$key, $who, $info) {
+    # 同じ項目・同じ値・同じ性別 (・年齢の決まりがあれば年齢) の判定は覚えておいて使い回す
+    $mk = "$key|$($who.Sex)|$($who.Kijun)|$(if ($HasAge.ContainsKey($key)) { $who.Age })|$($info.V)|$($info.VC)|$($info.HK)"
+    if ($MEMO.ContainsKey($mk)) { return $MEMO[$mk] }
+    $out = Judge-Core $key $who $info
+    $MEMO[$mk] = $out
+    return $out
+}
+function Judge-Core([string]$key, $who, $info) {
     $res = ''; $note = ''
     if ($InaiBy.ContainsKey($key)) {
         foreach ($r in $InaiBy[$key]) { if (Cond-Ok $r $who) { $res = Eval-Rule $r $info; if ($res -ne '') { $note = "院内: $($r.'メモ')"; break } } }
@@ -241,7 +251,10 @@ $Results = @()
 $Detail = New-Object System.Collections.Generic.List[object]   # 4 万行近くになるので += は使わない
 $NoRule = @{}
 $useOther = $false
+$done = 0
 foreach ($pp in $people) {
+    $done++
+    if ($done % 10 -eq 0) { Write-Host -NoNewline '.' }
     $pk = [string]$pp.PK
     $who = @{ Sex = $(switch ([string]$pp.SEX) { '1' { '男' } '2' { '女' } default { '' } }); Kijun = [string]$pp.KIJUN; Age = $null }
     $bd = [datetime]::MinValue
@@ -295,6 +308,7 @@ foreach ($pp in $people) {
     $o['総合'] = @{ L = $total; Navi = $nt; NaviTo = (Navi-To $nt); Items = @() }
     $Results += [PSCustomObject]$o
 }
+Write-Host ''
 $Results = @($Results | Sort-Object 受診日, @{ Expression = { $x = 0; if ([int]::TryParse([string]$_.'受付番号', [ref]$x)) { $x } else { [int]::MaxValue } } })
 
 # ---- 見比べの集計 ----

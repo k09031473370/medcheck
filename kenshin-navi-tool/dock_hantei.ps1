@@ -50,7 +50,8 @@ $OTHER = 'その他'
 $TOTAL_CDS = @('11000', '10000')   # 総合判定(編集)、無ければ自動判定の総合
 
 function Line { Write-Host ('-' * 76) -ForegroundColor DarkGray }
-function H([string]$s) { return [System.Net.WebUtility]::HtmlEncode($s) }
+# H は PowerShell の Get-History の短縮名なので関数名に使わない
+function HtmlEnc([string]$s) { return [System.Net.WebUtility]::HtmlEncode($s) }
 function To-Num([string]$s) {
     if ($null -eq $s) { return $null }
     $t = $s.Trim()
@@ -351,45 +352,45 @@ td.heavy{background:#ffe0e0} td.light{background:#e0ecff} td.j{background:#f2f2f
 small{color:#777} .note{color:#555;margin:4px 0} .warn{color:#c00}
 </style></head><body>
 <h1>人間ドック学会の文字の判定 と 健診ナビの判定 の見比べ</h1>
-<p class="note">$(H $cond)　／　$(@($Results).Count) 人　／　作成 $(Get-Date -Format 'yyyy/MM/dd HH:mm')　／　DBは読むだけ</p>
+<p class="note">$(HtmlEnc $cond)　／　$(@($Results).Count) 人　／　作成 $(Get-Date -Format 'yyyy/MM/dd HH:mm')　／　DBは読むだけ</p>
 <p class="note">判定: A 異常なし ／ B 軽度異常 ／ C 要再検査・生活改善 ／ D 要精密検査・治療。　マスの上が学会の文字の判定、下の小さい字が健診ナビの判定 (→ 学会の文字に読み替え)。</p>
 <p class="note"><span style="background:#ffe0e0">赤</span> = 学会の方が重い　<span style="background:#e0ecff">青</span> = 学会の方が軽い　<span style="background:#f2f2f2">灰</span> = 健診ナビが J (治療中)。マスにマウスを乗せると項目ごとの値・判定・根拠が出る。</p>
 <p class="note">基準: 院内の表 dock_kijun.csv ($(@($Inai).Count) 行) → 健診ナビの設定から作った表 dock_kijun_navi.csv ($(@($NavR).Count) 行)。</p>
 <h2>1. くくりごとの人数と見比べ</h2><table><tr><th>くくり</th><th>A</th><th>B</th><th>C</th><th>D</th><th>一致</th><th>学会が重い</th><th>学会が軽い</th><th>ナビ治療中</th></tr>
 "@
 foreach ($s in $Sum) {
-    A ("<tr><td class=l>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td><td>{5}</td><td>{6}</td><td>{7}</td><td>{8}</td></tr>" -f (H $s.'くくり'), $s.A, $s.B, $s.C, $s.D, $s.'一致', $s.'学会が重い', $s.'学会が軽い', $s.'ナビ治療中')
+    A ("<tr><td class=l>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td><td>{5}</td><td>{6}</td><td>{7}</td><td>{8}</td></tr>" -f (HtmlEnc $s.'くくり'), $s.A, $s.B, $s.C, $s.D, $s.'一致', $s.'学会が重い', $s.'学会が軽い', $s.'ナビ治療中')
 }
 A '</table>'
 if ($ItemSum.Count -gt 0) {
     A '<h2>2. 項目ごとに健診ナビと違ったもの (院内の表に行を足す手がかり)</h2><table><tr><th>項目</th><th>項目CD</th><th>見比べ</th><th>人数</th></tr>'
-    foreach ($s in $ItemSum) { A ("<tr><td class=l>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td></tr>" -f (H $s.'項目'), (H $s.'項目CD'), (H $s.'見比べ'), $s.'人数') }
+    foreach ($s in $ItemSum) { A ("<tr><td class=l>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td></tr>" -f (HtmlEnc $s.'項目'), (HtmlEnc $s.'項目CD'), (HtmlEnc $s.'見比べ'), $s.'人数') }
     A '</table>'
 }
 A '<h2>3. 1 人ずつ</h2><table><tr><th>受診日</th><th>受付番号</th><th>性別</th><th>コース</th>'
-foreach ($name in $SHOW) { A "<th>$(H $name)</th>" }
+foreach ($name in $SHOW) { A "<th>$(HtmlEnc $name)</th>" }
 A '</tr>'
 foreach ($r in $Results) {
-    A ("<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td>" -f (H $r.'受診日'), (H $r.'受付番号'), (H $r.'性別'), (H $r.'コース'))
+    A ("<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td>" -f (HtmlEnc $r.'受診日'), (HtmlEnc $r.'受付番号'), (HtmlEnc $r.'性別'), (HtmlEnc $r.'コース'))
     foreach ($name in $SHOW) {
         $c = $r.$name
         $cls = switch (Cmp $c) { '学会が重い' { 'heavy' } '学会が軽い' { 'light' } 'J' { 'j' } default { '' } }
         $tip = (@($c.Items) -join "`n")
         if ($c.Navi -ne '') { $tip += "`n健診ナビ: $($c.Navi)" }
-        $naviTxt = $(if ($c.Navi -ne '') { "<br><small>ナビ $(H $c.Navi)$(if ($c.NaviTo -ne '' -and $c.NaviTo -ne $c.Navi -and $c.NaviTo -ne 'J') { '→' + (H $c.NaviTo) })</small>" } else { '' })
-        A ("<td class='{0}' title='{1}'><span class='{2}'>{3}</span>{4}</td>" -f $cls, (H $tip.Trim()), (H $c.L), $(if ($c.L) { H $c.L } else { '<small>-</small>' }), $naviTxt)
+        $naviTxt = $(if ($c.Navi -ne '') { "<br><small>ナビ $(HtmlEnc $c.Navi)$(if ($c.NaviTo -ne '' -and $c.NaviTo -ne $c.Navi -and $c.NaviTo -ne 'J') { '→' + (HtmlEnc $c.NaviTo) })</small>" } else { '' })
+        A ("<td class='{0}' title='{1}'><span class='{2}'>{3}</span>{4}</td>" -f $cls, (HtmlEnc $tip.Trim()), (HtmlEnc $c.L), $(if ($c.L) { HtmlEnc $c.L } else { '<small>-</small>' }), $naviTxt)
     }
     A '</tr>'
 }
 A '</table>'
 if ($NoRule.Count -gt 0) {
     A '<h2>4. 基準に当てはまらなかった値 (判定を付けていない)</h2><table><tr><th>項目</th><th>値</th><th>人数</th></tr>'
-    foreach ($k in ($NoRule.Keys | Sort-Object)) { $kv = $k -split '\|', 2; A ("<tr><td class=l>{0}</td><td class=l>{1}</td><td>{2}</td></tr>" -f (H $kv[0]), (H $kv[1]), $NoRule[$k]) }
+    foreach ($k in ($NoRule.Keys | Sort-Object)) { $kv = $k -split '\|', 2; A ("<tr><td class=l>{0}</td><td class=l>{1}</td><td>{2}</td></tr>" -f (HtmlEnc $kv[0]), (HtmlEnc $kv[1]), $NoRule[$k]) }
     A '</table><p class="note">院内の表 dock_kijun.csv に行を足すか、値の入れ方を確かめてください。</p>'
 }
 A '<h2>5. 院内の表 (form\dock_kijun.csv)</h2><table><tr><th>種類</th><th>項目</th><th>性別</th><th>以上</th><th>以下</th><th>未満</th><th>文字</th><th>判定</th><th>出典</th><th>メモ</th></tr>'
 foreach ($r in $Inai) {
-    A ("<tr><td>{0}</td><td class=l>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td><td>{5}</td><td class=l>{6}</td><td><span class='{7}'>{7}</span></td><td>{8}</td><td class=l>{9}</td></tr>" -f (H $r.'種類'), (H "$($r.'項目') $($r.'項目名')"), (H $r.'性別'), (H $r.'以上'), (H $r.'以下'), (H $r.'未満'), (H $r.'文字'), (H $r.'判定'), (H $r.'出典'), (H $r.'メモ'))
+    A ("<tr><td>{0}</td><td class=l>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td><td>{5}</td><td class=l>{6}</td><td><span class='{7}'>{7}</span></td><td>{8}</td><td class=l>{9}</td></tr>" -f (HtmlEnc $r.'種類'), (HtmlEnc "$($r.'項目') $($r.'項目名')"), (HtmlEnc $r.'性別'), (HtmlEnc $r.'以上'), (HtmlEnc $r.'以下'), (HtmlEnc $r.'未満'), (HtmlEnc $r.'文字'), (HtmlEnc $r.'判定'), (HtmlEnc $r.'出典'), (HtmlEnc $r.'メモ'))
 }
 A '</table></body></html>'
 [System.IO.File]::WriteAllText($htmlPath, $sbH.ToString(), (New-Object System.Text.UTF8Encoding $true))

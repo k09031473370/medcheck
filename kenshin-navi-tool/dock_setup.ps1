@@ -260,12 +260,16 @@ $lines = @($body[0]) + $head + @($body | Select-Object -Skip 1)
 [System.IO.File]::WriteAllLines($OutCsv, [string[]]$lines, (New-Object System.Text.UTF8Encoding $true))
 
 # ---- 項目 → くくり (健診ナビの実際の判定から) ----
-$KNAME = @{}
-foreach ($r in $kukuriKomoku.Rows) { $KNAME[[string]$r.'項目CD'] = (([string]$r.'名前') -replace '^【判定】', '' -replace '×$', '').Trim() }
+$KNAME = @{}; $KOLD = @{}
+foreach ($r in $kukuriKomoku.Rows) {
+    $KNAME[[string]$r.'項目CD'] = (([string]$r.'名前') -replace '^【判定】', '' -replace '×$', '').Trim()
+    if (([string]$r.'名前') -match '×') { $KOLD[[string]$r.'項目CD'] = $true }   # 名前に × が付いたくくりは今は使っていない (循環器× など)
+}
 $kukRows = @()
 $kukNone = @()
 foreach ($g in ($kukStat | Group-Object ITEM)) {
-    $okList = @($g.Group | Where-Object { [int]$_.ABN -ge 3 -and [int]$_.EXPL -ge 1 -and [int]$_.VIOL -le [math]::Max(1, [math]::Floor(0.05 * [int]$_.ABN)) } |
+    # 偶然の重なりを拾わないよう、悪い人の 2 割以上でくくりと同じ判定になっていることも条件にする
+    $okList = @($g.Group | Where-Object { -not $KOLD.ContainsKey([string]$_.KUK) -and [int]$_.ABN -ge 3 -and [int]$_.EXPL -ge [math]::Max(2, [math]::Ceiling(0.2 * [int]$_.ABN)) -and [int]$_.VIOL -le [math]::Max(1, [math]::Floor(0.05 * [int]$_.ABN)) } |
         Sort-Object @{ Expression = { [int]$_.EXPL }; Descending = $true }, @{ Expression = { [int]$_.VIOL } })
     $item = [string]$g.Name
     if ($okList.Count -eq 0) {
@@ -319,7 +323,7 @@ if ($kukErr) { W "  ★数えられませんでした: $kukErr" }
 W '  ・dock_kukuri.csv (手で決めた表) と違うもの:'
 foreach ($r in $kukRows) { if ($KUKCD.ContainsKey($r.'項目') -and $KUKCD[$r.'項目'] -ne $r.'くくりCD') { W ("    {0} {1}: 手の表 {2} ({3}) / 実際の判定 {4} ({5})  悪い人 {6}・同じ {7}・重い {8}" -f $r.'項目', $r.'項目名', $KUK[$r.'項目'], $KUKCD[$r.'項目'], $r.'くくり', $r.'くくりCD', $r.'悪い人', $r.'くくりと同じ', $r.'くくりより重い') } }
 W '  ・手の表に無く、実際の判定から足したもの:'
-foreach ($g in ($kukRows | Where-Object { -not $KUKCD.ContainsKey($_.'項目') } | Group-Object くくりCD)) { W ("    {0} {1}: {2}" -f $g.Name, $g.Group[0].'くくり', (($g.Group | ForEach-Object { "$($_.'項目名')($($_.'項目'))" }) -join '、')) }
+foreach ($g in ($kukRows | Where-Object { -not $KUKCD.ContainsKey($_.'項目') } | Group-Object くくりCD)) { W ("    {0} {1}: {2}" -f $g.Name, $g.Group[0].'くくり', (($g.Group | ForEach-Object { "$($_.'項目名')($($_.'項目') 悪い人$($_.'悪い人')・同じ$($_.'くくりと同じ')・重い$($_.'くくりより重い'))" }) -join '、')) }
 W "  ・どのくくりか決められなかった項目 $($kukNone.Count) 個 (悪い人が少ない・どのくくりとも合わない):"
 foreach ($t in ($kukNone | Select-Object -First 80)) { W "  $t" }
 W ''

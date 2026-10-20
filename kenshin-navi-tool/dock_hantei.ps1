@@ -52,9 +52,9 @@ function H([string]$s) { return [System.Net.WebUtility]::HtmlEncode($s) }
 function To-Num([string]$s) {
     if ($null -eq $s) { return $null }
     $t = [regex]::Replace($s.Trim(), '[０-９．－]', [System.Text.RegularExpressions.MatchEvaluator]{ param($m) [string][char]([int][char]$m.Value[0] - 0xFEE0) })
-    $mt = [regex]::Match($t, '-?\d+(\.\d+)?')
-    if (-not $mt.Success) { return $null }
-    return [double]::Parse($mt.Value, $Inv)
+    # 数字だけの結果のときだけ数値にする (「0.1未満」「凝固」などは文字の行で見る)
+    if ($t -notmatch '^-?\d+(\.\d+)?$') { return $null }
+    return [double]::Parse($t, $Inv)
 }
 function Read-Form([string]$name) {
     $path = Join-Path $FormDir $name
@@ -225,7 +225,7 @@ function Cmp($c) {
 }
 
 $Results = @()
-$Detail = @()
+$Detail = New-Object System.Collections.Generic.List[object]   # 4 万行近くになるので += は使わない
 $NoRule = @{}
 $useOther = $false
 foreach ($pp in $people) {
@@ -259,10 +259,10 @@ foreach ($pp in $people) {
         $shown = $(if ($info.V -ne '') { $info.V } elseif ($info.VC -ne '') { "(結果CD $($info.VC))" } else { '(判定のみ)' })
         $kk[$kname].Items += ("{0} {1} → {2} ({3})" -f $iname, $shown, $(if ($jr.L) { $jr.L } else { '-' }), $jr.Note)
         if ($jr.L -eq '') { $nk = "$key $iname|$shown"; $NoRule[$nk] = 1 + [int]$NoRule[$nk] }
-        $Detail += [PSCustomObject][ordered]@{
+        $Detail.Add([PSCustomObject][ordered]@{
             受診日 = $pp.YMD; 受付番号 = $pp.UKE; 性別 = $who.Sex; 年齢 = $who.Age; コース = $pp.COURSE; くくり = $kname; 項目CD = $key; 項目 = $iname; 値 = $shown
             学会判定 = $jr.L; 根拠 = $jr.Note; ナビ判定 = $info.HK; ナビ換算 = (Navi-To $info.HK); 見比べ = (Cmp @{ L = $jr.L; Navi = $info.HK; NaviTo = (Navi-To $info.HK) })
-        }
+        })
     }
     $total = ''
     $o = [ordered]@{ 受診日 = $pp.YMD; 受付番号 = $pp.UKE; 性別 = $who.Sex; コース = $pp.COURSE }

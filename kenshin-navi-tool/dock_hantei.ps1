@@ -15,6 +15,7 @@
   例:
     dock_hantei.ps1 -Dates 2026/09/03,2026/09/09,2026/09/10 -UkeFrom 4631 -UkeTo 4831
     dock_hantei.ps1 -Dates 2026/08/21 -Course YSA1
+    dock_hantei.ps1 -Dates 2026/09/01〜2026/09/30
 #>
 [CmdletBinding()]
 param(
@@ -136,19 +137,25 @@ foreach ($r in $NavR) { if (-not $NavBy.ContainsKey($r.'項目')) { $NavBy[$r.'�
 
 # ---- 対象 ----
 $ask = -not $Dates
-if ($ask) { $Dates = Read-Host '受診日 (例 2026/09/03。いくつかなら 2026/09/03,2026/09/09)' }
+if ($ask) { $Dates = Read-Host '受診日 (例 2026/09/03。いくつかなら 2026/09/03,2026/09/09。期間なら 2026/09/01〜2026/09/30)' }
 $DL = @()
+$RANGE = $null
+if ($Dates -match '^\s*(\d{4}[/-]\d{1,2}[/-]\d{1,2})\s*[〜~～]\s*(\d{4}[/-]\d{1,2}[/-]\d{1,2})\s*$') {
+    # 期間 (2026/09/01〜2026/09/30)
+    $RANGE = @(foreach ($x in @($Matches[1], $Matches[2])) { [datetime]::ParseExact(($x -replace '-', '/'), 'yyyy/M/d', $Inv).ToString('yyyy/MM/dd') })
+    $Dates = ''
+}
 foreach ($d in @(($Dates -split '[,、\s]+') | Where-Object { $_ -ne '' })) {
     $t = $d.Trim() -replace '-', '/'
     if ($t -notmatch '^\d{4}/\d{1,2}/\d{1,2}$') { throw "受診日の形が違います: $d (例 2026/09/03)" }
     $DL += [datetime]::ParseExact($t, 'yyyy/M/d', $Inv).ToString('yyyy/MM/dd')
 }
-if ($DL.Count -eq 0) { throw '受診日を入れてください' }
+if ($DL.Count -eq 0 -and $null -eq $RANGE) { throw '受診日を入れてください' }
 if ($ask) {
     $u = Read-Host '受付番号の範囲 (例 4631-4831。全員なら空のまま Enter)'
     if ($u -match '^\s*(\d+)\s*[-〜~]\s*(\d+)\s*$') { $UkeFrom = [int]$Matches[1]; $UkeTo = [int]$Matches[2] }
 }
-$WHERE = "s.F_TORIKESI = 0 AND s.D_KENSIN IN ('" + ($DL -join "','") + "')"
+$WHERE = $(if ($RANGE) { "s.F_TORIKESI = 0 AND s.D_KENSIN BETWEEN '$($RANGE[0])' AND '$($RANGE[1])'" } else { "s.F_TORIKESI = 0 AND s.D_KENSIN IN ('" + ($DL -join "','") + "')" })
 if ($UkeFrom -gt 0) { $WHERE += " AND s.UKE_NO_KENSA >= $UkeFrom" }
 if ($UkeTo -gt 0)   { $WHERE += " AND s.UKE_NO_KENSA <= $UkeTo" }
 $CL = @(($Course -split '[,、\s]+') | Where-Object { $_ -match '^[0-9A-Za-z_-]+$' })
@@ -156,7 +163,7 @@ if ($CL.Count -gt 0) { $WHERE += " AND LTRIM(RTRIM(s.COURSE_CD)) IN ('" + ($CL -
 
 Write-Host ''
 Write-Host ' 学会の文字で判定を出して、健診ナビの判定と見比べる (DBは読むだけ)' -ForegroundColor Cyan
-$cond = "受診日 $($DL -join '・')" + $(if ($UkeFrom -or $UkeTo) { "  受付番号 $UkeFrom〜$UkeTo" } else { '' }) + $(if ($CL.Count) { "  コース $($CL -join ',')" } else { '' })
+$cond = "受診日 $(if ($RANGE) { "$($RANGE[0])〜$($RANGE[1])" } else { $DL -join '・' })" + $(if ($UkeFrom -or $UkeTo) { "  受付番号 $UkeFrom〜$UkeTo" } else { '' }) + $(if ($CL.Count) { "  コース $($CL -join ',')" } else { '' })
 Write-Host " $cond"
 $conn = Open-Db
 try {

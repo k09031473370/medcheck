@@ -3,7 +3,7 @@
   オプションは 料金明細 T_RYOUKIN に OP で始まる項目CD (OPJ014 乳腺超音波 など) で入る (check74・75 で確認)。
   あわせて、検査の枠 T_KENSA にオプションの行 (OP〜) ができているかも数える。
   check117.bat → r_check117.txt。DBは読むだけ。
-  1〜3 は人数だけ (氏名なし)。4 は 1 人ずつの一覧で氏名が入るので、院内だけで使う (外に貼らない)。
+  1〜3 は人数と受付番号だけ (氏名なし)。4 は 1 人ずつの一覧で氏名が入るので、院内だけで使う (外に貼らない)。
 #>
 [CmdletBinding()]
 param([string]$Name = '福生', [string]$From = '2026/10/01', [string]$To = '2026/10/31')
@@ -43,6 +43,26 @@ GROUP BY LTRIM(RTRIM(r.KOMOKU_CD)), r.F_ADD_DEL
 ORDER BY 4 DESC, 1
 "@ 80
 
+Q '--- 1b. ★オプションごとの合計人数と受付番号 (= 採血の検体番号) の一覧 (氏名なし) ---' @"
+SELECT x.CD AS 項目CD, MAX(x.NM) AS オプション, x.AD AS 追加削除, COUNT(*) AS 合計人数,
+       STUFF((SELECT N'、' + LTRIM(RTRIM(s2.UKE_NO_KENSA))
+              FROM T_KENSIN s2
+              WHERE s2.PK_SEQ IN (SELECT r2.PK_SEQ FROM T_RYOUKIN r2
+                                  WHERE LTRIM(RTRIM(r2.KOMOKU_CD)) = x.CD AND ISNULL(CONVERT(varchar(10), r2.F_ADD_DEL),'') = x.AD)
+                AND s2.F_TORIKESI = 0 AND s2.D_KENSIN BETWEEN '$From' AND '$To'
+                AND s2.DANTAI_CD1 IN (SELECT d.DANTAI_CD1 FROM T_DANTAI1 d WHERE d.MEISYO1 LIKE N'%$Name%')
+              ORDER BY LEN(LTRIM(RTRIM(s2.UKE_NO_KENSA))), LTRIM(RTRIM(s2.UKE_NO_KENSA))
+              FOR XML PATH('')), 1, 1, '') AS 受付番号
+FROM (SELECT DISTINCT r.PK_SEQ, LTRIM(RTRIM(r.KOMOKU_CD)) AS CD, LTRIM(RTRIM(ISNULL(m.MEISYO1,''))) AS NM,
+             ISNULL(CONVERT(varchar(10), r.F_ADD_DEL),'') AS AD
+      FROM T_RYOUKIN r
+      JOIN T_KENSIN s ON s.PK_SEQ = r.PK_SEQ
+      LEFT JOIN T_KOMOKU m ON LTRIM(RTRIM(m.KOMOKU_CD)) = LTRIM(RTRIM(r.KOMOKU_CD))
+      WHERE $WHO AND $OPT) x
+GROUP BY x.CD, x.AD
+ORDER BY 4 DESC, 1
+"@ 80
+
 Q '--- 2. ★オプションを 1 つ以上申し込んだ人の数 (受診日ごと) ---' @"
 SELECT CONVERT(varchar(10), s.D_KENSIN, 111) AS 受診日, COUNT(*) AS 受診者,
        SUM(CASE WHEN EXISTS (SELECT 1 FROM T_RYOUKIN r WHERE r.PK_SEQ = s.PK_SEQ AND $OPT) THEN 1 ELSE 0 END) AS オプションあり,
@@ -74,6 +94,7 @@ ORDER BY 1, LEN(LTRIM(RTRIM(s.UKE_NO_KENSA))), s.UKE_NO_KENSA
 
 W ''
 W '=== 読み方 ==='
+W '  1b が「オプションごとの合計人数と、その人の受付番号 (採血の検体番号と同じ番号)」。氏名は出ない。'
 W '  1 が「何を何人が申し込んだか」。追加削除 の印が 2 種類あれば、取り消した分が混ざっている (どちらが取消かは 0 の団体ページで確かめる)。'
 W '  2 が「オプションを申し込んだ人の数」。'
 W '  3 の人数が 1 と違えば、料金明細と検査の枠がずれている (枠が無いと結果が入れられない)。'

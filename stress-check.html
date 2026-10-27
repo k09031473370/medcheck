@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ストレスチェック 結果表 | MedCheck</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&family=DM+Serif+Display&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0F2847;--teal:#0A7B6C;--teal-light:#12A090;--teal-pale:#E6F5F3;--slate:#3D5A73;--mist:#F4F8F9;--white:#FFFFFF;--gray:#8299AB;--border:#D4E4EC;--error:#D94F4F;--warn:#E8891A;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Noto Sans JP',sans-serif;background:var(--mist);color:var(--navy);min-height:100vh;}
+header{background:var(--white);border-bottom:1px solid var(--border);padding:0 40px;display:flex;align-items:center;justify-content:space-between;height:68px;position:sticky;top:0;z-index:100;box-shadow:0 2px 16px rgba(10,123,108,.08);}
+.logo{display:flex;align-items:center;gap:10px;}
+.logo-icon{width:38px;height:38px;background:var(--teal);border-radius:10px;display:flex;align-items:center;justify-content:center;color:white;font-size:20px;}
+.logo-text{font-family:'DM Serif Display',serif;font-size:22px;color:var(--navy);}
+.logo-text span{color:var(--teal);}
+.header-info{font-size:12px;color:var(--gray);text-align:right;}
+.header-info strong{display:block;color:var(--navy);font-size:13px;}
+.hero{background:linear-gradient(135deg,var(--navy) 0%,#1A3D5C 60%,var(--teal) 100%);padding:44px 40px;text-align:center;}
+.hero h1{font-family:'DM Serif Display',serif;font-size:32px;color:var(--white);margin-bottom:10px;}
+.hero p{color:rgba(255,255,255,.75);font-size:13px;font-weight:300;line-height:1.7;}
+.container{max-width:960px;margin:0 auto;padding:28px 20px 60px;}
+.card{background:white;border:1px solid var(--border);border-radius:14px;margin-bottom:20px;overflow:hidden;}
+.card-head{padding:16px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
+.card-head h2{font-size:15px;font-weight:700;}
+.card-head p{font-size:12px;color:var(--gray);margin-top:2px;}
+.card-body{padding:20px 22px;}
+.notice{background:#FFF8E1;border:1px solid #FFD54F;border-radius:10px;padding:12px 16px;margin-bottom:20px;font-size:12px;color:#5D4037;line-height:1.7;}
+.info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;}
+.field label{display:block;font-size:12px;font-weight:700;color:var(--slate);margin-bottom:6px;}
+.field input,.field select{width:100%;border:1.5px solid var(--border);border-radius:8px;padding:10px 12px;font-size:14px;font-family:'Noto Sans JP',sans-serif;outline:none;background:white;}
+.field input:focus,.field select:focus{border-color:var(--teal);}
+.sec-title{background:var(--teal-pale);color:var(--teal);font-size:13px;font-weight:700;padding:10px 22px;border-top:1px solid var(--border);border-bottom:1px solid var(--border);}
+.sec-sub{font-size:12px;color:var(--slate);padding:10px 22px 0;line-height:1.6;}
+.q-table{width:100%;border-collapse:collapse;}
+.q-table th{font-size:11px;color:var(--gray);font-weight:700;padding:8px 6px;text-align:center;border-bottom:1px solid var(--border);background:var(--mist);white-space:nowrap;}
+.q-table th:first-child{text-align:left;padding-left:22px;}
+.q-table td{padding:7px 6px;font-size:13px;border-bottom:1px solid var(--border);text-align:center;vertical-align:middle;}
+.q-table td:first-child{text-align:left;padding-left:22px;line-height:1.5;}
+.q-table tr.unanswered td{background:#FDEAEA;}
+.q-num{display:inline-block;min-width:28px;font-family:'DM Serif Display',serif;color:var(--teal);font-size:14px;}
+.q-table label{display:block;cursor:pointer;padding:4px 0;}
+.q-table input[type=radio]{accent-color:var(--teal);width:18px;height:18px;cursor:pointer;}
+.q-group{font-size:12px;font-weight:700;color:var(--slate);background:#FAFBFC;}
+.actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;padding:16px 22px;border-top:1px solid var(--border);background:#FAFBFC;}
+.btn{padding:11px 20px;border-radius:9px;font-size:13px;font-weight:700;font-family:'Noto Sans JP',sans-serif;cursor:pointer;border:1.5px solid transparent;}
+.btn-primary{background:var(--teal);color:white;}
+.btn-primary:hover{background:var(--teal-light);}
+.btn-outline{background:white;border-color:var(--border);color:var(--slate);}
+.btn-outline:hover{border-color:var(--teal);color:var(--teal);}
+.err-msg{color:var(--error);font-size:12px;font-weight:700;align-self:center;margin-right:auto;display:none;}
+/* 結果表 */
+#result{display:none;}
+.judge{display:flex;gap:18px;align-items:center;padding:22px;border-radius:12px;margin-bottom:20px;border:1.5px solid;}
+.judge.high{background:#FDEAEA;border-color:var(--error);}
+.judge.normal{background:var(--teal-pale);border-color:var(--teal);}
+.judge .mark{font-size:36px;line-height:1;}
+.judge h3{font-size:18px;font-weight:700;margin-bottom:4px;}
+.judge.high h3{color:var(--error);}
+.judge.normal h3{color:var(--teal);}
+.judge p{font-size:12px;color:var(--slate);line-height:1.7;}
+.meta-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0;border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:20px;}
+.meta-cell{padding:10px 14px;border-right:1px solid var(--border);}
+.meta-cell:last-child{border-right:none;}
+.meta-label{font-size:10px;color:var(--gray);font-weight:700;text-transform:uppercase;margin-bottom:3px;}
+.meta-value{font-size:14px;font-weight:700;}
+.r-table{width:100%;border-collapse:collapse;}
+.r-table th{padding:9px 14px;text-align:left;font-size:11px;font-weight:700;color:var(--gray);background:var(--mist);border-bottom:1px solid var(--border);white-space:nowrap;}
+.r-table td{padding:9px 14px;font-size:13px;border-bottom:1px solid var(--border);vertical-align:middle;}
+.r-table td.num,.r-table th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.r-table tr.domain td{background:#FAFBFC;font-weight:700;color:var(--slate);font-size:12px;}
+.score-big{font-family:'DM Serif Display',serif;font-size:18px;color:var(--navy);}
+.bar{position:relative;height:10px;background:var(--border);border-radius:0 4px 4px 0;min-width:120px;}
+.bar-fill{position:absolute;left:0;top:0;bottom:0;background:var(--teal);border-radius:0 4px 4px 0;}
+.bar-fill.lv3{background:var(--error);}
+.bar-fill.lv2{background:var(--warn);}
+.lv{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap;}
+.lv::before{content:'';width:6px;height:6px;border-radius:50%;}
+.lv1{background:var(--teal-pale);color:var(--teal);}.lv1::before{background:var(--teal);}
+.lv2{background:#FFF3E0;color:var(--warn);}.lv2::before{background:var(--warn);}
+.lv3{background:#FDEAEA;color:var(--error);}.lv3::before{background:var(--error);}
+.crit{font-size:11px;color:var(--gray);}
+.crit.hit{color:var(--error);font-weight:700;}
+.ans-table{width:100%;border-collapse:collapse;font-size:11px;}
+.ans-table th,.ans-table td{border:1px solid var(--border);padding:4px 6px;text-align:center;}
+.ans-table th{background:var(--mist);color:var(--gray);font-weight:700;}
+.ans-table td.lbl{text-align:left;background:#FAFBFC;font-weight:700;color:var(--slate);white-space:nowrap;}
+.foot-note{font-size:11px;color:var(--gray);line-height:1.8;padding:14px 22px;border-top:1px solid var(--border);}
+@media(max-width:640px){header{padding:0 16px;}.hero{padding:32px 16px;}.hero h1{font-size:24px;}.q-table th{font-size:10px;}.q-table td{font-size:12px;padding:6px 3px;}.q-table td:first-child,.q-table th:first-child{padding-left:12px;}.card-body{padding:16px;}}
+@media print{
+  body{background:white;}
+  header,.hero,#form-area,.actions,.no-print{display:none !important;}
+  .container{max-width:none;padding:0;}
+  .card{border:1px solid #999;border-radius:0;break-inside:avoid;margin-bottom:12px;}
+  #result{display:block !important;}
+  .bar-fill,.lv,.judge{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><div class="logo-icon">🏥</div><div class="logo-text">Med<span>Check</span></div></div>
+  <div class="header-info"><strong>ストレスチェック</strong>職業性ストレス簡易調査票（57項目）</div>
+</header>
+
+<div class="hero">
+  <h1>ストレスチェック 結果表</h1>
+  <p>57項目の調査票に回答すると、領域別・尺度別の得点と高ストレス者判定をまとめた個人結果表を作成します。<br>回答内容はこの画面内でのみ計算され、サーバーには送信されません。</p>
+</div>
+
+<div class="container">
+
+<div id="form-area">
+  <div class="notice">
+    ストレスチェックの結果は本人の同意なく事業者に提供することはできません（労働安全衛生法第66条の10）。本ページは結果の集計・出力を補助するものであり、最終的な高ストレス者の判定と面接指導の要否は実施者（医師等）が判断してください。
+  </div>
+
+  <div class="card">
+    <div class="card-head"><div><h2>基本情報</h2><p>結果表に印字されます</p></div></div>
+    <div class="card-body">
+      <div class="info-grid">
+        <div class="field"><label>氏名</label><input type="text" id="p-name" placeholder="例：山田 太郎"></div>
+        <div class="field"><label>所属・部署</label><input type="text" id="p-dept" placeholder="例：営業部"></div>
+        <div class="field"><label>性別</label><select id="p-sex"><option value="">未選択</option><option value="男性">男性</option><option value="女性">女性</option><option value="その他・回答しない">その他・回答しない</option></select></div>
+        <div class="field"><label>実施日</label><input type="date" id="p-date"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="q-card">
+    <div class="card-head"><div><h2>調査票</h2><p>各設問について、最もあてはまるものを1つ選んでください</p></div><div class="crit" id="progress">0 / 57 回答済み</div></div>
+    <div id="q-body"></div>
+    <div class="actions">
+      <span class="err-msg" id="err-msg">未回答の設問があります（赤色の行）</span>
+      <button class="btn btn-outline" type="button" onclick="fillSample()">サンプル回答</button>
+      <button class="btn btn-outline" type="button" onclick="clearAll()">クリア</button>
+      <button class="btn btn-primary" type="button" onclick="buildResult()">結果表を作成</button>
+    </div>
+  </div>
+</div>
+
+<div id="result">
+  <div class="card">
+    <div class="card-head"><div><h2>ストレスチェック 個人結果表</h2><p>職業性ストレス簡易調査票（57項目）</p></div>
+      <div class="no-print" style="display:flex;gap:8px;">
+        <button class="btn btn-outline" type="button" onclick="downloadCSV()">CSV保存</button>
+        <button class="btn btn-outline" type="button" onclick="window.print()">印刷 / PDF</button>
+        <button class="btn btn-outline" type="button" onclick="backToForm()">回答に戻る</button>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="meta-grid" id="meta-grid"></div>
+      <div id="judge"></div>
+      <table class="r-table">
+        <thead><tr><th>領域</th><th class="num">合計点</th><th class="num">範囲</th><th>高ストレス者の判定基準（合計点を使う方法）</th></tr></thead>
+        <tbody id="domain-rows"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><div><h2>尺度別の得点</h2><p>全尺度とも「点数が高いほど負担が大きい／サポートが少ない」向きに揃えて表示しています</p></div></div>
+    <table class="r-table">
+      <thead><tr><th>尺度</th><th>設問</th><th class="num">素点</th><th class="num">範囲</th><th style="width:30%">水準</th><th>評価</th></tr></thead>
+      <tbody id="scale-rows"></tbody>
+    </table>
+    <div class="foot-note">
+      水準の目安：素点を「最小点〜最大点」の範囲で3等分し、低い（良好）／中程度／高い（要注意）に区分しています。厚生労働省マニュアルの素点換算表（性別ごとの5段階評価）とは異なる簡易区分です。
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><div><h2>回答一覧</h2><p>実施者確認用。数値は「ストレスが高いほど点数が高い」向きに変換した得点（1〜4）</p></div></div>
+    <div class="card-body" id="answer-grid" style="overflow-x:auto;"></div>
+    <div class="foot-note">
+      判定基準（厚生労働省「ストレスチェック制度実施マニュアル」評価基準の例 その1）：
+      ①「心身のストレス反応」（B領域29項目）の合計点が77点以上、または
+      ②「仕事のストレス要因」（A領域17項目）と「周囲のサポート」（C領域9項目）の合計点が76点以上かつB領域の合計点が63点以上 の場合に高ストレス者とします。
+      D領域（満足度）は判定には用いません。
+    </div>
+  </div>
+</div>
+
+</div>
+
+<script>
+/* ───────── 調査票定義 ───────── */
+const OPT = {
+  A: ['そうだ','まあそうだ','ややちがう','ちがう'],
+  B: ['ほとんどなかった','ときどきあった','しばしばあった','ほとんどいつもあった'],
+  C: ['非常に','かなり','多少','全くない'],
+  D: ['満足','まあ満足','やや不満足','不満足']
+};
+/* rev=true: 1番目の選択肢がストレス低（得点1）になる設問 */
+const Q = {
+  A: {title:'A. あなたの仕事についてうかがいます', sub:'最もあてはまるものを選んでください', items:[
+    ['非常にたくさんの仕事をしなければならない',false],
+    ['時間内に仕事が処理しきれない',false],
+    ['一生懸命働かなければならない',false],
+    ['かなり注意を集中する必要がある',false],
+    ['高度の知識や技術が必要なむずかしい仕事だ',false],
+    ['勤務時間中はいつも仕事のことを考えていなければならない',false],
+    ['からだを大変よく使う仕事だ',false],
+    ['自分のペースで仕事ができる',true],
+    ['自分で仕事の順番・やり方を決めることができる',true],
+    ['職場の仕事の方針に自分の意見を反映できる',true],
+    ['自分の技能や知識を仕事で使うことが少ない',false],
+    ['私の部署内で意見のくい違いがある',false],
+    ['私の部署と他の部署とはうまが合わない',false],
+    ['私の職場の雰囲気は友好的である',true],
+    ['私の職場の作業環境（騒音、照明、温度、換気など）はよくない',false],
+    ['仕事の内容は自分にあっている',true],
+    ['働きがいのある仕事だ',true]
+  ]},
+  B: {title:'B. 最近1か月間のあなたの状態についてうかがいます', sub:'最もあてはまるものを選んでください', items:[
+    ['活気がわいてくる',true],['元気がいっぱいだ',true],['生き生きする',true],
+    ['怒りを感じる',false],['内心腹立たしい',false],['イライラしている',false],
+    ['ひどく疲れた',false],['へとへとだ',false],['だるい',false],
+    ['気がはりつめている',false],['不安だ',false],['落着かない',false],
+    ['ゆううつだ',false],['何をするのも面倒だ',false],['物事に集中できない',false],['気分が晴れない',false],['仕事が手につかない',false],['悲しいと感じる',false],
+    ['めまいがする',false],['体のふしぶしが痛む',false],['頭が重かったり頭痛がする',false],['首筋や肩がこる',false],['腰が痛い',false],['目が疲れる',false],['動悸や息切れがする',false],['胃腸の具合が悪い',false],['食欲がない',false],['便秘や下痢をする',false],['よく眠れない',false]
+  ]},
+  C: {title:'C. あなたの周りの方々についてうかがいます', sub:'最もあてはまるものを選んでください', groups:[
+    ['次の人たちはどのくらい気軽に話ができますか？',['上司','職場の同僚','配偶者、家族、友人等']],
+    ['あなたが困った時、次の人たちはどのくらい頼りになりますか？',['上司','職場の同僚','配偶者、家族、友人等']],
+    ['あなたの個人的な問題を相談したら、次の人たちはどのくらいきいてくれますか？',['上司','職場の同僚','配偶者、家族、友人等']]
+  ], items:[
+    ['上司',true],['職場の同僚',true],['配偶者、家族、友人等',true],
+    ['上司',true],['職場の同僚',true],['配偶者、家族、友人等',true],
+    ['上司',true],['職場の同僚',true],['配偶者、家族、友人等',true]
+  ]},
+  D: {title:'D. 満足度について', sub:'最もあてはまるものを選んでください（高ストレス者の判定には用いません）', items:[
+    ['仕事に満足だ',true],['家庭生活に満足だ',true]
+  ]}
+};
+/* 尺度定義: [領域, 尺度名, 設問番号(1始まり)] */
+const SCALES = [
+  ['A','心理的な仕事の負担（量）',[1,2,3]],
+  ['A','心理的な仕事の負担（質）',[4,5,6]],
+  ['A','自覚的な身体的負担度',[7]],
+  ['A','職場での対人関係のストレス',[12,13,14]],
+  ['A','職場環境によるストレス',[15]],
+  ['A','仕事のコントロール度（低さ）',[8,9,10]],
+  ['A','技能の活用度（低さ）',[11]],
+  ['A','仕事の適性度（低さ）',[16]],
+  ['A','働きがい（低さ）',[17]],
+  ['B','活気（低さ）',[1,2,3]],
+  ['B','イライラ感',[4,5,6]],
+  ['B','疲労感',[7,8,9]],
+  ['B','不安感',[10,11,12]],
+  ['B','抑うつ感',[13,14,15,16,17,18]],
+  ['B','身体愁訴',[19,20,21,22,23,24,25,26,27,28,29]],
+  ['C','上司からのサポート（少なさ）',[1,4,7]],
+  ['C','同僚からのサポート（少なさ）',[2,5,8]],
+  ['C','家族・友人からのサポート（少なさ）',[3,6,9]],
+  ['D','仕事や生活の満足度（低さ）',[1,2]]
+];
+const DOMAIN_NAME = {A:'仕事のストレス要因',B:'心身のストレス反応',C:'周囲のサポート',D:'満足度'};
+const TOTAL = 57; // A17 + B29 + C9 + D2
+
+/* ───────── 調査票レンダリング ───────── */
+function renderForm(){
+  let html = '';
+  ['A','B','C','D'].forEach(function(d){
+    const def = Q[d];
+    html += '<div class="sec-title">'+def.title+'</div>';
+    html += '<div class="sec-sub">'+def.sub+'</div>';
+    html += '<table class="q-table"><thead><tr><th>設問</th>'+OPT[d].map(function(o){return '<th>'+o+'</th>';}).join('')+'</tr></thead><tbody>';
+    if(def.groups){
+      let n = 0;
+      def.groups.forEach(function(g){
+        html += '<tr class="q-group"><td colspan="5">'+g[0]+'</td></tr>';
+        g[1].forEach(function(label){ n++; html += rowHtml(d,n,label); });
+      });
+    }else{
+      def.items.forEach(function(it,i){ html += rowHtml(d,i+1,it[0]); });
+    }
+    html += '</tbody></table>';
+  });
+  document.getElementById('q-body').innerHTML = html;
+}
+function rowHtml(d,n,label){
+  const name = d+n;
+  let cells = '';
+  for(let v=1; v<=4; v++){
+    cells += '<td><label><input type="radio" name="'+name+'" value="'+v+'" onchange="answered(this)"></label></td>';
+  }
+  return '<tr id="row-'+name+'"><td><span class="q-num">'+d+n+'</span>'+label+'</td>'+cells+'</tr>';
+}
+function getChoice(name){
+  const el = document.querySelector('input[name="'+name+'"]:checked');
+  return el ? parseInt(el.value,10) : null; // 1..4 = 選択肢の並び順
+}
+function answered(el){ el.closest("tr").classList.remove("unanswered"); updateProgress(); }
+function updateProgress(){
+  let c = 0;
+  ['A','B','C','D'].forEach(function(d){ Q[d].items.forEach(function(_,i){ if(getChoice(d+(i+1))) c++; }); });
+  document.getElementById('progress').textContent = c+' / '+TOTAL+' 回答済み';
+}
+
+/* ───────── 採点 ───────── */
+/* 選択肢の並び順(1..4) → ストレス方向の得点(1..4) */
+function stressScore(d,i,choice){
+  const rev = Q[d].items[i][1];
+  return rev ? choice : 5 - choice;
+}
+function collect(){
+  const data = {};
+  let firstMissing = null;
+  ['A','B','C','D'].forEach(function(d){
+    data[d] = [];
+    Q[d].items.forEach(function(_,i){
+      const name = d+(i+1);
+      const ch = getChoice(name);
+      const row = document.getElementById('row-'+name);
+      row.classList.toggle('unanswered', !ch);
+      if(!ch && !firstMissing) firstMissing = row;
+      data[d].push(ch ? {choice:ch, score:stressScore(d,i,ch)} : null);
+    });
+  });
+  return {data:data, firstMissing:firstMissing};
+}
+function sum(arr){ return arr.reduce(function(a,b){return a+b;},0); }
+
+function buildResult(){
+  const r = collect();
+  const err = document.getElementById('err-msg');
+  if(r.firstMissing){
+    err.style.display = 'inline';
+    r.firstMissing.scrollIntoView({behavior:'smooth',block:'center'});
+    return;
+  }
+  err.style.display = 'none';
+  const d = r.data;
+  const tot = {};
+  ['A','B','C','D'].forEach(function(k){ tot[k] = sum(d[k].map(function(x){return x.score;})); });
+  const ac = tot.A + tot.C;
+  const crit1 = tot.B >= 77;
+  const crit2 = ac >= 76 && tot.B >= 63;
+  const high = crit1 || crit2;
+
+  /* 基本情報 */
+  const name = document.getElementById('p-name').value.trim() || '—';
+  const dept = document.getElementById('p-dept').value.trim() || '—';
+  const sex  = document.getElementById('p-sex').value || '—';
+  const date = document.getElementById('p-date').value || new Date().toISOString().slice(0,10);
+  document.getElementById('meta-grid').innerHTML =
+    meta('氏名',name)+meta('所属・部署',dept)+meta('性別',sex)+meta('実施日',date.replace(/-/g,'/'));
+
+  /* 判定 */
+  let basis = [];
+  if(crit1) basis.push('①B領域合計 '+tot.B+'点 ≥ 77点');
+  if(crit2) basis.push('②A+C領域合計 '+ac+'点 ≥ 76点 かつ B領域合計 '+tot.B+'点 ≥ 63点');
+  document.getElementById('judge').innerHTML = high
+    ? '<div class="judge high"><div class="mark">⚠️</div><div><h3>高ストレス者に該当します</h3><p>該当基準：'+basis.join('／')+'<br>医師による面接指導の対象となる可能性があります。実施者（医師等）の確認を受けてください。</p></div></div>'
+    : '<div class="judge normal"><div class="mark">✅</div><div><h3>高ストレス者には該当しません</h3><p>合計点を使う方法の判定基準（①B領域77点以上、②A+C領域76点以上かつB領域63点以上）のいずれにも該当しませんでした。</p></div></div>';
+
+  /* 領域合計 */
+  document.getElementById('domain-rows').innerHTML =
+    domRow('A. '+DOMAIN_NAME.A+'（17項目）',tot.A,'17〜68','②の判定に使用（A+Cで評価）',false)+
+    domRow('B. '+DOMAIN_NAME.B+'（29項目）',tot.B,'29〜116','①77点以上 ／ ②63点以上',crit1||crit2)+
+    domRow('C. '+DOMAIN_NAME.C+'（9項目）',tot.C,'9〜36','②の判定に使用（A+Cで評価）',false)+
+    domRow('A + C 合計（26項目）',ac,'26〜104','②76点以上（かつB63点以上）',crit2)+
+    domRow('D. '+DOMAIN_NAME.D+'（2項目）',tot.D,'2〜8','判定には用いない',false);
+
+  /* 尺度別 */
+  let rows = '', lastDomain = '';
+  SCALES.forEach(function(s){
+    const dom = s[0], label = s[1], idx = s[2];
+    if(dom !== lastDomain){ rows += '<tr class="domain"><td colspan="6">'+dom+'. '+DOMAIN_NAME[dom]+'</td></tr>'; lastDomain = dom; }
+    const sc = sum(idx.map(function(i){ return d[dom][i-1].score; }));
+    const min = idx.length, max = idx.length*4;
+    const ratio = (sc - min) / (max - min);
+    const lv = ratio <= 1/3 ? 1 : ratio <= 2/3 ? 2 : 3;
+    const lvText = ['','低い（良好）','中程度','高い（要注意）'][lv];
+    rows += '<tr><td>'+label+'</td><td class="crit">'+idx.map(function(i){return dom+i;}).join(', ')+'</td>'+
+      '<td class="num"><span class="score-big">'+sc+'</span></td><td class="num crit">'+min+'〜'+max+'</td>'+
+      '<td><div class="bar" title="'+label+'：'+sc+'点／'+max+'点"><div class="bar-fill lv'+lv+'" style="width:'+Math.round(sc/max*100)+'%"></div></div></td>'+
+      '<td><span class="lv lv'+lv+'">'+lvText+'</span></td></tr>';
+  });
+  document.getElementById('scale-rows').innerHTML = rows;
+
+  /* 回答一覧 */
+  let grid = '';
+  ['A','B','C','D'].forEach(function(k){
+    const n = d[k].length;
+    grid += '<table class="ans-table" style="margin-bottom:10px"><thead><tr><th class="lbl" style="text-align:left">'+k+'. '+DOMAIN_NAME[k]+'</th>';
+    for(let i=1;i<=n;i++) grid += '<th>'+i+'</th>';
+    grid += '<th>合計</th></tr></thead><tbody><tr><td class="lbl">得点</td>';
+    d[k].forEach(function(x){ grid += '<td>'+x.score+'</td>'; });
+    grid += '<td><strong>'+tot[k]+'</strong></td></tr></tbody></table>';
+  });
+  document.getElementById('answer-grid').innerHTML = grid;
+
+  window._lastResult = {name:name,dept:dept,sex:sex,date:date,tot:tot,ac:ac,high:high,data:d};
+  document.getElementById('form-area').style.display = 'none';
+  document.getElementById('result').style.display = 'block';
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+function meta(l,v){ return '<div class="meta-cell"><div class="meta-label">'+l+'</div><div class="meta-value">'+esc(v)+'</div></div>'; }
+function domRow(label,score,range,crit,hit){
+  return '<tr><td>'+label+'</td><td class="num"><span class="score-big">'+score+'</span></td><td class="num crit">'+range+'</td><td class="crit'+(hit?' hit':'')+'">'+crit+(hit?' ← 該当':'')+'</td></tr>';
+}
+function esc(s){ return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+function backToForm(){
+  document.getElementById('result').style.display = 'none';
+  document.getElementById('form-area').style.display = 'block';
+}
+
+/* ───────── CSV ───────── */
+function downloadCSV(){
+  const r = window._lastResult; if(!r) return;
+  const head = ['氏名','所属','性別','実施日','A合計','B合計','C合計','A+C合計','D合計','高ストレス判定'];
+  const vals = [r.name,r.dept,r.sex,r.date,r.tot.A,r.tot.B,r.tot.C,r.ac,r.tot.D,r.high?'該当':'非該当'];
+  ['A','B','C','D'].forEach(function(k){ r.data[k].forEach(function(x,i){ head.push(k+(i+1)); vals.push(x.score); }); });
+  const q = function(v){ return '"'+String(v).replace(/"/g,'""')+'"'; };
+  const csv = '﻿'+head.map(q).join(',')+'\r\n'+vals.map(q).join(',')+'\r\n';
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download = 'stress_check_'+r.date.replace(/-/g,'')+'.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+/* ───────── 補助 ───────── */
+function fillSample(){
+  ['A','B','C','D'].forEach(function(d){
+    Q[d].items.forEach(function(_,i){
+      const v = 1 + Math.floor(Math.random()*4);
+      const el = document.querySelector('input[name="'+d+(i+1)+'"][value="'+v+'"]');
+      if(el) el.checked = true;
+    });
+  });
+  document.querySelectorAll('.q-table tr.unanswered').forEach(function(r){r.classList.remove('unanswered');});
+  updateProgress();
+}
+function clearAll(){
+  document.querySelectorAll('.q-table input[type=radio]').forEach(function(e){e.checked=false;});
+  document.querySelectorAll('.q-table tr.unanswered').forEach(function(r){r.classList.remove('unanswered');});
+  document.getElementById('err-msg').style.display='none';
+  updateProgress();
+}
+
+renderForm();
+document.getElementById('p-date').value = new Date().toISOString().slice(0,10);
+</script>
+</body>
+</html>

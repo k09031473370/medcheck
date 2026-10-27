@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ストレスチェック 書類作成 | MedCheck</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&family=DM+Serif+Display&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0F2847;--teal:#0A7B6C;--teal-light:#12A090;--teal-pale:#E6F5F3;--slate:#3D5A73;--mist:#F4F8F9;--white:#FFFFFF;--gray:#8299AB;--border:#D4E4EC;--error:#D94F4F;--warn:#E8891A;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Noto Sans JP',sans-serif;background:var(--mist);color:var(--navy);min-height:100vh;}
+header{background:var(--white);border-bottom:1px solid var(--border);padding:0 40px;display:flex;align-items:center;justify-content:space-between;height:68px;position:sticky;top:0;z-index:100;box-shadow:0 2px 16px rgba(10,123,108,.08);}
+.logo{display:flex;align-items:center;gap:10px;}
+.logo-icon{width:38px;height:38px;background:var(--teal);border-radius:10px;display:flex;align-items:center;justify-content:center;color:white;font-size:20px;}
+.logo-text{font-family:'DM Serif Display',serif;font-size:22px;color:var(--navy);}
+.logo-text span{color:var(--teal);}
+.header-info{font-size:12px;color:var(--gray);text-align:right;}
+.header-info strong{display:block;color:var(--navy);font-size:13px;}
+.header-info a{color:var(--teal);text-decoration:none;font-weight:700;}
+.hero{background:linear-gradient(135deg,var(--navy) 0%,#1A3D5C 60%,var(--teal) 100%);padding:40px;text-align:center;}
+.hero h1{font-family:'DM Serif Display',serif;font-size:30px;color:var(--white);margin-bottom:10px;}
+.hero p{color:rgba(255,255,255,.75);font-size:13px;font-weight:300;line-height:1.7;}
+.container{max-width:1080px;margin:0 auto;padding:24px 20px 60px;}
+.layout{display:grid;grid-template-columns:300px 1fr;gap:20px;align-items:start;}
+.card{background:white;border:1px solid var(--border);border-radius:14px;margin-bottom:20px;overflow:hidden;}
+.card-head{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
+.card-head h2{font-size:14px;font-weight:700;}
+.card-head p{font-size:11px;color:var(--gray);margin-top:2px;}
+.card-body{padding:18px 20px;}
+.notice{background:#FFF8E1;border:1px solid #FFD54F;border-radius:10px;padding:12px 16px;margin-bottom:20px;font-size:12px;color:#5D4037;line-height:1.7;}
+.field{margin-bottom:12px;}
+.field label{display:block;font-size:11px;font-weight:700;color:var(--slate);margin-bottom:5px;}
+.field input,.field select,.field textarea{width:100%;border:1.5px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13px;font-family:'Noto Sans JP',sans-serif;outline:none;background:white;}
+.field textarea{min-height:70px;resize:vertical;line-height:1.6;}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--teal);}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.sticky{position:sticky;top:84px;}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;padding:12px 16px;border-bottom:1px solid var(--border);background:#FAFBFC;}
+.tab{padding:8px 12px;border-radius:8px;border:1.5px solid var(--border);background:white;font-size:12px;font-weight:700;color:var(--slate);cursor:pointer;font-family:'Noto Sans JP',sans-serif;}
+.tab.active{background:var(--teal);color:white;border-color:var(--teal);}
+.tab .n{font-family:'DM Serif Display',serif;margin-right:4px;opacity:.7;}
+.doc-wrap{display:none;}
+.doc-wrap.active{display:block;}
+.doc-extra{padding:16px 20px;border-bottom:1px solid var(--border);background:#FAFBFC;}
+.doc-extra h3{font-size:12px;font-weight:700;color:var(--teal);margin-bottom:10px;}
+.doc-extra .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px 14px;}
+.doc-extra .field{margin-bottom:0;}
+.doc-extra .wide{grid-column:1/-1;}
+.chk{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:12px;}
+.chk label{display:flex;align-items:center;gap:5px;cursor:pointer;font-weight:400;color:var(--navy);}
+.chk input{accent-color:var(--teal);width:15px;height:15px;}
+.actions{display:flex;gap:8px;justify-content:flex-end;padding:12px 20px;border-bottom:1px solid var(--border);}
+.btn{padding:9px 16px;border-radius:8px;font-size:12px;font-weight:700;font-family:'Noto Sans JP',sans-serif;cursor:pointer;border:1.5px solid transparent;}
+.btn-primary{background:var(--teal);color:white;}
+.btn-primary:hover{background:var(--teal-light);}
+.btn-outline{background:white;border-color:var(--border);color:var(--slate);}
+.btn-outline:hover{border-color:var(--teal);color:var(--teal);}
+.hint{font-size:11px;color:var(--gray);line-height:1.7;padding:12px 20px;border-top:1px solid var(--border);}
+.hint a{color:var(--teal);}
+/* ───── 書類プレビュー（A4） ───── */
+.paper-area{background:#E4EAEF;padding:24px;}
+.paper{background:white;width:100%;max-width:760px;margin:0 auto;padding:40px 44px;box-shadow:0 6px 24px rgba(15,40,71,.12);color:#111;font-size:12.5px;line-height:1.8;}
+.paper h1{font-size:19px;text-align:center;font-weight:700;letter-spacing:.1em;margin-bottom:6px;}
+.paper .form-no{font-size:11px;text-align:left;margin-bottom:8px;}
+.paper .right{text-align:right;}
+.paper .center{text-align:center;}
+.paper .mt{margin-top:14px;}
+.paper .mb{margin-bottom:14px;}
+.paper .to{font-size:14px;margin:10px 0;}
+.paper p{margin-bottom:8px;text-align:justify;}
+.paper .sec{font-weight:700;margin-top:14px;margin-bottom:4px;border-left:4px solid #111;padding-left:8px;}
+.paper table.ft{width:100%;border-collapse:collapse;margin:8px 0 12px;}
+.paper table.ft th,.paper table.ft td{border:1px solid #333;padding:7px 9px;vertical-align:top;font-size:12px;}
+.paper table.ft th{width:30%;background:#F2F2F2;font-weight:700;text-align:left;}
+.paper table.ft td.v{min-height:20px;}
+.paper .v:empty::after{content:'　';}
+.paper .opt{display:inline-block;margin-right:14px;}
+.paper .opt.sel{font-weight:700;text-decoration:underline;}
+.paper .opt .code{display:inline-block;border:1px solid #333;border-radius:50%;width:18px;height:18px;line-height:16px;text-align:center;font-size:11px;margin-right:4px;}
+.paper .opt.sel .code{background:#111;color:white;}
+.paper .box{border:1px solid #333;padding:8px 10px;min-height:48px;white-space:pre-wrap;margin-bottom:10px;}
+.paper .sign{display:flex;justify-content:flex-end;gap:30px;margin-top:22px;}
+.paper .sign div{min-width:220px;}
+.paper .sign .line{border-bottom:1px solid #333;padding:4px 2px;min-height:26px;}
+.paper .sign .lbl{font-size:10px;color:#555;}
+.paper .seal{display:inline-block;border:1px solid #999;color:#999;width:46px;height:46px;line-height:46px;text-align:center;font-size:10px;border-radius:4px;vertical-align:middle;margin-left:10px;}
+.paper .lpn{display:inline-flex;gap:2px;}
+.paper .lpn span{display:inline-block;border:1px solid #333;width:20px;height:24px;line-height:22px;text-align:center;font-size:12px;}
+.paper .lpn i{display:inline-block;width:6px;}
+.paper ul,.paper ol{padding-left:20px;margin-bottom:8px;}
+.paper li{margin-bottom:2px;}
+.paper .stamp{position:relative;}
+.paper .recv{float:right;border:1px solid #999;color:#999;width:72px;height:72px;font-size:10px;text-align:center;line-height:72px;}
+@media(max-width:860px){.layout{grid-template-columns:1fr;}.sticky{position:static;}.paper{padding:24px 18px;}.paper-area{padding:12px;}header{padding:0 16px;}}
+@media print{
+  @page{size:A4;margin:14mm;}
+  body{background:white;}
+  header,.hero,.no-print,.tabs,.doc-extra,.actions,.hint,.notice,.side{display:none !important;}
+  .layout{display:block;}
+  .container{max-width:none;padding:0;}
+  .card{border:none;border-radius:0;margin:0;}
+  .paper-area{background:white;padding:0;}
+  .paper{box-shadow:none;max-width:none;padding:0;font-size:12px;}
+  .paper .opt.sel .code{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><div class="logo-icon">🏥</div><div class="logo-text">Med<span>Check</span></div></div>
+  <div class="header-info"><strong>ストレスチェック 書類作成</strong><a href="stress-check.html">個人結果表はこちら →</a></div>
+</header>
+
+<div class="hero">
+  <h1>ストレスチェック 関連書類</h1>
+  <p>実施計画から労働基準監督署への報告まで、ストレスチェック制度で必要になる一連の書類を作成・印刷できます。<br>入力内容はこの端末のブラウザ内にのみ保存され、サーバーには送信されません。</p>
+</div>
+
+<div class="container">
+<div class="notice">
+  労働基準監督署へ提出する「心理的な負担の程度を把握するための検査結果等報告書（様式第6号の2）」は、本ページの出力を下書きとして使い、提出は厚生労働省の正式様式（PDF）または e-Gov 電子申請で行ってください。常時50人以上の労働者を使用する事業場は、1年以内ごとに1回、所轄労働基準監督署長への提出が義務です（労働安全衛生規則第52条の21）。
+</div>
+
+<div class="layout">
+  <!-- ───── 共通入力 ───── -->
+  <div class="side sticky">
+    <div class="card">
+      <div class="card-head"><div><h2>共通情報</h2><p>すべての書類に反映されます</p></div></div>
+      <div class="card-body">
+        <div class="field"><label>事業場の名称</label><input data-k="company" placeholder="株式会社○○ ○○事業所"></div>
+        <div class="field"><label>事業場の所在地</label><input data-k="address" placeholder="〒000-0000 ○○県○○市…"></div>
+        <div class="field"><label>電話番号</label><input data-k="tel" placeholder="03-0000-0000"></div>
+        <div class="field"><label>事業者 職氏名</label><input data-k="ceo" placeholder="代表取締役 ○○ ○○"></div>
+        <div class="field"><label>実施年度</label><input data-k="fy" placeholder="令和8年度"></div>
+        <div class="field-row">
+          <div class="field"><label>実施期間 開始</label><input type="date" data-k="start"></div>
+          <div class="field"><label>実施期間 終了</label><input type="date" data-k="end"></div>
+        </div>
+        <div class="field"><label>実施者（医師・保健師等）</label><input data-k="jisshisha" placeholder="産業医 ○○ ○○（医師）"></div>
+        <div class="field"><label>実施事務従事者</label><input data-k="jimu" placeholder="人事部 ○○ ○○"></div>
+        <div class="field"><label>担当部署・連絡先</label><input data-k="contact" placeholder="人事総務部 内線000 / xx@example.com"></div>
+        <div class="field"><label>産業医 氏名</label><input data-k="sangyoi" placeholder="○○ ○○"></div>
+        <div class="field"><label>産業医 所属機関の名称及び所在地</label><input data-k="sangyoi_org" placeholder="○○クリニック ○○県○○市…"></div>
+        <div class="field"><label>所轄労働基準監督署</label><input data-k="lsio" placeholder="○○"></div>
+        <div class="field"><label>作成日</label><input type="date" data-k="today"></div>
+        <div style="display:flex;gap:8px;margin-top:6px;">
+          <button class="btn btn-outline" type="button" onclick="fillSample()">サンプル</button>
+          <button class="btn btn-outline" type="button" onclick="clearAll()">全消去</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───── 書類 ───── -->
+  <div class="card" id="docs">
+    <div class="tabs" id="tabs"></div>
+    <div id="doc-container"></div>
+    <div class="hint">
+      書類の流れ：①実施計画書（衛生委員会で審議）→ ②受検案内 → 調査票の実施・<a href="stress-check.html">個人結果表</a>の通知 → ③同意書（結果を事業者へ提供する場合）→ ④面接指導申出書（高ストレス者） → ⑤面接指導結果報告書・意見書（医師） → ⑥労基署への報告書。
+      各書類は印刷ボタンで現在のタブのみA4で出力されます。
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+/* ───────── 書類定義 ───────── */
+const DOCS = [
+  {id:'plan', tab:'実施計画書', title:'ストレスチェック実施計画書', extra:[
+    ['method','実施方法','select',['Web（オンライン）','紙（マークシート・調査票）','Web・紙 併用']],
+    ['sheet','使用する調査票','select',['職業性ストレス簡易調査票（57項目）','職業性ストレス簡易調査票 簡略版（23項目）','新職業性ストレス簡易調査票（80項目）']],
+    ['target','対象者','text','常時使用する労働者（契約期間1年以上かつ週所定労働時間が通常の労働者の3/4以上の者）'],
+    ['notify_date','結果通知予定日','date',''],
+    ['apply_deadline','面接指導の申出期限','text','結果通知後30日以内'],
+    ['interview_period','面接指導の実施時期','text','申出後おおむね1か月以内'],
+    ['group','集団分析','select',['実施する（10人以上の部署単位）','実施しない']],
+    ['report_date','労基署報告書の提出予定','text',''],
+    ['committee','衛生委員会での審議日','date',''],
+    ['note','備考','textarea','']
+  ]},
+  {id:'guide', tab:'受検案内', title:'ストレスチェック実施のご案内', extra:[
+    ['method','実施方法','select',['Web（オンライン）','紙（マークシート・調査票）','Web・紙 併用']],
+    ['how','受検手順','textarea','社内ポータルの案内メールに記載されたURLからログインし、57問の設問に回答してください。所要時間は10分程度です。'],
+    ['note','その他のご案内','textarea','']
+  ]},
+  {id:'consent', tab:'同意書', title:'ストレスチェック結果の事業者への提供に関する同意書', extra:[
+    ['emp_name','労働者 氏名','text',''],
+    ['emp_dept','所属','text',''],
+    ['emp_no','社員番号','text',''],
+    ['notify_on','結果通知日','date',''],
+    ['consent','同意の有無','select',['（未選択）','同意する','同意しない']],
+    ['sign_date','記入日','date','']
+  ]},
+  {id:'apply', tab:'面接指導申出書', title:'面接指導申出書', extra:[
+    ['emp_name','労働者 氏名','text',''],
+    ['emp_dept','所属','text',''],
+    ['emp_no','社員番号','text',''],
+    ['notify_on','結果通知日','date',''],
+    ['wish','希望日時（第1〜第3希望）','textarea',''],
+    ['wish_note','面接指導の実施者への伝達事項（任意）','textarea',''],
+    ['sign_date','申出日','date','']
+  ]},
+  {id:'opinion', tab:'面接指導結果報告書・意見書', title:'面接指導結果報告書及び意見書', extra:[
+    ['emp_name','労働者 氏名','text',''],
+    ['emp_dept','所属','text',''],
+    ['emp_age','年齢・性別','text',''],
+    ['iv_date','面接指導実施日','date',''],
+    ['doctor','面接指導を実施した医師','text',''],
+    ['work_status','勤務の状況（労働時間・業務内容等）','textarea',''],
+    ['stress_status','心理的な負担の状況','textarea',''],
+    ['other_status','その他の心身の状況','textarea',''],
+    ['class','就業区分','select',['通常勤務','就業制限','要休業']],
+    ['measures','就業上の措置','check',['労働時間の短縮','時間外労働の制限','出張の制限','深夜業の回数の減少','作業の転換','就業場所の変更','休業']],
+    ['measure_detail','措置の内容・期間','textarea',''],
+    ['env_opinion','職場環境の改善に関する意見','textarea',''],
+    ['referral','医療機関への受診等の必要性','select',['不要','要（専門医への紹介）','要（経過観察）']],
+    ['sign_date','記入日','date','']
+  ]},
+  {id:'report', tab:'労基署 報告書（様式第6号の2）', title:'心理的な負担の程度を把握するための検査結果等報告書', extra:[
+    ['lpn','労働保険番号（14桁）','text',''],
+    ['target_year','対象年（例：令和8年 4月〜3月分）','text',''],
+    ['exam_ym','検査実施年月（例：令和8年10月）','text',''],
+    ['industry','事業の種類','text',''],
+    ['headcount','在籍労働者数','number',''],
+    ['examiner','検査を実施した者','select',['1 事業場選任の産業医','2 事業場所属の医師（1以外の医師に限る。）、保健師、歯科医師、看護師、精神保健福祉士又は公認心理師','3 外部委託先の医師、保健師、歯科医師、看護師、精神保健福祉士又は公認心理師']],
+    ['examined','検査を受けた労働者数','number',''],
+    ['iv_doctor','面接指導を実施した医師','select',['1 事業場選任の産業医','2 事業場所属の医師（1以外の医師に限る。）','3 外部委託先の医師','面接指導の実施なし']],
+    ['interviewed','面接指導を受けた労働者数','number','0'],
+    ['group_done','集団ごとの分析の実施の有無','select',['1 検査結果の集団ごとの分析を行った','2 検査結果の集団ごとの分析を行っていない']],
+    ['submit_date','提出日','date','']
+  ]}
+];
+const STORE_KEY = 'medcheck_sc_docs_v1';
+let state = {common:{}, docs:{}};
+let active = 'plan';
+
+/* ───────── 保存／復元 ───────── */
+function save(){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }catch(e){} }
+function load(){ try{ const s = JSON.parse(localStorage.getItem(STORE_KEY)||''); if(s && s.common) state = s; }catch(e){} }
+
+/* ───────── 描画 ───────── */
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+function v(k){ return esc(state.common[k]||''); }
+function d(id,k){ const o = state.docs[id]||{}; return esc(o[k]==null ? defaultOf(id,k) : o[k]); }
+function raw(id,k){ const o = state.docs[id]||{}; return o[k]==null ? defaultOf(id,k) : o[k]; }
+function defaultOf(id,k){ const def = DOCS.find(function(x){return x.id===id;}).extra.find(function(x){return x[0]===k;}); if(!def) return ''; if(def[2]==='select') return def[3][0]; if(def[2]==='check') return []; return def[3]; }
+function jp(dateStr){ if(!dateStr) return '　　年　　月　　日'; const p = dateStr.split('-'); if(p.length<3) return esc(dateStr); return wareki(+p[0])+'年'+(+p[1])+'月'+(+p[2])+'日'; }
+function wareki(y){ return y>=2019 ? '令和'+(y-2018===1?'元':y-2018) : y>=1989 ? '平成'+(y-1988) : String(y); }
+function sel(opts,cur){ return opts.map(function(o){ return '<span class="opt'+(o===cur?' sel':'')+'">'+(/^\d /.test(o)?'<span class="code">'+o.charAt(0)+'</span>'+esc(o.slice(2)):esc(o))+'</span>'; }).join(''); }
+function lpnHtml(s){ const digits = String(s||'').replace(/\D/g,'').padEnd(14,' ').slice(0,14).split(''); const seg=[2,1,2,6,3]; let html='<span class="lpn">',i=0; seg.forEach(function(n,si){ for(let j=0;j<n;j++){ html+='<span>'+esc(digits[i++].trim())+'</span>'; } if(si<seg.length-1) html+='<i></i>'; }); return html+'</span>'; }
+
+function renderTabs(){
+  document.getElementById('tabs').innerHTML = DOCS.map(function(doc,i){
+    return '<button class="tab'+(doc.id===active?' active':'')+'" type="button" onclick="switchDoc(\''+doc.id+'\')"><span class="n">'+(i+1)+'</span>'+doc.tab+'</button>';
+  }).join('');
+}
+function renderExtra(doc){
+  let html = '<div class="doc-extra"><h3>'+doc.title+' の入力項目</h3><div class="grid">';
+  doc.extra.forEach(function(f){
+    const k=f[0], label=f[1], type=f[2], cur = raw(doc.id,k);
+    const wide = (type==='textarea'||type==='check') ? ' wide' : '';
+    html += '<div class="field'+wide+'"><label>'+label+'</label>';
+    if(type==='select'){ html += '<select data-doc="'+doc.id+'" data-k="'+k+'">'+f[3].map(function(o){return '<option'+(o===cur?' selected':'')+'>'+esc(o)+'</option>';}).join('')+'</select>'; }
+    else if(type==='textarea'){ html += '<textarea data-doc="'+doc.id+'" data-k="'+k+'">'+esc(cur)+'</textarea>'; }
+    else if(type==='check'){ html += '<div class="chk">'+f[3].map(function(o){ return '<label><input type="checkbox" data-doc="'+doc.id+'" data-k="'+k+'" value="'+esc(o)+'"'+(cur.indexOf(o)>=0?' checked':'')+'>'+esc(o)+'</label>'; }).join('')+'</div>'; }
+    else { html += '<input type="'+type+'" data-doc="'+doc.id+'" data-k="'+k+'" value="'+esc(cur)+'">'; }
+    html += '</div>';
+  });
+  return html+'</div></div>';
+}
+function renderDoc(){
+  const doc = DOCS.find(function(x){return x.id===active;});
+  document.getElementById('doc-container').innerHTML =
+    renderExtra(doc)+
+    '<div class="actions"><button class="btn btn-outline" type="button" onclick="window.print()">この書類を印刷 / PDF</button></div>'+
+    '<div class="paper-area"><div class="paper" id="paper">'+PAPER[doc.id]()+'</div></div>';
+  bindInputs(document.getElementById('doc-container'));
+}
+function refreshPaper(){ const doc = DOCS.find(function(x){return x.id===active;}); const p=document.getElementById('paper'); if(p) p.innerHTML = PAPER[doc.id](); }
+function switchDoc(id){ active = id; renderTabs(); renderDoc(); }
+
+function bindInputs(root){
+  root.querySelectorAll('[data-k]').forEach(function(el){
+    el.addEventListener('input', onChange); el.addEventListener('change', onChange);
+  });
+}
+function onChange(e){
+  const el = e.target, k = el.dataset.k, id = el.dataset.doc;
+  if(id){
+    state.docs[id] = state.docs[id]||{};
+    if(el.type==='checkbox'){ const arr = Array.prototype.slice.call(document.querySelectorAll('input[type=checkbox][data-doc="'+id+'"][data-k="'+k+'"]:checked')).map(function(c){return c.value;}); state.docs[id][k]=arr; }
+    else state.docs[id][k] = el.value;
+  } else state.common[k] = el.value;
+  save(); refreshPaper();
+}
+
+/* ───────── 各書類の本文 ───────── */
+const PAPER = {
+  plan: function(){ return ''+
+    '<h1>'+v('fy')+' ストレスチェック実施計画書</h1>'+
+    '<div class="right">'+v('company')+'</div>'+
+    '<p class="mt">労働安全衛生法第66条の10に基づき、'+v('fy')+'のストレスチェックを下記のとおり実施する。本計画は衛生委員会（'+jp(raw('plan','committee'))+'）において調査審議のうえ決定したものである。</p>'+
+    '<div class="sec">1. 実施体制</div>'+
+    '<table class="ft"><tr><th>事業者</th><td class="v">'+v('ceo')+'</td></tr><tr><th>実施者</th><td class="v">'+v('jisshisha')+'</td></tr><tr><th>実施事務従事者</th><td class="v">'+v('jimu')+'</td></tr><tr><th>担当部署・問い合わせ先</th><td class="v">'+v('contact')+'</td></tr></table>'+
+    '<div class="sec">2. 実施内容</div>'+
+    '<table class="ft"><tr><th>対象者</th><td class="v">'+d('plan','target')+'</td></tr><tr><th>実施期間</th><td class="v">'+jp(state.common.start)+' 〜 '+jp(state.common.end)+'</td></tr><tr><th>実施方法</th><td class="v">'+d('plan','method')+'</td></tr><tr><th>使用する調査票</th><td class="v">'+d('plan','sheet')+'</td></tr><tr><th>高ストレス者の選定基準</th><td class="v">厚生労働省マニュアルの「評価基準の例（その1）合計点数を使う方法」による。①心身のストレス反応の合計が77点以上、または②仕事のストレス要因と周囲のサポートの合計が76点以上かつ心身のストレス反応の合計が63点以上の者。最終判定は実施者が行う。</td></tr></table>'+
+    '<div class="sec">3. 結果の通知と面接指導</div>'+
+    '<table class="ft"><tr><th>結果通知</th><td class="v">実施者から受検者本人へ直接通知（通知予定日：'+jp(raw('plan','notify_date'))+'）。本人の同意なく事業者へ提供しない。</td></tr><tr><th>面接指導の申出期限</th><td class="v">'+d('plan','apply_deadline')+'</td></tr><tr><th>面接指導の実施時期</th><td class="v">'+d('plan','interview_period')+'</td></tr><tr><th>面接指導を実施する医師</th><td class="v">'+v('sangyoi')+'（産業医）</td></tr></table>'+
+    '<div class="sec">4. 集団分析・記録・報告</div>'+
+    '<table class="ft"><tr><th>集団分析</th><td class="v">'+d('plan','group')+'</td></tr><tr><th>記録の保存</th><td class="v">個人の結果は実施者または実施事務従事者が5年間保存する。事業者が保存する場合は本人の同意を得たものに限る。</td></tr><tr><th>労働基準監督署への報告</th><td class="v">心理的な負担の程度を把握するための検査結果等報告書（様式第6号の2）を所轄労働基準監督署長へ提出する（提出予定：'+d('plan','report_date')+'）。</td></tr><tr><th>不利益取扱いの禁止</th><td class="v">受検の有無、面接指導の申出、結果の提供に対する同意の有無等を理由とした不利益な取扱いは行わない。</td></tr></table>'+
+    (raw('plan','note')?'<div class="sec">5. 備考</div><div class="box">'+d('plan','note')+'</div>':'')+
+    '<div class="right mt">作成日：'+jp(state.common.today)+'</div>';
+  },
+  guide: function(){ return ''+
+    '<div class="right">'+jp(state.common.today)+'</div>'+
+    '<div class="to">従業員の皆さまへ</div>'+
+    '<div class="right mb">'+v('company')+'<br>'+v('ceo')+'</div>'+
+    '<h1>ストレスチェック実施のご案内</h1>'+
+    '<p class="mt">労働安全衛生法に基づき、'+v('fy')+'のストレスチェックを下記のとおり実施します。ストレスチェックは、ご自身のストレスの状態を知り、メンタルヘルス不調を未然に防ぐことを目的とした検査です。趣旨をご理解のうえ、ぜひ受検してください。</p>'+
+    '<div class="sec">記</div>'+
+    '<table class="ft"><tr><th>実施期間</th><td class="v">'+jp(state.common.start)+' 〜 '+jp(state.common.end)+'</td></tr><tr><th>対象者</th><td class="v">'+d('plan','target')+'</td></tr><tr><th>実施方法</th><td class="v">'+d('guide','method')+'</td></tr><tr><th>受検手順</th><td class="v" style="white-space:pre-wrap">'+d('guide','how')+'</td></tr><tr><th>実施者</th><td class="v">'+v('jisshisha')+'</td></tr><tr><th>実施事務従事者</th><td class="v">'+v('jimu')+'</td></tr><tr><th>問い合わせ先</th><td class="v">'+v('contact')+'</td></tr></table>'+
+    '<div class="sec">個人情報の取扱いについて</div>'+
+    '<ul><li>検査結果は実施者から直接ご本人に通知されます。ご本人の同意なく、会社が結果を入手することはありません。</li><li>高ストレスと判定され、医師による面接指導を希望される場合は、結果通知後'+d('plan','apply_deadline').replace('結果通知後','')+'に申出書をご提出ください。申出をされた場合、結果を会社に提供することに同意したものとして取り扱います。</li><li>受検しないこと、面接指導を申し出たこと、結果の提供に同意しないことを理由に不利益な取扱いを受けることはありません。</li><li>10人以上の部署については、個人が特定されない形で集団分析を行い、職場環境の改善に活用します。</li></ul>'+
+    (raw('guide','note')?'<div class="box">'+d('guide','note')+'</div>':'')+
+    '<div class="right">以上</div>';
+  },
+  consent: function(){ const c = raw('consent','consent'); return ''+
+    '<h1>ストレスチェック結果の事業者への提供に関する同意書</h1>'+
+    '<div class="to mt">'+v('company')+'<br>'+v('ceo')+' 殿</div>'+
+    '<p class="mt">私は、'+jp(raw('consent','notify_on'))+'に通知を受けた'+v('fy')+'ストレスチェックの結果（ストレスプロフィール、高ストレス者該当の有無、面接指導の要否）を、実施者が事業者に提供することについて、次のとおり回答します。</p>'+
+    '<div class="center mt" style="font-size:15px;">'+sel(['同意する','同意しない'],c)+'</div>'+
+    '<p class="mt" style="font-size:11px;">※同意した場合、提供された結果は事業者が本人の健康管理のためにのみ使用し、人事上の評価等に用いることはありません。結果の提供に同意しないことを理由に不利益な取扱いを受けることはありません。※事業者は提供を受けた結果を5年間保存します。</p>'+
+    '<div class="sign"><div><div class="lbl">記入日</div><div class="line">'+jp(raw('consent','sign_date'))+'</div></div></div>'+
+    '<div class="sign"><div><div class="lbl">所属</div><div class="line">'+d('consent','emp_dept')+'</div></div><div><div class="lbl">社員番号</div><div class="line">'+d('consent','emp_no')+'</div></div><div><div class="lbl">氏名（自署）</div><div class="line">'+d('consent','emp_name')+'</div></div></div>';
+  },
+  apply: function(){ return ''+
+    '<h1>面接指導申出書</h1>'+
+    '<div class="to mt">'+v('company')+'<br>'+v('ceo')+' 殿</div>'+
+    '<p class="mt">私は、'+jp(raw('apply','notify_on'))+'に通知を受けた'+v('fy')+'ストレスチェックの結果、医師による面接指導を受ける必要があると判定されましたので、労働安全衛生法第66条の10第3項に基づき、面接指導の実施を申し出ます。</p>'+
+    '<p>なお、本申出により、ストレスチェックの結果を実施者から事業者に提供することに同意します。</p>'+
+    '<table class="ft mt"><tr><th>希望日時</th><td class="v" style="white-space:pre-wrap">'+d('apply','wish')+'</td></tr><tr><th>面接指導を実施する医師への伝達事項（任意）</th><td class="v" style="white-space:pre-wrap">'+d('apply','wish_note')+'</td></tr></table>'+
+    '<div class="sign"><div><div class="lbl">申出日</div><div class="line">'+jp(raw('apply','sign_date'))+'</div></div></div>'+
+    '<div class="sign"><div><div class="lbl">所属</div><div class="line">'+d('apply','emp_dept')+'</div></div><div><div class="lbl">社員番号</div><div class="line">'+d('apply','emp_no')+'</div></div><div><div class="lbl">氏名（自署）</div><div class="line">'+d('apply','emp_name')+'</div></div></div>'+
+    '<p class="mt" style="font-size:11px;">提出先：'+v('jimu')+'（'+v('contact')+'）　提出期限：'+d('plan','apply_deadline')+'</p>';
+  },
+  opinion: function(){ const m = raw('opinion','measures')||[]; const allM = ['労働時間の短縮','時間外労働の制限','出張の制限','深夜業の回数の減少','作業の転換','就業場所の変更','休業']; return ''+
+    '<h1>面接指導結果報告書及び意見書</h1>'+
+    '<div class="to mt">'+v('company')+'<br>'+v('ceo')+' 殿</div>'+
+    '<p>労働安全衛生法第66条の10第3項に基づく面接指導を実施しましたので、その結果を報告するとともに、同条第5項に基づき就業上の措置について意見を述べます。</p>'+
+    '<table class="ft"><tr><th>労働者氏名</th><td class="v">'+d('opinion','emp_name')+'</td></tr><tr><th>所属</th><td class="v">'+d('opinion','emp_dept')+'</td></tr><tr><th>年齢・性別</th><td class="v">'+d('opinion','emp_age')+'</td></tr><tr><th>面接指導実施日</th><td class="v">'+jp(raw('opinion','iv_date'))+'</td></tr></table>'+
+    '<div class="sec">1. 面接指導の結果</div>'+
+    '<table class="ft"><tr><th>勤務の状況</th><td class="v" style="white-space:pre-wrap">'+d('opinion','work_status')+'</td></tr><tr><th>心理的な負担の状況</th><td class="v" style="white-space:pre-wrap">'+d('opinion','stress_status')+'</td></tr><tr><th>その他の心身の状況</th><td class="v" style="white-space:pre-wrap">'+d('opinion','other_status')+'</td></tr><tr><th>医療機関への受診等の必要性</th><td class="v">'+d('opinion','referral')+'</td></tr></table>'+
+    '<div class="sec">2. 就業上の措置に関する意見</div>'+
+    '<table class="ft"><tr><th>就業区分</th><td class="v">'+sel(['通常勤務','就業制限','要休業'],raw('opinion','class'))+'</td></tr><tr><th>就業上の措置</th><td class="v">'+allM.map(function(o){return '<span class="opt'+(m.indexOf(o)>=0?' sel':'')+'">'+(m.indexOf(o)>=0?'☑':'☐')+' '+o+'</span>';}).join('')+'</td></tr><tr><th>措置の内容・期間</th><td class="v" style="white-space:pre-wrap">'+d('opinion','measure_detail')+'</td></tr><tr><th>職場環境の改善に関する意見</th><td class="v" style="white-space:pre-wrap">'+d('opinion','env_opinion')+'</td></tr></table>'+
+    '<p style="font-size:11px;">※事業者は本意見書の内容を勘案し、必要に応じて衛生委員会への報告その他の適切な措置を講じること。本書は面接指導の結果の記録として5年間保存する。</p>'+
+    '<div class="sign"><div><div class="lbl">記入日</div><div class="line">'+jp(raw('opinion','sign_date'))+'</div></div><div><div class="lbl">面接指導を実施した医師（署名）</div><div class="line">'+d('opinion','doctor')+'</div></div></div>';
+  },
+  report: function(){ return ''+
+    '<div class="form-no">様式第6号の2（第52条の21関係）</div>'+
+    '<h1>心理的な負担の程度を把握するための検査結果等報告書</h1>'+
+    '<div class="recv">受付印</div>'+
+    '<table class="ft" style="clear:none;width:80%;">'+
+    '<tr><th>労働保険番号</th><td class="v">'+lpnHtml(raw('report','lpn'))+'<div style="font-size:10px;color:#555;">都道府県 ／ 所掌 ／ 管轄 ／ 基幹番号 ／ 枝番号</div></td></tr>'+
+    '<tr><th>対象年</th><td class="v">'+d('report','target_year')+'</td></tr>'+
+    '<tr><th>検査実施年月</th><td class="v">'+d('report','exam_ym')+'</td></tr>'+
+    '</table>'+
+    '<table class="ft">'+
+    '<tr><th>事業の種類</th><td class="v">'+d('report','industry')+'</td></tr>'+
+    '<tr><th>事業場の名称</th><td class="v">'+v('company')+'</td></tr>'+
+    '<tr><th>事業場の所在地</th><td class="v">'+v('address')+'<br>電話 '+v('tel')+'</td></tr>'+
+    '<tr><th>在籍労働者数</th><td class="v">'+d('report','headcount')+' 人</td></tr>'+
+    '<tr><th>検査を実施した者</th><td class="v">'+sel(['1 事業場選任の産業医','2 事業場所属の医師（1以外の医師に限る。）、保健師、歯科医師、看護師、精神保健福祉士又は公認心理師','3 外部委託先の医師、保健師、歯科医師、看護師、精神保健福祉士又は公認心理師'],raw('report','examiner'))+'</td></tr>'+
+    '<tr><th>検査を受けた労働者数</th><td class="v">'+d('report','examined')+' 人</td></tr>'+
+    '<tr><th>面接指導を実施した医師</th><td class="v">'+sel(['1 事業場選任の産業医','2 事業場所属の医師（1以外の医師に限る。）','3 外部委託先の医師'],raw('report','iv_doctor'))+'</td></tr>'+
+    '<tr><th>面接指導を受けた労働者数</th><td class="v">'+d('report','interviewed')+' 人</td></tr>'+
+    '<tr><th>集団ごとの分析の実施の有無</th><td class="v">'+sel(['1 検査結果の集団ごとの分析を行った','2 検査結果の集団ごとの分析を行っていない'],raw('report','group_done'))+'</td></tr>'+
+    '<tr><th>産業医</th><td class="v">氏名：'+v('sangyoi')+'<br>所属機関の名称及び所在地：'+v('sangyoi_org')+'</td></tr>'+
+    '</table>'+
+    '<div class="mt">'+jp(raw('report','submit_date'))+'</div>'+
+    '<div class="right mt">事業者職氏名　'+v('company')+'<br>'+v('ceo')+'<span class="seal">印</span></div>'+
+    '<div class="mt" style="font-size:14px;">'+v('lsio')+'労働基準監督署長 殿</div>'+
+    '<p class="mt" style="font-size:10.5px;color:#444;">備考：1. 「検査を実施した者」「面接指導を実施した医師」「集団ごとの分析の実施の有無」は該当する番号を記入する。 2. 在籍労働者数は検査実施年月の末日時点の人数、検査を受けた労働者数は対象年内に検査を受けた人数、面接指導を受けた労働者数は対象年内に面接指導を受けた人数を記入する。 3. 本書式は下書き用の再現であり、提出は厚生労働省の正式様式または e-Gov 電子申請による。</p>';
+  }
+};
+
+/* ───────── 補助 ───────── */
+function fillSample(){
+  state.common = {company:'株式会社メドチェック 東京本社',address:'〒100-0001 東京都千代田区千代田1-1-1',tel:'03-0000-0000',ceo:'代表取締役 山田 太郎',fy:'令和8年度',start:'2026-10-01',end:'2026-10-31',jisshisha:'産業医 佐藤 花子（医師）',jimu:'人事総務部 鈴木 一郎',contact:'人事総務部 内線1234 / hr@example.com',sangyoi:'佐藤 花子',sangyoi_org:'さとう内科クリニック 東京都千代田区神田1-2-3',lsio:'中央',today:new Date().toISOString().slice(0,10)};
+  state.docs = {plan:{notify_date:'2026-11-10',report_date:'令和9年1月',committee:'2026-09-15'},report:{lpn:'13101123456000',target_year:'令和8年 4月〜3月分',exam_ym:'令和8年10月',industry:'情報サービス業',headcount:'120',examined:'112',interviewed:'3',submit_date:'2027-01-20'}};
+  save(); renderDoc();
+  document.querySelectorAll('.side [data-k]').forEach(function(el){ el.value = state.common[el.dataset.k]||''; });
+}
+function clearAll(){
+  if(!confirm('入力内容をすべて消去しますか？')) return;
+  state = {common:{},docs:{}}; save(); renderDoc();
+  document.querySelectorAll('.side [data-k]').forEach(function(el){ el.value=''; });
+}
+
+/* ───────── 初期化 ───────── */
+load();
+if(!state.common.today) state.common.today = new Date().toISOString().slice(0,10);
+document.querySelectorAll('.side [data-k]').forEach(function(el){ el.value = state.common[el.dataset.k]||''; });
+bindInputs(document.querySelector('.side'));
+renderTabs(); renderDoc();
+</script>
+</body>
+</html>

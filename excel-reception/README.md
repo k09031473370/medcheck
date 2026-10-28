@@ -5,12 +5,13 @@
 | ファイル | 用途 |
 |---|---|
 | `インフル予防接種受付_テンプレート.xlsm` | 名簿・受付データを空にしたテンプレート。これをコピーして各事業所・各日のファイルを作る。Excel 2016 以降で動作 |
-| `事務員向け_受付ファイル作成手順書.docx` | 事務員が名簿を受け取ってから現場用ファイルを作るまでの手順書（Word） |
+| `事務員用マニュアル.docx` | 事務員が名簿を受け取ってから現場に渡すファイルを作るまでの手順と、間違えたときの直し方（Word・2ページ） |
+| `現場用マニュアル.docx` | 当日の朝の準備、受付のやり方、間違えたときの直し方（Word・2ページ） |
 | `tools/make_template.py` | 去年の使用済みファイルから名簿・受付データを消してテンプレート化するスクリプト |
 | `tools/make_compat.py` | XLOOKUP / FILTER / SORTBY を INDEX+MATCH 等に置き換え、Excel 2016/2019 でも動くようにするスクリプト |
 | `tools/vba/` | 入力シートのマクロ（`wsInput_compat.bas`）を差し替えて vbaProject.bin を再構築する一式。年齢・正式コース名の数式も復元する |
 | `tools/restyle_input.py` | 入力シートの便潜血以下（19〜33行）を非表示にし、基本情報の文字を拡大するスクリプト |
-| `tools/build_manual_docx.js` | 手順書 Word を生成するスクリプト（`node build_manual_docx.js 出力.docx`） |
+| `tools/build_manuals.js` | 2つのマニュアルを生成するスクリプト（`node build_manuals.js 出力フォルダ`） |
 
 ## テンプレートの特徴（去年版からの変更点）
 

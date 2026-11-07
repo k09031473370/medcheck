@@ -9,13 +9,14 @@
   },
   "people": [
     {
-      "id": "900001",
+      "id": "N0001",
       "navi": {
-        "kensin_pk": "900001",
+        "reservation_id": "900001",
         "kojin_id": "9990001",
         "dantai_cd": "D9001",
         "course_cd": "N1",
-        "resident_no": "A-0001"
+        "option_codes": [],
+        "resident_no": ""
       },
       "planned": {
         "company": "ダミー商店（新島）",
@@ -24,7 +25,7 @@
         "gender": "男",
         "birth_date": "1970-01-01",
         "date": "2026-11-20",
-        "time": "",
+        "time": "09:00～09:15",
         "order": "1",
         "course": "新島 基本",
         "options": [],
@@ -33,13 +34,17 @@
       }
     },
     {
-      "id": "900002",
+      "id": "N0002",
       "navi": {
-        "kensin_pk": "900002",
+        "reservation_id": "900002",
         "kojin_id": "9990002",
         "dantai_cd": "D9001",
         "course_cd": "N1",
-        "resident_no": "A-0002"
+        "option_codes": [
+          "OPJ018",
+          "OPJ010"
+        ],
+        "resident_no": ""
       },
       "planned": {
         "company": "ダミー商店（新島）",
@@ -48,11 +53,11 @@
         "gender": "女",
         "birth_date": "1985-05-05",
         "date": "2026-11-20",
-        "time": "",
+        "time": "09:00～09:15",
         "order": "2",
         "course": "新島 基本",
         "options": [
-          "胃部",
+          "女性用セット",
           "便潜血2日法"
         ],
         "notes": "ダミーデータ",
@@ -60,12 +65,15 @@
       }
     },
     {
-      "id": "900003",
+      "id": "N0003",
       "navi": {
-        "kensin_pk": "900003",
+        "reservation_id": "900003",
         "kojin_id": "9990003",
         "dantai_cd": "D9002",
         "course_cd": "N2",
+        "option_codes": [
+          "OPJ004"
+        ],
         "resident_no": ""
       },
       "planned": {
@@ -79,9 +87,9 @@
         "order": "1",
         "course": "新島 生活習慣病",
         "options": [
-          "腹部超音波"
+          "ABC健診"
         ],
-        "notes": "ダミーデータ。フリガナは健診ナビでは半角(ｼｹﾝ ｼﾞﾛｳ)の場合あり",
+        "notes": "ダミーデータ。時間帯が空の人",
         "cancelled": false
       }
     }

@@ -1,0 +1,89 @@
+{
+  "schema_version": "1.0",
+  "series_id": "niijima_2026",
+  "source": "kenshin-navi (read-only)",
+  "exported_at": "2026-11-07T10:00:00+09:00",
+  "sample": true,
+  "counts": {
+    "total": 3
+  },
+  "people": [
+    {
+      "id": "900001",
+      "navi": {
+        "kensin_pk": "900001",
+        "kojin_id": "9990001",
+        "dantai_cd": "D9001",
+        "course_cd": "N1",
+        "resident_no": "A-0001"
+      },
+      "planned": {
+        "company": "ダミー商店（新島）",
+        "name": "見本 一郎",
+        "kana": "ミホン イチロウ",
+        "gender": "男",
+        "birth_date": "1970-01-01",
+        "date": "2026-11-20",
+        "time": "",
+        "order": "1",
+        "course": "新島 基本",
+        "options": [],
+        "notes": "ダミーデータ",
+        "cancelled": false
+      }
+    },
+    {
+      "id": "900002",
+      "navi": {
+        "kensin_pk": "900002",
+        "kojin_id": "9990002",
+        "dantai_cd": "D9001",
+        "course_cd": "N1",
+        "resident_no": "A-0002"
+      },
+      "planned": {
+        "company": "ダミー商店（新島）",
+        "name": "見本 花子",
+        "kana": "ミホン ハナコ",
+        "gender": "女",
+        "birth_date": "1985-05-05",
+        "date": "2026-11-20",
+        "time": "",
+        "order": "2",
+        "course": "新島 基本",
+        "options": [
+          "胃部",
+          "便潜血2日法"
+        ],
+        "notes": "ダミーデータ",
+        "cancelled": false
+      }
+    },
+    {
+      "id": "900003",
+      "navi": {
+        "kensin_pk": "900003",
+        "kojin_id": "9990003",
+        "dantai_cd": "D9002",
+        "course_cd": "N2",
+        "resident_no": ""
+      },
+      "planned": {
+        "company": "ダミー建設（式根島）",
+        "name": "試験 次郎",
+        "kana": "シケン ジロウ",
+        "gender": "男",
+        "birth_date": "1962-12-31",
+        "date": "2026-11-21",
+        "time": "",
+        "order": "1",
+        "course": "新島 生活習慣病",
+        "options": [
+          "腹部超音波"
+        ],
+        "notes": "ダミーデータ。フリガナは健診ナビでは半角(ｼｹﾝ ｼﾞﾛｳ)の場合あり",
+        "cancelled": false
+      }
+    }
+  ]
+}

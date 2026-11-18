@@ -8,6 +8,9 @@
     4. 料金明細の連番 99 は何か (合計の行か)
     5. 新島の 11 月で料金明細が無い 1 件
     6. オプションの検査の行に入っている列 (親の行・中身の行・ほかの行)
+    7〜9. テスト 2 名 (架空。予約ID 2008025・2008026) に画面で足した OP0001 の実物の行
+    10. 3 日分の予約の入り方 (日ごとの件数・1 人あたりの予約数・重複)
+    11. 検体依頼は受付番号の無い予約にも出るか
   check121.bat → r_check121.txt
 #>
 [CmdletBinding()]
@@ -232,6 +235,61 @@ GROUP BY $kind, LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(40), k.[$c]), N'(空)')))
         }
         W '  (数は「値が入っている行」の数。KEKKA など結果の値そのものは出していない)'
     } catch { W ("  エラー: " + $_.Exception.Message) }
+
+    # ---- 7〜11: 2026/11/18 追加 (テスト 2 名の実物・3 日分予約の事実・検体依頼の条件) ----
+    $TESTPK = '(2008025, 2008026)'
+    $null = Sec '--- 7. テスト 2 名 (架空の人) の予約の状態 ---' $conn @"
+SELECT s.PK_SEQ AS 予約ID, s.KOJIN_ID AS 個人ID, s.D_KENSIN AS 受診日, s.UKE_NO_KENSA AS 受付番号, s.F_TORIKESI AS 取消, LTRIM(RTRIM(ISNULL(s.F_IRAI,''))) AS 依頼の印,
+       LTRIM(RTRIM(ISNULL(s.DANTAI_CD1,''))) AS 団体CD, LTRIM(RTRIM(ISNULL(s.COURSE_CD,''))) AS コースCD,
+       (SELECT COUNT(*) FROM T_KENSA k WHERE k.PK_SEQ = s.PK_SEQ) AS 検査の行, (SELECT COUNT(*) FROM T_RYOUKIN r WHERE r.PK_SEQ = s.PK_SEQ) AS 料金の行,
+       (SELECT COUNT(*) FROM T_KANJA_G g WHERE g.PK_SEQ = s.PK_SEQ) AS 受付の行
+FROM T_KENSIN s WHERE s.PK_SEQ IN $TESTPK ORDER BY s.PK_SEQ
+"@
+    $null = Sec '--- 8. ★テスト 2 名の料金明細 (全行・全列。画面で OP0001 を足した実物) ---' $conn @"
+SELECT r.* FROM T_RYOUKIN r WHERE r.PK_SEQ IN $TESTPK ORDER BY r.PK_SEQ, r.REN
+"@
+    W ''; W '--- 9. ★テスト 2 名の検査の行のうち、オプションで増えた行 (全列。結果の値の列は出さない) ---'
+    try {
+        $kc = @((Query-Long $conn "SELECT c.COLUMN_NAME AS C FROM INFORMATION_SCHEMA.COLUMNS c WHERE c.TABLE_NAME = 'T_KENSA' ORDER BY c.ORDINAL_POSITION").Rows | ForEach-Object { [string]$_.C } | Where-Object { $_ -notmatch '^(KEKKA|SYOKEN|COMMENT|BIKO)' })
+        $sel = ($kc | ForEach-Object { "k.[$_]" }) -join ', '
+        $dt9 = Query-Long $conn @"
+SELECT $sel FROM T_KENSA k
+WHERE k.PK_SEQ IN $TESTPK AND (k.KOMOKU_CD IN $OPS OR k.OYA_KOMOKU_CD IN $OPS OR LTRIM(RTRIM(ISNULL(CONVERT(varchar(10), k.F_KOMOKU),''))) = '2'
+   OR k.KOMOKU_CD IN ('067818','068690'))
+ORDER BY k.PK_SEQ, k.OYA_KOMOKU_CD, k.KOMOKU_CD
+"@
+        Show $dt9
+        $dt9b = Query-Long $conn @"
+SELECT k.PK_SEQ AS 予約ID, LTRIM(RTRIM(ISNULL(CONVERT(varchar(10), k.F_KOMOKU),'(空)'))) AS F_KOMOKU, COUNT(*) AS 行数,
+       SUM(CASE WHEN LTRIM(RTRIM(ISNULL(k.OYA_KOMOKU_CD,''))) = '' THEN 0 ELSE 1 END) AS 親を持つ行
+FROM T_KENSA k WHERE k.PK_SEQ IN $TESTPK GROUP BY k.PK_SEQ, k.F_KOMOKU ORDER BY 1, 2
+"@
+        W '  (F_KOMOKU ごとの行数)'; Show $dt9b
+    } catch { W ("  エラー: " + $_.Exception.Message) }
+
+    $null = Sec '--- 10. ★3 日分の予約: 新島の団体の 11 月の予約を日ごとに (取消・受付番号・依頼の印) ---' $conn @"
+SELECT s.D_KENSIN AS 受診日, COUNT(*) AS 予約数, COUNT(DISTINCT s.KOJIN_ID) AS 人数,
+       SUM(CASE WHEN ISNULL(s.UKE_NO_KENSA,0) <> 0 THEN 1 ELSE 0 END) AS 受付番号あり,
+       SUM(CASE WHEN LTRIM(RTRIM(ISNULL(s.F_IRAI,''))) = '1' THEN 1 ELSE 0 END) AS 依頼済み
+FROM T_KENSIN s WHERE $WHO GROUP BY s.D_KENSIN ORDER BY 1
+"@
+    $null = Sec '--- 10b. 1 人 (個人ID) あたりの予約の数 (3 日分なら 3 が並ぶはず) ---' $conn @"
+SELECT x.N AS 予約の数, COUNT(*) AS 人数 FROM (SELECT s.KOJIN_ID, COUNT(*) AS N FROM T_KENSIN s WHERE $WHO GROUP BY s.KOJIN_ID) x GROUP BY x.N ORDER BY 1
+"@
+    $null = Sec '--- 10c. 同じ日に同じ個人IDの予約が 2 件以上ある組 (あると取込が止まる) ---' $conn @"
+SELECT COUNT(*) AS 組の数 FROM (SELECT s.KOJIN_ID, s.D_KENSIN FROM T_KENSIN s WHERE $WHO GROUP BY s.KOJIN_ID, s.D_KENSIN HAVING COUNT(*) > 1) x
+"@
+    $null = Sec '--- 10d. 同じ氏名＋生年月日で個人IDが 2 つ以上ある人 (人数だけ。あると個人IDで当てられない) ---' $conn @"
+SELECT COUNT(*) AS 人数 FROM (
+  SELECT REPLACE(REPLACE(ISNULL(k.KANJI_SIMEI,''), ' ', ''), N'　', '') AS NM, ISNULL(k.D_SEINEN,'') AS BD
+  FROM T_KOJIN1 k WHERE k.KOJIN_ID IN (SELECT s.KOJIN_ID FROM T_KENSIN s WHERE $WHO)
+  GROUP BY REPLACE(REPLACE(ISNULL(k.KANJI_SIMEI,''), ' ', ''), N'　', ''), ISNULL(k.D_SEINEN,'') HAVING COUNT(DISTINCT k.KOJIN_ID) > 1) x
+"@
+    $null = Sec '--- 11. ★検体依頼は受付番号が無い予約にも出るか (比べる期間。依頼の印 × 受付番号の有無) ---' $conn @"
+SELECT LTRIM(RTRIM(ISNULL(s.F_IRAI,'(空)'))) AS 依頼の印, CASE WHEN ISNULL(s.UKE_NO_KENSA,0) <> 0 THEN N'受付番号あり' ELSE N'受付番号なし' END AS 受付番号, COUNT(*) AS 予約数
+FROM T_KENSIN s WHERE s.F_TORIKESI = 0 AND s.D_KENSIN BETWEEN '$P1' AND '$P2'
+GROUP BY LTRIM(RTRIM(ISNULL(s.F_IRAI,'(空)'))), CASE WHEN ISNULL(s.UKE_NO_KENSA,0) <> 0 THEN N'受付番号あり' ELSE N'受付番号なし' END ORDER BY 1, 2
+"@
 }
 finally { $conn.Close() }
 
@@ -242,6 +300,9 @@ W '  2・2b: コード変換が無い検査は、足しても検体依頼に載�
 W '  3・3b: 料金明細の金額を、団体のオプション定義から入れているか。0 円の団体は請求を別にしている団体の可能性。'
 W '  4・4b・4c: 連番 99 が合計の行なら、ツールで足すときは 99 も直す必要がある。'
 W '  6: 親の行・中身の行に入れる印の値。ツールで作るならこれと同じにする。'
+W '  7〜9: テスト 2 名に画面で足した OP0001 の実物の行。ツールが作る行と 1 列ずつ比べるための手本。'
+W '  10: 3 日分の予約の入り方。10c・10d が 0 でないと、日付と個人IDで 1 件に決められない。'
+W '  11: 「依頼の印 1 × 受付番号なし」が 0 に近ければ、受付番号の無い予約 (来なかった日の予約) は検体依頼に出ない。'
 Write-Host ''
 Write-Host " 終わりました: $out" -ForegroundColor Green
 Start-Process notepad.exe $out

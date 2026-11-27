@@ -21,6 +21,10 @@
     同じ病名が前から入っていて、年齢・治療・続柄が受診票と違うときは、**受診票に合わせてその行を書き換える** (操作「更新」。2026/11/27 業務判断: 確認済みの Excel を正とする)。
     書き換える行はプレビューに「14→5」「父→祖父母」の形で別にまとめて出す。受診票に書かれていない病名の行は消さない・触らない。
     -KeepOld を付けると、前からある行は書き換えず、違いを知らせるだけにする。
+  ・★今年の受診票の内容だけにする (2026/11/27 業務判断「今年の分を載せるだけでよい」):
+    本人の既往歴が受診票に 1 件でもある人は、前からある本人の行のうち受診票に無いものを消す。家族歴も同じ (家族歴が 1 件でもある人だけ)。
+    受診票のその欄が空・「なし」の人は、その欄の前の内容に触らない (読み取り漏れで消さないため)。読めないコード・続柄がある人も、その欄は消さない。
+    消す行はプレビューにまとめて出し、元に戻す記録にも残す。-NoDelete を付けると消さない。
   ・家族の「なし」の行 (続柄 未設定) があれば、最初の 1 件でその行を置き換える。年齢・治療の列は、健診ナビの家族の行でいちばん多い入り方に合わせる。
   自覚症状は start.bat (form_import) の方で入る。
   例:
@@ -32,7 +36,8 @@ param(
     [string]$File,
     [string]$Ymd,                 # 受診日 (例 2026/11/24。複数はカンマ区切り)
     [int]$Max = 4,
-    [switch]$KeepOld,             # 付けると、前から健診ナビにある行は書き換えない (受診票との違いを知らせるだけ)
+    [switch]$KeepOld,             # 付けると、前から健診ナビにある行は書き換えない・消さない (受診票との違いを知らせるだけ)
+    [switch]$NoDelete,            # 付けると、今年の受診票に無い前の行を消さない (書き換え・追加だけ)
     [switch]$Commit,
     [string]$Undo,
     [string]$ConnFile = '\\KNSV\KenshinNavi\SQLSV\SQLServerConnect.txt',
@@ -60,6 +65,9 @@ function Split-List([string]$s) { return @(($s -split '[,、\s]+') | ForEach-Obj
 $PLACEHOLDER = @('', '特記事項なし', '特記事項無し', '特になし', '特に無し', 'なし', '無し')
 function Test-Placeholder([string]$s) { return ($PLACEHOLDER -contains ((Normalize-Text $s) -replace '[\s　]', '')) }
 function DbV($v) { if ($null -eq $v -or [string]$v -eq '') { return [DBNull]::Value } else { return $v } }
+# 消す行の元の値を記録に残すとき、NULL と空文字を区別する
+function RawV($v) { if ($null -eq $v -or $v -is [DBNull]) { return '<NULL>' } else { return [string]$v } }
+function UnRaw($v) { if ([string]$v -eq '<NULL>') { return [DBNull]::Value } else { return [string]$v } }
 
 # ---- コード表 ----
 $codeFile = Join-Path $PSScriptRoot 'form\kiou_codes.csv'
@@ -95,7 +103,12 @@ if ($Undo) {
             $tran = $conn.BeginTransaction()
             try {
                 Acquire-AppLock $conn $tran ("KIOU_IMPORT:" + $r.KOJIN_ID)
-                if ($r.種類 -eq '家族' -and $r.操作 -eq '追加') {
+                if ($r.操作 -eq '削除') {
+                    # 消した行を、同じ連番が空いていれば入れ直す
+                    $n = Invoke-DbExec $conn $tran "IF NOT EXISTS (SELECT 1 FROM T_KIOU WHERE KOJIN_ID = @k AND RENBAN = @r) INSERT INTO T_KIOU (KOJIN_ID, RENBAN, BYOMEI, BYOMEI_CD, CHIRYO, CHIRYOMEI, AGE, ZOKUGARA, ZOKUGARAMEI, BIKOU) VALUES (@k, @r, @b, @bc, @c, @cm, @a, @z, @zm, @bk)" `
+                        @{ k = $r.KOJIN_ID; r = $r.RENBAN; b = (UnRaw $r.前の病名); bc = (UnRaw $r.前の病名CD); c = (UnRaw $r.前の治療); cm = (UnRaw $r.前の治療名)
+                           a = $(if ([string]$r.前の年齢 -match '^-?\d+$') { [int]$r.前の年齢 } else { [DBNull]::Value }); z = (UnRaw $r.前の続柄CD); zm = (UnRaw $r.前の続柄名); bk = (UnRaw $r.前の備考) }
+                } elseif ($r.種類 -eq '家族' -and $r.操作 -eq '追加') {
                     $n = Invoke-DbExec $conn $tran "DELETE FROM T_KIOU WHERE KOJIN_ID = @k AND RENBAN = @r AND LTRIM(RTRIM(ISNULL(BYOMEI,''))) = @b AND LTRIM(RTRIM(ISNULL(CONVERT(varchar(20), ZOKUGARA),''))) = @z" @{ k = $r.KOJIN_ID; r = $r.RENBAN; b = $r.病名; z = $r.続柄CD }
                 } elseif ($r.種類 -eq '家族') {
                     $n = Invoke-DbExec $conn $tran "UPDATE T_KIOU SET BYOMEI = @ob, BYOMEI_CD = @oc, ZOKUGARA = @oz, ZOKUGARAMEI = @ozm WHERE KOJIN_ID = @k AND RENBAN = @r AND LTRIM(RTRIM(ISNULL(BYOMEI,''))) = @b AND LTRIM(RTRIM(ISNULL(CONVERT(varchar(20), ZOKUGARA),''))) = @z" `
@@ -198,10 +211,13 @@ try {
     $exist = @{}
     if ($people.Count -gt 0) {
         $kLit = (@($people.Values | ForEach-Object { $_.Kojin }) | Sort-Object -Unique) -join ','
-        foreach ($r in (Invoke-DbQuery $conn "SELECT KOJIN_ID, RENBAN, LTRIM(RTRIM(ISNULL(BYOMEI,''))) AS B, LTRIM(RTRIM(ISNULL(BYOMEI_CD,''))) AS BC, LTRIM(RTRIM(ISNULL(CHIRYO,''))) AS C, LTRIM(RTRIM(ISNULL(CHIRYOMEI,''))) AS CM, AGE, LTRIM(RTRIM(ISNULL(CONVERT(varchar(20), ZOKUGARA),''))) AS ZK, LTRIM(RTRIM(ISNULL(ZOKUGARAMEI,''))) AS ZKM FROM T_KIOU WHERE KOJIN_ID IN ($kLit) ORDER BY KOJIN_ID, RENBAN").Rows) {
+        foreach ($r in (Invoke-DbQuery $conn "SELECT KOJIN_ID, RENBAN, LTRIM(RTRIM(ISNULL(BYOMEI,''))) AS B, LTRIM(RTRIM(ISNULL(BYOMEI_CD,''))) AS BC, LTRIM(RTRIM(ISNULL(CHIRYO,''))) AS C, LTRIM(RTRIM(ISNULL(CHIRYOMEI,''))) AS CM, AGE, LTRIM(RTRIM(ISNULL(CONVERT(varchar(20), ZOKUGARA),''))) AS ZK, LTRIM(RTRIM(ISNULL(ZOKUGARAMEI,''))) AS ZKM, BYOMEI AS RB, BYOMEI_CD AS RBC, CHIRYO AS RC, CHIRYOMEI AS RCM, ZOKUGARA AS RZ, ZOKUGARAMEI AS RZM, BIKOU AS RBK FROM T_KIOU WHERE KOJIN_ID IN ($kLit) ORDER BY KOJIN_ID, RENBAN").Rows) {
             $kj = [string]$r.KOJIN_ID
-            if (-not $exist.ContainsKey($kj)) { $exist[$kj] = @{ MaxR = 0; Self = @{}; Count = 0; Holder = $null; Fam = @{}; FamHolder = $null; FamRows = @{} } }
+            if (-not $exist.ContainsKey($kj)) { $exist[$kj] = @{ MaxR = 0; Self = @{}; Count = 0; Holder = $null; Fam = @{}; FamHolder = $null; FamRows = @{}; All = @(); Keep = @{} } }
             $rn = [int]$r.RENBAN; if ($rn -gt $exist[$kj].MaxR) { $exist[$kj].MaxR = $rn }
+            # 前からある行の全部の控え (今年の受診票に無い行を消すとき・元に戻すときに使う)
+            $exist[$kj].All += @{ R = $rn; IsSelf = ([string]$r.ZK -eq '' -or [string]$r.ZK -eq '0'); B = [string]$r.B; ZKM = [string]$r.ZKM
+                Raw = @{ B = (RawV $r.RB); BC = (RawV $r.RBC); C = (RawV $r.RC); CM = (RawV $r.RCM); A = $(if ($r.AGE -is [DBNull]) { '' } else { [string][int]$r.AGE }); Z = (RawV $r.RZ); ZM = (RawV $r.RZM); BK = (RawV $r.RBK) } }
             if ([string]$r.ZK -eq '' -or [string]$r.ZK -eq '0') {
                 if (Test-Placeholder ([string]$r.B)) {
                     if ($null -eq $exist[$kj].Holder) { $exist[$kj].Holder = @{ R = $rn; B = [string]$r.B; BC = [string]$r.BC; C = [string]$r.C; CM = [string]$r.CM; A = $(if ($r.AGE -eq [DBNull]::Value) { '' } else { [string]$r.AGE }) } }
@@ -212,7 +228,7 @@ try {
                 if ((Test-Placeholder ([string]$r.B)) -or [string]$r.BC -eq '0') {
                     if ($null -eq $exist[$kj].FamHolder -and [string]$r.ZK -eq '9') { $exist[$kj].FamHolder = @{ R = $rn; B = [string]$r.B; BC = [string]$r.BC; ZK = [string]$r.ZK; ZKM = [string]$r.ZKM } }
                 } else {
-                    $exist[$kj].Fam[([string]$r.B + '|' + [string]$r.ZK)] = 1
+                    $exist[$kj].Fam[([string]$r.B + '|' + [string]$r.ZK)] = $rn
                     # 同じ病名が別の続柄で入っているかを見るための控え (病名 → その行の一覧)
                     if (-not $exist[$kj].FamRows.ContainsKey([string]$r.B)) { $exist[$kj].FamRows[[string]$r.B] = @() }
                     $exist[$kj].FamRows[[string]$r.B] += @{ R = $rn; B = [string]$r.B; BC = [string]$r.BC; ZK = [string]$r.ZK; ZKM = [string]$r.ZKM; Used = $false }
@@ -245,8 +261,12 @@ try {
         if ($items.Count -eq 0 -and $famItems.Count -eq 0) { $noHist++; continue }
         if (-not $people.ContainsKey($uke)) { $notFound += $uke; continue }
         $p = $people[$uke]; $kj = $p.Kojin
-        if (-not $exist.ContainsKey($kj)) { $exist[$kj] = @{ MaxR = 0; Self = @{}; Count = 0; Holder = $null; Fam = @{}; FamHolder = $null; FamRows = @{} } }
+        if (-not $exist.ContainsKey($kj)) { $exist[$kj] = @{ MaxR = 0; Self = @{}; Count = 0; Holder = $null; Fam = @{}; FamHolder = $null; FamRows = @{}; All = @(); Keep = @{} } }
         $e = $exist[$kj]
+        $planStart = $plan.Count
+        $replaceMode = (-not $KeepOld -and -not $NoDelete)
+        # 今年の内容だけにするときは、本人の件数は「今年の受診票で残す・足す行」だけで数える (消す予定の前の行は数えない)
+        if ($replaceMode -and $items.Count -gt 0) { $e.Count = 0 }
         foreach ($it in $items) {
             $bn = 0; [void][int]::TryParse(($it.BC -replace '^0+(?=\d)', ''), [ref]$bn)
             $cn = -1; if ($it.Ch -ne '') { [void][int]::TryParse(($it.Ch -replace '^0+(?=\d)', ''), [ref]$cn) }
@@ -261,6 +281,8 @@ try {
             if ($e.Self.ContainsKey($rep.病名)) {
                 $rep.状態 = '既に入っています'
                 $had = $e.Self[$rep.病名]
+                if ($had -is [hashtable] -and $had.R -ge 0) { $e.Keep[[int]$had.R] = 1 }
+                if ($replaceMode -and $had -is [hashtable] -and $had.Old) { $e.Count++ }
                 if ($had -is [hashtable] -and $had.Old) {
                     # 前から健診ナビにある行。年齢・治療が受診票と違えば、受診票に合わせて書き換える (-KeepOld なら知らせるだけ)
                     $df = @(); $newAge = $had.A; $newC = $had.C; $newCM = $had.CM
@@ -284,7 +306,7 @@ try {
                 $plan += $rep; continue
             }
             if ($e.Count -ge $Max) { $rep.状態 = ("本人の既往歴が既に {0} 件" -f $Max); $plan += $rep; continue }
-            if ($null -ne $e.Holder) { $rep.操作 = '置換'; $rep.連番 = [string]$e.Holder.R; $rep.前 = $e.Holder; $e.Holder = $null }
+            if ($null -ne $e.Holder) { $rep.操作 = '置換'; $rep.連番 = [string]$e.Holder.R; $rep.前 = $e.Holder; $e.Keep[[int]$e.Holder.R] = 1; $e.Holder = $null }
             else { $e.MaxR++; $rep.操作 = '追加'; $rep.連番 = [string]$e.MaxR }
             $e.Self[$rep.病名] = @{ R = [int]$rep.連番; BC = $rep.病名CD; C = $rep.治療; A = $it.Age; CM = $rep.治療名; Old = $false }; $e.Count++
             $rep.状態 = 'OK'; $plan += $rep
@@ -307,7 +329,7 @@ try {
             if (-not $ZM.ContainsKey($it.Z)) { $rep.状態 = '続柄が読めていません (紙を見て Excel を直す)'; $plan += $rep; continue }
             $rep.続柄 = $ZM[$it.Z]
             $fk = $rep.病名 + '|' + $it.Z
-            if ($e.Fam.ContainsKey($fk)) { $rep.状態 = '既に入っています'; $plan += $rep; continue }
+            if ($e.Fam.ContainsKey($fk)) { $rep.状態 = '既に入っています'; if ([int]$e.Fam[$fk] -ge 0) { $e.Keep[[int]$e.Fam[$fk]] = 1 }; $plan += $rep; continue }
             # 同じ病名が別の続柄で前から入っている行 (その続柄が受診票に無い行) があれば、その行の続柄を受診票に合わせる。
             # 足してしまうと「胃がん(父)」「胃がん(祖父母)」が並ぶため。-KeepOld なら知らせるだけ。
             $cand = $null
@@ -317,16 +339,33 @@ try {
             if ($null -ne $cand) {
                 $oldName = $(if ($cand.ZKM -ne '') { $cand.ZKM } else { '続柄CD ' + $cand.ZK })
                 if ($KeepOld) { $rep.状態 = ("既にあり・続柄が違う (書き換えない): 健診ナビ「{0}」/ 受診票「{1}」" -f $oldName, $rep.続柄); $plan += $rep; continue }
-                $cand.Used = $true
+                $cand.Used = $true; $e.Keep[[int]$cand.R] = 1
                 $rep.操作 = '更新'; $rep.連番 = [string]$cand.R; $rep.変更 = ("続柄「{0}」→「{1}」" -f $oldName, $rep.続柄)
                 $rep.前 = @{ R = $cand.R; B = $cand.B; BC = $cand.BC; ZK = $cand.ZK; ZKM = $cand.ZKM }
-                [void]$e.Fam.Remove(($rep.病名 + '|' + $cand.ZK)); $e.Fam[$fk] = 1
+                [void]$e.Fam.Remove(($rep.病名 + '|' + $cand.ZK)); $e.Fam[$fk] = [int]$cand.R
                 $rep.状態 = 'OK'; $plan += $rep; continue
             }
-            if ($null -ne $e.FamHolder) { $rep.操作 = '置換'; $rep.連番 = [string]$e.FamHolder.R; $rep.前 = $e.FamHolder; $e.FamHolder = $null }
+            if ($null -ne $e.FamHolder) { $rep.操作 = '置換'; $rep.連番 = [string]$e.FamHolder.R; $rep.前 = $e.FamHolder; $e.Keep[[int]$e.FamHolder.R] = 1; $e.FamHolder = $null }
             else { $e.MaxR++; $rep.操作 = '追加'; $rep.連番 = [string]$e.MaxR }
-            $e.Fam[$fk] = 1
+            $e.Fam[$fk] = -1
             $rep.状態 = 'OK'; $plan += $rep
+        }
+        # ---- 今年の受診票の内容だけにする: 受診票に無い前の行を消す (欄ごと。その欄に 1 件でもあり、読めないものが無い人だけ) ----
+        if ($replaceMode) {
+            $mine = @(); for ($pi2 = $planStart; $pi2 -lt $plan.Count; $pi2++) { $mine += $plan[$pi2] }
+            foreach ($secSelf in @($true, $false)) {
+                $secName = $(if ($secSelf) { '本人' } else { '家族' })
+                $secRows = @($mine | Where-Object { $_.種類 -eq $secName })
+                if ($secRows.Count -eq 0) { continue }
+                if (@($secRows | Where-Object { $_.状態 -match '読め|表にありません' }).Count -gt 0) { continue }
+                foreach ($o in $e.All) {
+                    if ($o.IsSelf -ne $secSelf -or $e.Keep.ContainsKey([int]$o.R) -or $o.Deleted) { continue }
+                    $o.Deleted = $true
+                    $plan += New-Object PSObject -Property @{ 種類 = $secName; 続柄 = $o.ZKM; 続柄CD = $(if ($o.Raw.Z -eq '<NULL>') { '' } else { $o.Raw.Z.Trim() }); 受付番号 = $uke; 受診日 = $p.Ymd; 氏名 = $p.Name; PkSeq = $p.Pk; KOJIN_ID = $kj
+                        病名CD = $(if ($o.Raw.BC -eq '<NULL>') { '' } else { $o.Raw.BC.Trim() }); 病名 = $o.B; 年齢 = $o.Raw.A; 治療 = ''; 治療名 = $(if ($o.Raw.CM -eq '<NULL>') { '' } else { $o.Raw.CM.Trim() })
+                        操作 = '削除'; 連番 = [string]$o.R; 前 = $o; 状態 = 'OK'; 変更 = '今年の受診票に無いので消す' }
+                }
+            }
         }
     }
 
@@ -339,6 +378,12 @@ try {
         $upd | Sort-Object { [int]$_.受付番号 }, 種類 | Select-Object 受付番号, 氏名, 種類, 病名, 変更 | Format-Table -AutoSize -Wrap | Out-String -Width 260 | Write-Host
         Write-Host '   読み取りの読み違いで前の正しい内容を消さないよう、ここに出た行は紙と見比べてから y を押してください。書き換えたくないときは -KeepOld を付けて実行します。' -ForegroundColor Yellow
     }
+    $del = @($plan | Where-Object { $_.操作 -eq '削除' -and $_.状態 -eq 'OK' })
+    if ($del.Count -gt 0) {
+        Write-Host ("=== ★前から健診ナビに入っていて、今年の受診票に無いので消す行: {0} 件 ({1} 人) ===" -f $del.Count, @($del | Group-Object 受付番号).Count) -ForegroundColor Yellow
+        $del | Sort-Object { [int]$_.受付番号 }, 種類 | Select-Object 受付番号, 氏名, 種類, 続柄, 病名, 年齢, 治療名 | Format-Table -AutoSize -Wrap | Out-String -Width 260 | Write-Host
+        Write-Host '   消したくないときは -NoDelete を付けて実行します。消した行は 受診票既往歴_元に戻す.bat で戻せます。' -ForegroundColor Yellow
+    }
     $diff = @($plan | Where-Object { $_.状態 -like '既にあり・*' })
     if ($diff.Count -gt 0) {
         Write-Host ("=== 前から健診ナビに入っている内容と受診票が違うもの: {0} 件 ({1} 人) → 書き換えません。紙を見て、直すなら健診ナビの画面で ===" -f $diff.Count, @($diff | Group-Object 受付番号).Count) -ForegroundColor Yellow
@@ -346,23 +391,24 @@ try {
     }
     $ok = @($plan | Where-Object { $_.状態 -eq 'OK' })
     Write-Host '=== 病名ごとの件数 ===' -ForegroundColor Cyan
-    foreach ($g in ($ok | Group-Object 種類, 病名 | Sort-Object Count -Descending)) { Write-Host ("  {0,3} 件  {1}" -f $g.Count, $g.Name) }
+    foreach ($g in ($ok | Where-Object { $_.操作 -ne '削除' } | Group-Object 種類, 病名 | Sort-Object Count -Descending)) { Write-Host ("  {0,3} 件  {1}" -f $g.Count, $g.Name) }
     # 自動判定で変わるもの
-    $names = @($ok | Where-Object { $_.種類 -eq '本人' } | ForEach-Object { $_.病名 } | Sort-Object -Unique)
+    $names = @($ok | Where-Object { $_.種類 -eq '本人' -and $_.操作 -ne '削除' } | ForEach-Object { $_.病名 } | Sort-Object -Unique)
     if ($names.Count -gt 0) {
         $inList = "N'" + (($names | ForEach-Object { $_ -replace "'", "''" }) -join "',N'") + "'"
         $hit = Invoke-DbQuery $conn "SELECT LTRIM(RTRIM(h.BYOMEI)) AS B, LTRIM(RTRIM(h.KOMOKU_CD)) AS CD, MAX(m.MEISYO1) AS NM, LTRIM(RTRIM(ISNULL(h.HANTEI_KIGO,''))) AS H FROM T_KIOU_HANTEI h LEFT JOIN T_KOMOKU m ON LTRIM(RTRIM(m.KOMOKU_CD)) = LTRIM(RTRIM(h.KOMOKU_CD)) WHERE LTRIM(RTRIM(h.BYOMEI)) IN ($inList) GROUP BY LTRIM(RTRIM(h.BYOMEI)), LTRIM(RTRIM(h.KOMOKU_CD)), LTRIM(RTRIM(ISNULL(h.HANTEI_KIGO,''))) ORDER BY 1, 2"
         Write-Host ''
         Write-Host '=== 自動判定をかけたときに判定に効く病名 (健診ナビの対応表 T_KIOU_HANTEI) ===' -ForegroundColor Yellow
         foreach ($r in $hit.Rows) {
-            $n = @($ok | Where-Object { $_.種類 -eq '本人' -and $_.病名 -eq [string]$r.B }).Count
+            $n = @($ok | Where-Object { $_.種類 -eq '本人' -and $_.操作 -ne '削除' -and $_.病名 -eq [string]$r.B }).Count
             Write-Host ("  {0,-10} {1,3} 人 → {2} {3} が {4}" -f $r.B, $n, $r.CD, $r.NM, $r.H)
         }
     }
     Line
-    Write-Host ("入れる: {0} 件 ({1} 人。本人 {5} 件・家族 {6} 件) / 既往歴も家族歴もなし: {2} 人 / 要確認: {3} 件 / 健診ナビに見つからない受付番号: {4}" -f $ok.Count, @($ok | Group-Object KOJIN_ID).Count, $noHist,
+    Write-Host ("書く: {0} 件 ({1} 人。本人 {5} 件・家族 {6} 件。うち追加 {7}・書き換え {8}・消す {9}) / 既往歴も家族歴もなし: {2} 人 / 要確認: {3} 件 / 健診ナビに見つからない受付番号: {4}" -f $ok.Count, @($ok | Group-Object KOJIN_ID).Count, $noHist,
         @($plan | Where-Object { $_.状態 -ne 'OK' -and $_.状態 -ne '既に入っています' }).Count, $(if ($notFound.Count -gt 0) { $notFound -join ',' } else { 'なし' }),
-        @($ok | Where-Object { $_.種類 -eq '本人' }).Count, @($ok | Where-Object { $_.種類 -eq '家族' }).Count) -ForegroundColor Green
+        @($ok | Where-Object { $_.種類 -eq '本人' }).Count, @($ok | Where-Object { $_.種類 -eq '家族' }).Count,
+        @($ok | Where-Object { $_.操作 -eq '追加' }).Count, @($ok | Where-Object { $_.操作 -eq '置換' -or $_.操作 -eq '更新' }).Count, @($ok | Where-Object { $_.操作 -eq '削除' }).Count) -ForegroundColor Green
     if ($ambiguous.Count -gt 0) { Write-Host ("★同じ受付番号の予約が 2 件以上あって決められない番号 (入れません): {0}  → 受診日を 1 日だけ指定してやり直してください" -f (($ambiguous.Keys | Sort-Object { [int]$_ }) -join ', ')) -ForegroundColor Red }
     if ($notFound.Count -gt 0) { Write-Host '  見つからない番号は、受診日が違うか、健診ナビに受付番号がまだ入っていません。' -ForegroundColor Yellow }
     Line
@@ -386,7 +432,11 @@ try {
             Acquire-AppLock $conn $tran ("KIOU_IMPORT:" + $kj)
             foreach ($t in $grp.Group) {
                 $age = $(if ($t.年齢 -match '^\d+$') { [int]$t.年齢 } else { [DBNull]::Value })
-                if ($t.種類 -eq '家族' -and $t.操作 -ne '追加') {
+                if ($t.操作 -eq '削除') {
+                    # 今年の受診票に無い前の行を消す (病名が読んだときのままの行だけ)
+                    $n = Invoke-DbExec $conn $tran "DELETE FROM T_KIOU WHERE KOJIN_ID = @k AND RENBAN = @r AND LTRIM(RTRIM(ISNULL(BYOMEI,''))) = @ob" @{ k = $kj; r = [int]$t.連番; ob = $t.病名 }
+                }
+                elseif ($t.種類 -eq '家族' -and $t.操作 -ne '追加') {
                     # 置換 = 家族の「なし」の行を書き換える / 更新 = 同じ病名の行の続柄を受診票に合わせる。病名と続柄だけ書き換える (年齢・治療の列はその行のまま)
                     $n = Invoke-DbExec $conn $tran "UPDATE T_KIOU SET BYOMEI = @b, BYOMEI_CD = @bc, ZOKUGARA = @z, ZOKUGARAMEI = @zm WHERE KOJIN_ID = @k AND RENBAN = @r AND LTRIM(RTRIM(ISNULL(BYOMEI,''))) = @ob AND LTRIM(RTRIM(ISNULL(CONVERT(varchar(20), ZOKUGARA),''))) = @oz" `
                         @{ b = $t.病名; bc = $t.病名CD; z = $t.続柄CD; zm = $t.続柄; k = $kj; r = [int]$t.連番; ob = $t.前.B; oz = $t.前.ZK }
@@ -405,18 +455,21 @@ try {
                 }
                 if ($n -ne 1) { throw ("書込の影響行数が {0} でした ({1} / {2})。ロールバックします。" -f $n, $t.氏名, $t.病名) }
                 $undoRows += New-Object PSObject -Property @{ KOJIN_ID = $kj; RENBAN = $t.連番; 操作 = $t.操作; 病名 = $t.病名; 受付番号 = $t.受付番号; 氏名 = $t.氏名
-                    種類 = $t.種類; 続柄CD = $t.続柄CD; 前の続柄CD = $(if ($t.前 -and $t.種類 -eq '家族') { $t.前.ZK } else { '' }); 前の続柄名 = $(if ($t.前 -and $t.種類 -eq '家族') { $t.前.ZKM } else { '' })
-                    前の病名 = $(if ($t.前) { $t.前.B } else { '' }); 前の病名CD = $(if ($t.前) { $t.前.BC } else { '' }); 前の治療 = $(if ($t.前 -and $t.種類 -eq '本人') { $t.前.C } else { '' })
-                    前の治療名 = $(if ($t.前 -and $t.種類 -eq '本人') { $t.前.CM } else { '' }); 前の年齢 = $(if ($t.前 -and $t.種類 -eq '本人') { $t.前.A } else { '' }) }
+                    種類 = $t.種類; 続柄CD = $t.続柄CD; 前の備考 = $(if ($t.操作 -eq '削除') { $t.前.Raw.BK } else { '' })
+                    前の続柄CD = $(if ($t.操作 -eq '削除') { $t.前.Raw.Z } elseif ($t.前 -and $t.種類 -eq '家族') { $t.前.ZK } else { '' }); 前の続柄名 = $(if ($t.操作 -eq '削除') { $t.前.Raw.ZM } elseif ($t.前 -and $t.種類 -eq '家族') { $t.前.ZKM } else { '' })
+                    前の病名 = $(if ($t.操作 -eq '削除') { $t.前.Raw.B } elseif ($t.前) { $t.前.B } else { '' }); 前の病名CD = $(if ($t.操作 -eq '削除') { $t.前.Raw.BC } elseif ($t.前) { $t.前.BC } else { '' })
+                    前の治療 = $(if ($t.操作 -eq '削除') { $t.前.Raw.C } elseif ($t.前 -and $t.種類 -eq '本人') { $t.前.C } else { '' })
+                    前の治療名 = $(if ($t.操作 -eq '削除') { $t.前.Raw.CM } elseif ($t.前 -and $t.種類 -eq '本人') { $t.前.CM } else { '' })
+                    前の年齢 = $(if ($t.操作 -eq '削除') { $t.前.Raw.A } elseif ($t.前 -and $t.種類 -eq '本人') { $t.前.A } else { '' }) }
                 $done++
             }
             $tran.Commit()
-            Write-Host ("  [書込] {0} ({1}) : {2}" -f $grp.Group[0].氏名, $grp.Group[0].受付番号, (($grp.Group | ForEach-Object { "{0}({1})" -f $_.病名, $(if ($_.種類 -eq '家族') { $_.続柄 } else { $_.治療名 }) }) -join ' / ')) -ForegroundColor Green
+            Write-Host ("  [書込] {0} ({1}) : {2}" -f $grp.Group[0].氏名, $grp.Group[0].受付番号, (($grp.Group | ForEach-Object { "{0}{1}({2})" -f $(if ($_.操作 -eq '削除') { '[消す]' } else { '' }), $_.病名, $(if ($_.種類 -eq '家族') { $_.続柄 } else { $_.治療名 }) }) -join ' / ')) -ForegroundColor Green
         } catch { $tran.Rollback(); throw }
     }
-    if ($undoRows.Count -gt 0) { $undoRows | Select-Object KOJIN_ID, RENBAN, 種類, 操作, 病名, 続柄CD, 前の病名, 前の病名CD, 前の治療, 前の治療名, 前の年齢, 前の続柄CD, 前の続柄名, 受付番号, 氏名 | Export-Csv -Path $undoFile -NoTypeInformation -Encoding UTF8 }
+    if ($undoRows.Count -gt 0) { $undoRows | Select-Object KOJIN_ID, RENBAN, 種類, 操作, 病名, 続柄CD, 前の病名, 前の病名CD, 前の治療, 前の治療名, 前の年齢, 前の続柄CD, 前の続柄名, 前の備考, 受付番号, 氏名 | Export-Csv -Path $undoFile -NoTypeInformation -Encoding UTF8 }
     Write-Host ''
-    Write-Host ("[完了] {0} 件の既往歴・家族歴を入れました。記録: {1}" -f $done, $undoFile) -ForegroundColor Green
+    Write-Host ("[完了] {0} 件の既往歴・家族歴を書きました (追加・書き換え・消した行の合計)。記録: {1}" -f $done, $undoFile) -ForegroundColor Green
     if ($skipped.Count -gt 0) { Write-Host ("  ★健診ナビで開かれていて書けなかった受付番号: {0}" -f ($skipped -join ', ')) -ForegroundColor Red }
     Write-Host '   このあと自動判定をかけると、高血圧・糖尿病・高脂血症 (治療中) の人の判定が J などになります。元に戻すときは 受診票既往歴_元に戻す.bat。' -ForegroundColor Yellow
 }

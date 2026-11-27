@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>受診票の取込 説明書</title>
+<style>
+  :root { --ink:#1f2933; --sub:#52606d; --line:#d9e2ec; --bg:#ffffff; --soft:#f5f7fa; --accent:#0b6e4f; --warn:#b54708; --warnbg:#fff7e6; --stop:#b42318; --stopbg:#fef3f2; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:"Yu Gothic UI","Meiryo","Hiragino Kaku Gothic ProN",sans-serif; font-size:16px; line-height:1.75; }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 26px; margin: 8px 0 4px; }
+  .lead { color: var(--sub); margin: 0 0 20px; }
+  h2 { font-size: 20px; margin: 40px 0 10px; padding: 6px 12px; background: var(--soft); border-left: 6px solid var(--accent); }
+  h3 { font-size: 17px; margin: 24px 0 6px; }
+  ol, ul { padding-left: 1.5em; margin: 6px 0 12px; }
+  li { margin: 4px 0; }
+  code, .k { font-family: Consolas, "MS Gothic", monospace; background: var(--soft); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; font-size: 0.95em; word-break: break-all; }
+  .btn { display:inline-block; border:1px solid #9aa5b1; border-radius:4px; padding:0 8px; background:#fff; font-weight:600; white-space:nowrap; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0 16px; font-size: 15px; }
+  th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--soft); white-space: nowrap; }
+  .tablewrap { overflow-x: auto; }
+  .note, .warn, .stop { border-radius: 6px; padding: 10px 14px; margin: 12px 0; }
+  .note { background: var(--soft); border: 1px solid var(--line); }
+  .warn { background: var(--warnbg); border: 1px solid #f5c06a; }
+  .stop { background: var(--stopbg); border: 1px solid #f3a29a; }
+  .warn b, .stop b { color: var(--warn); } .stop b { color: var(--stop); }
+  .flow { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin: 10px 0 4px; padding:0; list-style:none; }
+  .flow li { border:1px solid var(--line); background:var(--soft); border-radius:6px; padding:6px 10px; margin:0; font-weight:600; }
+  .flow li.arrow { border:none; background:none; padding:0 2px; color:var(--sub); font-weight:400; }
+  .toc a { color: var(--accent); }
+  .small { color: var(--sub); font-size: 14px; }
+  @media print { main { max-width:none; padding:0; } h2 { break-after: avoid; } table, .note, .warn, .stop { break-inside: avoid; } a { color: inherit; text-decoration: none; } }
+</style>
+</head>
+<body>
+<main>
+<h1>受診票の取込 説明書</h1>
+<p class="lead">紙の受診票をスキャンして、健診ナビに入れるまでの手順（2026/11/27 版）</p>
+
+<ul class="flow">
+  <li>① スキャン</li><li class="arrow">→</li>
+  <li>② 読み取り（Excel を作る）</li><li class="arrow">→</li>
+  <li>③ Excel を確かめる</li><li class="arrow">→</li>
+  <li>④ 表面・自覚症状を取り込む</li><li class="arrow">→</li>
+  <li>⑤ 既往歴・家族歴を取り込む</li><li class="arrow">→</li>
+  <li>⑥ 自動判定</li>
+</ul>
+
+<div class="note toc">
+  <b>もくじ</b>
+  <a href="#s0">0. 使う道具</a> ／ <a href="#s1">1. スキャン</a> ／ <a href="#s2">2. 読み取り</a> ／ <a href="#s3">3. Excel を確かめる</a> ／
+  <a href="#s4">4. 表面・自覚症状</a> ／ <a href="#s5">5. 既往歴・家族歴</a> ／ <a href="#s6">6. 自動判定</a> ／
+  <a href="#s7">7. 一部だけ読み直す</a> ／ <a href="#s8">8. 元に戻す</a> ／ <a href="#s9">9. 困ったとき</a> ／ <a href="#s10">10. 守ること</a>
+</div>
+
+<h2 id="s0">0. 使う道具</h2>
+<div class="tablewrap">
+<table>
+  <tr><th>道具</th><th>場所</th><th>役目</th></tr>
+  <tr><td>読み取りアプリ<br><code>start_kensin_app_v5.bat</code></td><td>「受診票OCR_v5_一式」を展開したフォルダ</td><td>スキャンした PDF を読んで Excel にする</td></tr>
+  <tr><td>取込ツール<br><code>start.bat</code></td><td><code>C:\Users\User\Documents\excel_tools</code></td><td>Excel の表面（問診・計測など）と自覚症状を健診ナビに入れる</td></tr>
+  <tr><td>既往歴の取込<br><code>受診票既往歴取込.bat</code></td><td>同上</td><td>Excel の既往歴・家族歴を健診ナビに入れる</td></tr>
+  <tr><td>元に戻す<br><code>元に戻す.bat</code>／<code>受診票既往歴_元に戻す.bat</code></td><td>同上</td><td>入れたものを取り消す</td></tr>
+</table>
+</div>
+<div class="note">
+  <b>先に済ませておくこと</b>：健診ナビの予約に<b>受付番号</b>が入っていること。人の特定は「受診日＋受付番号」で行います。受付番号が入っていない人は「見つかりません」になります。
+</div>
+
+<h2 id="s1">1. スキャン</h2>
+<ol>
+  <li>受診票を <b>A3 横・200dpi</b> でスキャンして PDF にします。表と裏の両方を、紙の順番のまま入れます。</li>
+  <li>PDF を 1 つのフォルダに入れます（例 <code>C:\Users\User\Documents\2026新島PDF</code>）。</li>
+</ol>
+<ul>
+  <li>白紙のページは自動で飛ばします。上下が逆さまのページは自動で回します。</li>
+  <li>紙の大きさが違うページ（A4 など）は読まずに「未処理」と出ます。</li>
+  <li>受付番号が日ごとに 1 から振り直しの健診では、<b>受診日ごとにフォルダを分けて</b>ください。3 日で通し番号の健診（2026 年の新島）は、混ざっても別の人には入りません。</li>
+</ul>
+
+<h2 id="s2">2. 読み取り（Excel を作る）</h2>
+<ol>
+  <li><code>start_kensin_app_v5.bat</code> をダブルクリックします。</li>
+  <li>1 段目「PDF/画像フォルダ」の <span class="btn">選択</span> を押し、PDF を入れたフォルダを選んで「フォルダーの選択」を押します。<br><span class="small">この画面はフォルダだけが見えます。PDF が見えなくても正常です。</span></li>
+  <li>「PDF名」「ページ範囲」「マスク設定」は<b>空欄のまま</b>にします。</li>
+  <li><span class="btn">OCR実行</span> を押します。</li>
+  <li>終わると、同じフォルダに <code>フォルダ名_月日.xlsx</code> ができます。</li>
+</ol>
+<div class="tablewrap">
+<table>
+  <tr><th>目安</th><th>内容</th></tr>
+  <tr><td>時間</td><td>100 ページ（50 人分）で 10〜15 分</td></tr>
+  <tr><td>費用</td><td>1 人分（表と裏）で約 4〜5 円（2026/11 の実績。300 人で約 1,330 円）</td></tr>
+  <tr><td>氏名</td><td>氏名の欄はアプリが自動で黒く塗ってから送ります。塗った画像は「マスク済み_PDF名」フォルダに残ります</td></tr>
+</table>
+</div>
+<div class="warn">
+  ログに <code>429</code> や <code>prepayment credits are depleted</code> と出たら、<b>API の残高切れ</b>です。待っても直りません。→ <a href="#s9">9. 困ったとき</a> の「残高を足す」
+</div>
+
+<h2 id="s3">3. Excel を確かめる</h2>
+<p>できた Excel を開き、右の方の <b>「確認メモ」</b> の列を見ます。★ が付いた行は黄色になっています。</p>
+<div class="tablewrap">
+<table>
+  <tr><th>確認メモ</th><th>やること</th></tr>
+  <tr><td>★受付NOが読めない</td><td>紙を見て、A 列に受付番号を入れる</td></tr>
+  <tr><td>★受付NOが重複</td><td>紙を見て、正しい番号に直す</td></tr>
+  <tr><td>★表裏の受付NOが違う／★裏面なし／★表面なし</td><td>「元ファイル」の列のページを見て、表と裏の組み合わせを確かめる</td></tr>
+  <tr><td>★…未処理→紙を確認／★読み取り失敗</td><td>そのページを読み直す（<a href="#s7">7 章</a>）。数人なら紙を見て手で入れる</td></tr>
+  <tr><td>該当なしと記入の両方がある／続柄を確認／病名が合わない など</td><td>紙を見て、合っていなければその列を直す</td></tr>
+</table>
+</div>
+<ul>
+  <li>「裏面内容(確認用)」の列に、裏面の読み取り結果が文字で出ています。紙と見比べるときに使います。</li>
+  <li>A 列（受付番号）が空の行は、取込のときに自動で飛ばされます。消さなくて構いません。</li>
+  <li>直したら Excel を<b>保存して閉じます</b>（開いたままだと取込ツールが読めないことがあります）。</li>
+</ul>
+
+<h2 id="s4">4. 表面と自覚症状を取り込む（start.bat）</h2>
+<p>入るもの：問診 22 問、身長・体重・腹囲、血圧、視力、聴力、尿、診察・胸部X線・心電図の所見、自覚症状 1〜3。</p>
+<ol>
+  <li><code>excel_tools</code> の <code>start.bat</code> をダブルクリックします。「健診ナビ 検査結果取込」の画面が開きます。</li>
+  <li>1 段目「フォーム (Excel/CSV):」の右の <span class="btn">参照...</span> を押して、Excel を選びます。</li>
+  <li>「受付番号:」は<b>空欄</b>のままにします（空欄＝ファイルの全員）。</li>
+  <li>「受診日:」に <code>2026/11/22</code> の形で入れます。</li>
+  <li>「レイアウト:」は「自動判別 (おすすめ)」のままにします。</li>
+  <li><span class="btn">3. プレビュー</span> を押します。<b>まだ書き込まれません。</b></li>
+  <li>下の一覧を見ます（次の表）。</li>
+  <li>問題なければ <span class="btn">4. 書込実行</span> を押します。</li>
+  <li>1 つの Excel に複数の受診日の人が入っているときは、<b>受診日を変えて 4〜8 を繰り返します</b>。</li>
+</ol>
+<div class="tablewrap">
+<table>
+  <tr><th>プレビューの表示</th><th>意味</th><th>やること</th></tr>
+  <tr><td>レイアウトが「芝浦 受診票OCR v5 (80列・裏面つき)」</td><td>正しく判別されている</td><td>そのまま進む</td></tr>
+  <tr><td>OK</td><td>書き込める</td><td>—</td></tr>
+  <tr><td>受診者が見つかりません</td><td>その受診日にその受付番号の人がいない</td><td>別の受診日の人なら、受診日を変えた回で入る。どの日でも出るなら、受付番号が健診ナビに入っていない</td></tr>
+  <tr><td>枠なし</td><td>その人のコースにその検査が無い</td><td>書かれない。コースに無くて正しいなら、そのままでよい</td></tr>
+  <tr><td>変換表に無いコード</td><td>Excel の値が決まった形でない</td><td>Excel のその値を紙と見比べて直す</td></tr>
+  <tr><td>確認メモ・聴力備考に入力あり</td><td>読み取りアプリが「要確認」と書いた人</td><td>3 章の確認が済んでいるか見る</td></tr>
+</table>
+</div>
+<div class="warn">
+  <b>受診日を間違えない</b>こと。この Excel には氏名が入っていないので、日付を間違えても氏名で気付けません。健診ナビでその人の画面を開いたままだと、その人は飛ばされます。
+</div>
+<div class="note">
+  例（2026 年 11 月の新島）：受付番号 1〜121 は <code>2026/11/22</code>、122〜257 は <code>2026/11/23</code>、258 以降は <code>2026/11/24</code>。
+</div>
+
+<h2 id="s5">5. 既往歴と家族歴を取り込む（受診票既往歴取込.bat）</h2>
+<ol>
+  <li><code>excel_tools</code> の <code>受診票既往歴取込.bat</code> に、Excel をドラッグして落とします。</li>
+  <li>「受診日」と聞かれたら入れます。複数の日は <code>2026/11/22,2026/11/23,2026/11/24</code> のようにカンマで並べれば 1 回で済みます。</li>
+  <li>一覧（プレビュー）が出ます。「本人／家族」「続柄」「病名」「状態」を見ます。</li>
+  <li>よければ <code>y</code> と打って Enter を押します。それ以外のキーなら何も書きません。</li>
+</ol>
+<div class="tablewrap">
+<table>
+  <tr><th>入れ方の決まり</th><th>内容</th></tr>
+  <tr><td>本人の既往歴</td><td>1 人 4 件まで（結果票の枠が 4 つ）。最初の 1 件は「特記事項なし」の行を置き換える。同じ病名が既にあれば入れない</td></tr>
+  <tr><td>病名の名前</td><td>健診ナビの名前で入る（受診票の「脂質異常症」は「高脂血症」）。自動判定がこの名前で引くため</td></tr>
+  <tr><td>家族歴</td><td>続柄ごとに 1 行。「父と母」なら 2 行。同じ病名・同じ続柄が既にあれば入れない。「なし」の行は最初の 1 件で置き換える</td></tr>
+  <tr><td>続柄が読めていない</td><td>入れずに「紙を見て Excel を直す」と出る</td></tr>
+  <tr><td>見つからない受付番号</td><td>受診日が違うか、健診ナビに受付番号が入っていない</td></tr>
+</table>
+</div>
+
+<h2 id="s6">6. 自動判定</h2>
+<p>全部入れ終わってから、健診ナビで自動判定をかけます。既往歴に高血圧・糖尿病・高脂血症（治療中）がある人は、判定が J（治療中）などになります。</p>
+
+<h2 id="s7">7. 一部のページだけ読み直す</h2>
+<p>途中で止まった、読み取りに失敗したページがある、というときに使います。</p>
+<ol>
+  <li><code>start_kensin_app_v5.bat</code> で起動します。</li>
+  <li>2 段目「PDF名」の右の <span class="btn">選択</span> を押し、読み直す PDF を選びます（フォルダ欄も自動で入ります）。</li>
+  <li>「ページ範囲」に <code>101-198</code> のように入れます。飛び飛びなら <code>35,101-198</code> と書けます。</li>
+  <li><span class="btn">OCR実行</span> を押します。</li>
+</ol>
+<ul>
+  <li>出力の Excel は名前の最後に <code>_PDF名_p101-198</code> が付きます。前の Excel は上書きされません。</li>
+  <li>ページ番号は、Excel の「元ファイル」の列（<code>…pdf p101</code>）で分かります。1 人は表と裏の 2 ページなので、範囲は<b>表のページから裏のページまで</b>にします。</li>
+  <li>読み直した Excel も、4 章・5 章と同じ手順で取り込みます。</li>
+</ul>
+
+<h2 id="s8">8. 元に戻す</h2>
+<div class="tablewrap">
+<table>
+  <tr><th>戻したいもの</th><th>使うもの</th><th>内容</th></tr>
+  <tr><td>4 章で入れた検査結果</td><td><code>元に戻す.bat</code></td><td>書く前に取った控え（<code>backup\T_KENSA_…csv</code>）から戻す</td></tr>
+  <tr><td>5 章で入れた既往歴・家族歴</td><td><code>受診票既往歴_元に戻す.bat</code></td><td>記録を選んで <code>y</code>。足した行は消し、置き換えた行は元の内容に戻す。あとで人が書き換えた行には触らない</td></tr>
+</table>
+</div>
+
+<h2 id="s9">9. 困ったとき</h2>
+<div class="tablewrap">
+<table>
+  <tr><th>起きたこと</th><th>原因と対処</th></tr>
+  <tr><td>読み取りで <code>429</code>／<code>prepayment credits are depleted</code></td><td><b>API の残高切れ。</b>下の「残高を足す」をしてから、7 章の手順で続きのページを読む</td></tr>
+  <tr><td>「★APIのエラーが 3 ページ続いたので…ここで止めます」</td><td>残高切れか通信の不調。ログに出た「ページ範囲 ○-○」でやり直す</td></tr>
+  <tr><td>ほとんどのページが「紙の大きさが…違うため未処理」</td><td>スキャンの設定が A3 横・200dpi になっていない。スキャンし直す</td></tr>
+  <tr><td>「〜がインストールされていません」</td><td><code>install_parts.bat</code> を 1 回実行してから、もう一度起動する</td></tr>
+  <tr><td>取込で全員「受診者が見つかりません」</td><td>受診日が違う、または健診ナビに受付番号が入っていない</td></tr>
+  <tr><td>取込のレイアウトが「芝浦巡回AIデータ (46列)」になる</td><td><code>excel_tools\form</code> に <code>mapping_shibaura_ai_v5.csv</code> が無い。置き直す（表面だけなら 46 列のままでも入る）</td></tr>
+  <tr><td>自覚症状が「変換表に無いコード」</td><td><code>excel_tools\form\code_map.csv</code> が古い。新しいものに置き換える</td></tr>
+</table>
+</div>
+<h3>残高を足す</h3>
+<ol>
+  <li>ブラウザで <code>https://aistudio.google.com</code> を開き、API キーを作った Google アカウントでログインします。</li>
+  <li>左のメニューの <b>「課金」</b> を開きます（赤い帯が出ていれば「[お支払い] に移動」でも同じ）。</li>
+  <li><b>「クレジットを購入」</b> を押し、金額を選んで買います。目安は「残りの人数 × 5 円」に余裕を足した額です（800 円で約 170 人分）。</li>
+  <li>「クレジット残高」が増えたのを確かめてから、読み取りアプリに戻ります。反映に数分かかることがあります。</li>
+</ol>
+
+<h2 id="s10">10. 守ること</h2>
+<ul>
+  <li>健診結果は要配慮個人情報です。Excel・PDF・「マスク済み」フォルダは院内の PC に置き、メールや外部のサービスに出さないでください。</li>
+  <li><code>kensin_app_v5.py</code> には API キーが書いてあります。人に渡したり、共有フォルダに置いたりしないでください。</li>
+  <li><code>excel_tools\form</code> の CSV は、Excel で開いて保存しないでください（文字が壊れて読めなくなることがあります）。</li>
+  <li>書き込む前に必ずプレビューを見ます。初めての形の Excel は、まず 1〜2 人分で試します。</li>
+</ul>
+<div class="warn">
+  <b>2026/11/27 時点の実績</b>：表面の取込（4 章のうち問診・計測など）は、これまでの巡回健診で使ってきた方法です。自覚症状の取込と、5 章の既往歴・家族歴の取込は今回新しく作った道具で、まだ本番で使った実績がありません。最初の回は、プレビューの内容を紙と見比べてから書き込んでください。
+</div>
+</main>
+</body>
+</html>

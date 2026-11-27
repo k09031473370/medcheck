@@ -37,6 +37,7 @@ param(
     [string]$Ymd,                 # 受診日 (例 2026/11/24。複数はカンマ区切り)
     [int]$Max = 4,
     [switch]$KeepOld,             # 付けると、前から健診ナビにある行は書き換えない・消さない (受診票との違いを知らせるだけ)
+    [switch]$PreviewOnly,         # 付けると、一覧を出すだけで終わる (書き込まない・聞かない)。受診票一括取込.bat が使う
     [switch]$NoDelete,            # 付けると、今年の受診票に無い前の行を消さない (書き換え・追加だけ)
     [switch]$Commit,
     [string]$Undo,
@@ -413,6 +414,7 @@ try {
     if ($notFound.Count -gt 0) { Write-Host '  見つからない番号は、受診日が違うか、健診ナビに受付番号がまだ入っていません。' -ForegroundColor Yellow }
     Line
     if ($ok.Count -eq 0) { Write-Host '入れるものがありません。'; return }
+    if ($PreviewOnly) { Write-Host '※ 一覧を出しただけです。まだ何も書き込んでいません。' -ForegroundColor Yellow; return }
     if (-not $Commit) {
         Write-Host '※ まだ何も書き込んでいません。' -ForegroundColor Yellow
         $a = Read-Host '書き込みますか (y = 書き込む / それ以外 = やめる)'

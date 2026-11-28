@@ -10,7 +10,11 @@
   入れ方:
   ・人の特定は 受診日 + 受付番号 (T_KENSIN)。受診日は -Ymd で指定する (聞かれる)。同じ受付番号が 2 日以上にあればその人は入れない。
   ・受診票の住所 (1 つながり) を、都道府県 / 市区町村・番地 / 建物名 に分ける。数字は半角、数字の間の横棒は「-」にそろえる。
-  ・都道府県が書かれていないときは、同じ郵便番号で健診ナビに入っている人の都道府県を使う。無ければ空のまま入れて一覧に「都道府県なし」と出す。
+  ・健診ナビの郵便番号の辞書 (T_JYUSYO: JS_POST / JS_JYUSYO1 = 都道府県 / JS_JYUSYO2 = 市区町村・町名。約 14.7 万行) を引く:
+    都道府県が書かれていないときは辞書の都道府県を使う。「本村1-2-3」のように市区町村が無いときは、辞書の「新島村本村」と重なるところから「新島村」を補う。
+    郵便番号が辞書に無い・都道府県が辞書と合わないときは、一覧の「注意」に ★ を付ける (読み違いに気づくため)。
+    辞書で決まらないときは、同じ郵便番号で健診ナビに入っている人の都道府県、島の町村名の順に使う。それでも無ければ空のまま入れて「都道府県なし」と出す。
+  ・T_KOJIN2 にトリガは無く、更新日時の欄も無い。予約 (T_KENSIN) に住所の写しは無い (2026/11/28 check123)。
   ・-Mode empty     = 空の人だけ入れる (健診ナビに住所が入っている人には触らない)
     -Mode overwrite = 受診票の住所で上書きする
     指定しなければ聞く。
@@ -245,14 +249,32 @@ try {
                 RawY = (RawV $r.YUUBIN); Raw1 = (RawV $r.JYUSYO1); Raw2 = (RawV $r.JYUSYO2); Raw3 = (RawV $r.JYUSYO3) }
         }
     }
-    # 住所を分ける。都道府県が無い人のために、同じ郵便番号の人の都道府県を引く
-    $zipWant = @{}
+    # 住所を分ける。郵便番号の辞書 (T_JYUSYO) と、同じ郵便番号の人の都道府県を引く
+    $zipWant = @{}; $zipAll = @{}
     foreach ($en in $entries) {
         $en.Sp = Split-Address $en.Addr
         $zp = Clean-Zip $en.Zip
         if ($zp -eq '' -and $en.Sp.Zip -ne '') { $zp = $en.Sp.Zip }
         $en.ZipNew = $zp; $en.ZipOk = ($zp -match '^[0-9]{7}$')
+        if ($en.ZipOk -and $en.Sp.Bad -eq '') { $zipAll[$zp] = 1 }
         if ($en.ZipOk -and $en.Sp.Bad -eq '' -and $en.Sp.J1 -eq '') { $zipWant[$zp] = 1 }
+    }
+    $zipDict = @{}; $dictOn = $false
+    if ($zipAll.Count -gt 0) {
+        try {
+            $zaLit = "'" + ((@($zipAll.Keys) | Sort-Object) -join "','") + "'"
+            foreach ($r in (Invoke-DbQuery $conn "SELECT JS_POST AS Z, LTRIM(RTRIM(ISNULL(JS_JYUSYO1,''))) AS P, LTRIM(RTRIM(ISNULL(JS_JYUSYO2,''))) AS C FROM T_JYUSYO WHERE JS_POST IN ($zaLit)").Rows) {
+                $zk = ([string]$r.Z).Trim()
+                if (-not $zipDict.ContainsKey($zk)) { $zipDict[$zk] = @{ Pref = ''; Cities = @() } }
+                $dp = ([string]$r.P) -replace '[\s　]', ''
+                if ($zipDict[$zk].Pref -eq '') { foreach ($pf in $PREFS) { if ($dp.StartsWith($pf)) { $zipDict[$zk].Pref = $pf; break } } }
+                $dc = ([string]$r.C) -replace '[\s　]', ''
+                if ($dc -ne '') { $zipDict[$zk].Cities += $dc }
+            }
+            $dictOn = $true
+        } catch {
+            Write-Host ("  (郵便番号の辞書 T_JYUSYO を引けませんでした。辞書なしで続けます: {0})" -f $_.Exception.Message) -ForegroundColor DarkGray
+        }
     }
     $zipPref = @{}
     if ($zipWant.Count -gt 0) {
@@ -279,8 +301,24 @@ try {
         if ($sp.Bad -ne '') { $row.状態 = ('要確認: ' + $sp.Bad + ' (入れません)'); $plan += $row; continue }
         $notes = @($sp.Notes)
         $n1 = $sp.J1; $n2 = $sp.J2; $n3 = $sp.J3
+        $dz = $null
+        if ($en.ZipOk -and $zipDict.ContainsKey($en.ZipNew)) { $dz = $zipDict[$en.ZipNew] }
+        if ($en.ZipOk -and $dictOn -and $null -eq $dz) { $notes += '★郵便番号が辞書に無い (読み違いかもしれない)' }
+        if ($n1 -ne '' -and $null -ne $dz -and $dz.Pref -ne '' -and $dz.Pref -ne $n1) { $notes += ('★郵便番号の都道府県 (' + $dz.Pref + ') と合わない') }
+        # 市区町村が書かれていない住所 (「本村1-2-3」) は、辞書の「新島村本村」と重なるところから「新島村」を補う
+        if ($null -ne $dz -and (($n2 -split '[0-9]')[0]) -notmatch '[市区町村郡]') {
+            $headPart = ''
+            foreach ($cty in $dz.Cities) {
+                for ($ov = [Math]::Min($cty.Length - 1, $n2.Length); $ov -ge 2; $ov--) {
+                    if ($n2.StartsWith($cty.Substring($cty.Length - $ov))) { $headPart = $cty.Substring(0, $cty.Length - $ov); break }
+                }
+                if ($headPart -ne '') { break }
+            }
+            if ($headPart -match '[市区町村郡]$' -and ($headPart.Length + $n2.Length) -le 100) { $n2 = $headPart + $n2; $notes += '市区町村は郵便番号から補った' }
+        }
         if ($n1 -eq '') {
-            if ($en.ZipOk -and $zipPref.ContainsKey($en.ZipNew)) { $n1 = $zipPref[$en.ZipNew]; $notes += '都道府県は同じ郵便番号の人から' }
+            if ($null -ne $dz -and $dz.Pref -ne '') { $n1 = $dz.Pref; $notes += '都道府県は郵便番号から' }
+            elseif ($en.ZipOk -and $zipPref.ContainsKey($en.ZipNew)) { $n1 = $zipPref[$en.ZipNew]; $notes += '都道府県は同じ郵便番号の人から' }
             else {
                 foreach ($isl in $TOKYO_ISLANDS) { if ($n2.StartsWith($isl)) { $n1 = '東京都'; $notes += '都道府県は町村名から'; break } }
                 if ($n1 -eq '') { $notes += '★都道府県なし' }

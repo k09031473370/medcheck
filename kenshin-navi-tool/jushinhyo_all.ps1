@@ -17,18 +17,22 @@
     -Force を付けると、エラーの項目だけ飛ばして残りを書く (取込画面の「エラーを飛ばす」と同じ)。
   ・くわしい内容は out\受診票一括_<日時>_*.txt に残る (氏名が入るので院内だけで使う)。
   ・元に戻すのは今までどおり: 表面は 元に戻す.bat、既往歴・家族歴は 受診票既往歴_元に戻す.bat。
+  ・Excel に「住所」の列があれば (v5.3)、住所も一緒に入れるかを聞く (jusho_v53.ps1 を呼ぶ)。
+    1 = 空の人だけ入れる / 2 = 受診票の住所で上書きする / それ以外 = 住所は入れない。元に戻すのは 受診票住所_元に戻す.bat。
 #>
 [CmdletBinding()]
 param(
     [string]$File,
     [string]$Ymd,                 # 受診日。複数はカンマ区切り (例 2026/11/22,2026/11/23,2026/11/24)
     [switch]$Force,               # エラーの項目だけ飛ばして、その人の残りの項目を書く
-    [switch]$SkipKiou             # 既往歴・家族歴を入れない (表面だけ)
+    [switch]$SkipKiou,            # 既往歴・家族歴を入れない (表面だけ)
+    [string]$JushoMode            # 住所の入れ方: empty = 空の人だけ / overwrite = 上書き / none = 入れない。指定しなければ聞く
 )
 $ErrorActionPreference = 'Stop'
 $here   = $PSScriptRoot
 $coreScript = Join-Path $here 'form_import.ps1'
 $kiouScript = Join-Path $here 'kiou_v5.ps1'
+$jushoScript = Join-Path $here 'jusho_v53.ps1'
 foreach ($need in @($coreScript, $kiouScript, (Join-Path $here 'xlsx_read.ps1'), (Join-Path $here 'form\mapping_shibaura_ai_v5.csv'), (Join-Path $here 'form\mapping_shibaura_ai_v53.csv'), (Join-Path $here 'form\code_map.csv'))) {
     if (-not (Test-Path $need)) { throw "必要なファイルがありません: $need" }
 }
@@ -115,11 +119,12 @@ if (-not (Test-Path $File)) { throw "ファイルが見つかりません: $File
 # ---- Excel の受付番号と「受診日」の欄を読む ----
 $rows = Read-FormCsv $File 'SJIS'
 $head = $rows[0]
-$colNo = 0; $colYmd = 0
+$colNo = 0; $colYmd = 0; $colAddr = 0
 for ($ci = 1; $ci -le $head.Count; $ci++) {
     $hn = Normalize-Text (Get-Field $head $ci)
     if ($hn -eq '受付NO' -and $colNo -eq 0) { $colNo = $ci }
     if ($hn -eq '受診日' -and $colYmd -eq 0) { $colYmd = $ci }
+    if ($hn -eq '住所' -and $colAddr -eq 0) { $colAddr = $ci }
 }
 if ($colNo -eq 0) { throw '見出しに「受付NO」がありません。受診票 OCR の Excel ではないようです。' }
 $persons = @()
@@ -151,6 +156,26 @@ if (-not $Ymd) {
         $Ymd = Read-Host '受診日 (複数はカンマ区切り。例 2026/11/22,2026/11/23,2026/11/24)'
     }
 }
+# ---- 住所 (v5.3 の Excel にだけ列がある) を一緒に入れるか ----
+$jushoOn = $false
+if ($colAddr -gt 0) {
+    if (-not (Test-Path $jushoScript)) {
+        Write-Host '  (Excel に住所の列がありますが、jusho_v53.ps1 が無いので住所は入れません)' -ForegroundColor DarkGray
+    } else {
+        if (-not $JushoMode) {
+            Write-Host ''
+            Write-Host '  この Excel には住所の列があります。住所も健診ナビに入れますか。'
+            Write-Host '    1 = 空の人だけ入れる (健診ナビに住所が入っている人には触らない)'
+            Write-Host '    2 = 受診票の住所で上書きする'
+            Write-Host '    それ以外 (Enter だけ) = 住所は入れない'
+            $ansJ = ([string](Read-Host '  番号')).Normalize([System.Text.NormalizationForm]::FormKC).Trim()
+            if ($ansJ -eq '1') { $JushoMode = 'empty' } elseif ($ansJ -eq '2') { $JushoMode = 'overwrite' } else { $JushoMode = 'none' }
+        }
+        $JushoMode = $JushoMode.Trim().ToLower()
+        if ($JushoMode -eq 'empty' -or $JushoMode -eq 'overwrite') { $jushoOn = $true }
+        elseif ($JushoMode -ne 'none') { throw '-JushoMode は empty・overwrite・none のどれかです。' }
+    }
+}
 $dateList = @()
 foreach ($part in ($Ymd -split '[,、\s]+')) {
     if ($part.Trim() -eq '') { continue }
@@ -179,12 +204,13 @@ $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
 
 Write-Host ''
 Write-Host ('=' * 76) -ForegroundColor Cyan
-Write-Host ' 受診票の一括取込 (表面・自覚症状 → 既往歴・家族歴)' -ForegroundColor Cyan
+Write-Host (' 受診票の一括取込 (表面・自覚症状 → 既往歴・家族歴' + $(if ($jushoOn) { ' → 住所' } else { '' }) + ')') -ForegroundColor Cyan
 Write-Host ('=' * 76) -ForegroundColor Cyan
 Write-Host ("  ファイル: {0}" -f [System.IO.Path]::GetFileName($File))
 Write-Host ("  受診日  : {0}" -f ($dateList -join ', '))
 foreach ($d in $dateList) { Write-Host ("    {0}: Excel の受診日がこの日の人 {1} 人" -f $d, @($persons | Where-Object { $_.Day -eq $d }).Count) -ForegroundColor DarkGray }
 if ($undecided.Count -gt 0) { Write-Host ("    受診日が決まらない人 {0} 人 → 上の受診日を順に見て、受付番号で探します" -f $undecided.Count) -ForegroundColor DarkGray }
+if ($jushoOn) { Write-Host ("  住所    : {0}" -f $(if ($JushoMode -eq 'empty') { '空の人だけ入れる' } else { '受診票の住所で上書きする' })) }
 Write-Host ''
 
 # ---- 1. 表面・自覚症状のプレビュー (受診日ごと) ----
@@ -250,11 +276,17 @@ if (-not $SkipKiou) {
     & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File $kiouScript -File $File -Ymd $ymdArg -PreviewOnly
     if ($LASTEXITCODE -ne 0 -and $null -ne $LASTEXITCODE) { throw '既往歴・家族歴の確認でエラーになったため、何も書き込まずに終わります。' }
 }
+if ($jushoOn) {
+    Write-Host ''
+    Write-Host '【2b】住所の確認 (まだ書き込みません)' -ForegroundColor Cyan
+    & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File $jushoScript -File $File -Ymd $ymdArg -Mode $JushoMode -PreviewOnly
+    if ($LASTEXITCODE -ne 0 -and $null -ne $LASTEXITCODE) { throw '住所の確認でエラーになったため、何も書き込まずに終わります。' }
+}
 
 # ---- 3. 確認して書く ----
 Write-Host ''
 Write-Host '※ ここまで、まだ何も書き込んでいません。' -ForegroundColor Yellow
-$ans = Read-Host '表面と既往歴・家族歴をまとめて書き込みますか (y = 書き込む / それ以外 = やめる)'
+$ans = Read-Host ('表面と既往歴・家族歴' + $(if ($jushoOn) { '・住所' } else { '' }) + 'をまとめて書き込みますか (y = 書き込む / それ以外 = やめる)')
 if (($ans -as [string]).Trim().ToLower() -ne 'y') { Write-Host 'やめました。何も変えていません。'; return }
 
 Write-Host ''
@@ -293,6 +325,13 @@ if (-not $SkipKiou) {
     Write-Host '【4】既往歴・家族歴を書き込み中' -ForegroundColor Cyan
     & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File $kiouScript -File $File -Ymd $ymdArg -Commit
     if ($LASTEXITCODE -ne 0 -and $null -ne $LASTEXITCODE) { Write-Host '★既往歴・家族歴の書き込みでエラーになりました。上の内容を確認してください (表面は入っています)。' -ForegroundColor Red }
+}
+
+if ($jushoOn) {
+    Write-Host ''
+    Write-Host '【5】住所を書き込み中' -ForegroundColor Cyan
+    & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File $jushoScript -File $File -Ymd $ymdArg -Mode $JushoMode -Commit
+    if ($LASTEXITCODE -ne 0 -and $null -ne $LASTEXITCODE) { Write-Host '★住所の書き込みでエラーになりました。上の内容を確認してください (表面と既往歴・家族歴は入っています。住所は何も変わっていません)。' -ForegroundColor Red }
 }
 
 Write-Host ''

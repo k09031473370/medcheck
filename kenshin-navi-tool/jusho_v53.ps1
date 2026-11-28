@@ -120,6 +120,13 @@ function Split-Address([string]$raw) {
     }
     $j3 = ''
     if ($idx -lt $toks.Count) { $j3 = ($toks[$idx..($toks.Count - 1)] -join ' ') }
+    # 番地のすぐあとに空白なしで建物名が続くとき (「117-3シーグリーン」) も、建物名を分ける。
+    # 番地らしい形 (横棒か 番・号 がある) のときだけ。「北12条西3丁目」のような町名の途中では分けない
+    $mb = [regex]::Match($j2, '^(.*?)([0-9]+(?:(?:-|丁目|番地|番|号|の)[0-9]*)*)([^0-9\-].*)$')
+    if ($mb.Success -and $mb.Groups[2].Value -match '-|番|号' -and $mb.Groups[3].Value.Length -ge 2 -and $mb.Groups[3].Value -notmatch '^(条|丁|番|号|線|地割|地先|先|以|の|区|町|村)') {
+        $j2 = $mb.Groups[1].Value + $mb.Groups[2].Value
+        $j3 = ($mb.Groups[3].Value + ' ' + $j3).Trim()
+    }
     if ($j3.Length -gt 30) {
         if (($j2.Length + 1 + $j3.Length) -le 100) { $j2 = $j2 + ' ' + $j3; $j3 = ''; $res.Notes += '建物名が長いので住所2にまとめた' }
         else { $res.Bad = '建物名が長すぎる (30 字まで)'; return $res }

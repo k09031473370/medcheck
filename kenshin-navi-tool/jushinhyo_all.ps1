@@ -19,6 +19,8 @@
   ・元に戻すのは今までどおり: 表面は 元に戻す.bat、既往歴・家族歴は 受診票既往歴_元に戻す.bat。
   ・Excel に「住所」の列があれば (v5.3)、住所も一緒に入れるかを聞く (jusho_v53.ps1 を呼ぶ)。
     1 = 空の人だけ入れる / 2 = 受診票の住所で上書きする / それ以外 = 住所は入れない。元に戻すのは 受診票住所_元に戻す.bat。
+  ・受診日・既往歴と家族歴を入れるか・住所を入れるか・エラーを飛ばすかは、最初に出る小さな画面でチェックして選ぶ。
+    画面を出せないとき、-NoDialog を付けたとき、-Ymd や -JushoMode を指定したときは、黒い画面で聞く (今までどおり)。
 #>
 [CmdletBinding()]
 param(
@@ -26,7 +28,8 @@ param(
     [string]$Ymd,                 # 受診日。複数はカンマ区切り (例 2026/11/22,2026/11/23,2026/11/24)
     [switch]$Force,               # エラーの項目だけ飛ばして、その人の残りの項目を書く
     [switch]$SkipKiou,            # 既往歴・家族歴を入れない (表面だけ)
-    [string]$JushoMode            # 住所の入れ方: empty = 空の人だけ / overwrite = 上書き / none = 入れない。指定しなければ聞く
+    [string]$JushoMode,           # 住所の入れ方: empty = 空の人だけ / overwrite = 上書き / none = 入れない。指定しなければ聞く
+    [switch]$NoDialog             # 選ぶ画面を出さず、黒い画面で聞く
 )
 $ErrorActionPreference = 'Stop'
 $here   = $PSScriptRoot
@@ -147,6 +150,114 @@ Write-Host ("  Excel: {0} 人 (受付番号のある行)" -f $persons.Count)
 if ($colYmd -gt 0) {
     Write-Host ("  Excel の「受診日」の欄: 年月日がそろっている {0} 人 / 日だけ・月日だけ {1} 人 / 空・読めない {2} 人" -f $nFull, $nPart, $nNone)
     if ($fullDates.Count -gt 0) { Write-Host ("  Excel から読めた受診日: {0}" -f ($fullDates -join ', ')) }
+}
+# ---- 選ぶ画面 (受診日・既往歴と家族歴・住所・エラーを飛ばす)。出せなければ黒い画面で聞く ----
+$jushoReady = ($colAddr -gt 0 -and (Test-Path $jushoScript))
+if (-not $NoDialog -and -not $Ymd -and -not $JushoMode) {
+    try {
+        Add-Type -AssemblyName System.Windows.Forms
+        Add-Type -AssemblyName System.Drawing
+        $form = New-Object System.Windows.Forms.Form
+        $form.Text = '受診票の一括取込'
+        $form.StartPosition = 'CenterScreen'
+        $form.ClientSize = New-Object System.Drawing.Size(620, 440)
+        $form.FormBorderStyle = 'FixedDialog'
+        $form.MaximizeBox = $false; $form.MinimizeBox = $false
+        $form.TopMost = $true
+        $form.Font = New-Object System.Drawing.Font('Meiryo UI', 10)
+        $gray = [System.Drawing.Color]::FromArgb(90, 90, 90)
+
+        $lblFile = New-Object System.Windows.Forms.Label
+        $lblFile.Location = New-Object System.Drawing.Point(20, 15); $lblFile.Size = New-Object System.Drawing.Size(580, 22)
+        $lblFile.Text = ("ファイル: {0}  ({1} 人)" -f [System.IO.Path]::GetFileName($File), $persons.Count)
+        $form.Controls.Add($lblFile)
+
+        $lblYmd = New-Object System.Windows.Forms.Label
+        $lblYmd.Location = New-Object System.Drawing.Point(20, 50); $lblYmd.Size = New-Object System.Drawing.Size(580, 22)
+        $lblYmd.Text = '受診日 (複数はカンマ区切り。例 2026/11/22,2026/11/23)'
+        $form.Controls.Add($lblYmd)
+        $tbYmd = New-Object System.Windows.Forms.TextBox
+        $tbYmd.Location = New-Object System.Drawing.Point(20, 75); $tbYmd.Size = New-Object System.Drawing.Size(580, 26)
+        $form.Controls.Add($tbYmd)
+        $lblYmdNote = New-Object System.Windows.Forms.Label
+        $lblYmdNote.Location = New-Object System.Drawing.Point(20, 106); $lblYmdNote.Size = New-Object System.Drawing.Size(580, 22)
+        $lblYmdNote.ForeColor = $gray
+        if ($colYmd -gt 0 -and $nFull -eq $persons.Count) {
+            $tbYmd.Text = ($fullDates -join ',')
+            $lblYmdNote.Text = 'Excel の受診日の欄から入れました。違っていたら直してください。'
+        } elseif ($colYmd -gt 0) {
+            $lblYmdNote.Text = ("Excel の受診日の欄: 年月日あり {0} 人 / 日だけ {1} 人 / 空 {2} 人。受診日を入れてください。" -f $nFull, $nPart, $nNone)
+        } else {
+            $lblYmdNote.Text = 'この Excel には受診日の欄がありません。受診日を入れてください。'
+        }
+        $form.Controls.Add($lblYmdNote)
+
+        $cbKiou = New-Object System.Windows.Forms.CheckBox
+        $cbKiou.Location = New-Object System.Drawing.Point(20, 144); $cbKiou.Size = New-Object System.Drawing.Size(580, 26)
+        $cbKiou.Text = '既往歴・家族歴も入れる'; $cbKiou.Checked = (-not $SkipKiou)
+        $form.Controls.Add($cbKiou)
+
+        $cbJusho = New-Object System.Windows.Forms.CheckBox
+        $cbJusho.Location = New-Object System.Drawing.Point(20, 178); $cbJusho.Size = New-Object System.Drawing.Size(580, 26)
+        $cbJusho.Text = $(if ($jushoReady) { '住所も入れる' } elseif ($colAddr -gt 0) { '住所も入れる (jusho_v53.ps1 が無いので選べません)' } else { '住所も入れる (この Excel には住所の列がありません)' })
+        $cbJusho.Enabled = $jushoReady; $cbJusho.Checked = $false
+        $form.Controls.Add($cbJusho)
+        $rbEmpty = New-Object System.Windows.Forms.RadioButton
+        $rbEmpty.Location = New-Object System.Drawing.Point(45, 208); $rbEmpty.Size = New-Object System.Drawing.Size(555, 24)
+        $rbEmpty.Text = '空の人だけ入れる (健診ナビに住所が入っている人には触らない)'; $rbEmpty.Checked = $true; $rbEmpty.Enabled = $false
+        $form.Controls.Add($rbEmpty)
+        $rbOver = New-Object System.Windows.Forms.RadioButton
+        $rbOver.Location = New-Object System.Drawing.Point(45, 234); $rbOver.Size = New-Object System.Drawing.Size(555, 24)
+        $rbOver.Text = '受診票の住所で上書きする'; $rbOver.Enabled = $false
+        $form.Controls.Add($rbOver)
+        $cbJusho.Add_CheckedChanged({ $rbEmpty.Enabled = $cbJusho.Checked; $rbOver.Enabled = $cbJusho.Checked })
+
+        $cbForce = New-Object System.Windows.Forms.CheckBox
+        $cbForce.Location = New-Object System.Drawing.Point(20, 272); $cbForce.Size = New-Object System.Drawing.Size(580, 26)
+        $cbForce.Text = 'エラーの項目だけ飛ばして、その人の残りの項目を書く'; $cbForce.Checked = [bool]$Force
+        $form.Controls.Add($cbForce)
+        $lblForce = New-Object System.Windows.Forms.Label
+        $lblForce.Location = New-Object System.Drawing.Point(40, 300); $lblForce.Size = New-Object System.Drawing.Size(560, 22)
+        $lblForce.ForeColor = $gray
+        $lblForce.Text = 'チェックしないと、エラーが 1 つでもある人の表面は書きません。'
+        $form.Controls.Add($lblForce)
+
+        $lblNote = New-Object System.Windows.Forms.Label
+        $lblNote.Location = New-Object System.Drawing.Point(20, 336); $lblNote.Size = New-Object System.Drawing.Size(580, 44)
+        $lblNote.Text = 'このあと黒い画面に確認の一覧が出ます。そこで y を押すまで、何も書き込みません。'
+        $form.Controls.Add($lblNote)
+
+        $btnOk = New-Object System.Windows.Forms.Button
+        $btnOk.Location = New-Object System.Drawing.Point(340, 388); $btnOk.Size = New-Object System.Drawing.Size(150, 36)
+        $btnOk.Text = '確認へ進む'
+        $btnOk.Add_Click({
+            if ($tbYmd.Text.Trim() -eq '') { [void][System.Windows.Forms.MessageBox]::Show($form, '受診日を入れてください。', '受診票の一括取込'); return }
+            $form.DialogResult = [System.Windows.Forms.DialogResult]::OK
+            $form.Close()
+        })
+        $form.Controls.Add($btnOk)
+        $btnNo = New-Object System.Windows.Forms.Button
+        $btnNo.Location = New-Object System.Drawing.Point(500, 388); $btnNo.Size = New-Object System.Drawing.Size(100, 36)
+        $btnNo.Text = 'やめる'; $btnNo.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+        $form.Controls.Add($btnNo)
+        $form.AcceptButton = $btnOk; $form.CancelButton = $btnNo
+
+        $dlgResult = $form.ShowDialog()
+        $pickYmd = $tbYmd.Text.Trim(); $pickKiou = $cbKiou.Checked; $pickForce = $cbForce.Checked
+        $pickJusho = $(if (-not $cbJusho.Checked) { 'none' } elseif ($rbOver.Checked) { 'overwrite' } else { 'empty' })
+        $form.Dispose()
+        if ($dlgResult -ne [System.Windows.Forms.DialogResult]::OK) { Write-Host 'やめました。何も変えていません。'; return }
+        $Ymd = $pickYmd
+        $JushoMode = $pickJusho
+        if (-not $pickKiou) { $SkipKiou = $true }
+        if ($pickForce) { $Force = $true }
+        Write-Host ("  選んだ内容: 受診日 {0} / 既往歴・家族歴 {1} / 住所 {2} / エラーの項目 {3}" -f $Ymd,
+            $(if ($pickKiou) { '入れる' } else { '入れない' }),
+            $(if ($pickJusho -eq 'empty') { '空の人だけ入れる' } elseif ($pickJusho -eq 'overwrite') { '上書きする' } else { '入れない' }),
+            $(if ($pickForce) { '飛ばして残りを書く' } else { 'ある人は書かない' }))
+    } catch {
+        Write-Host ("  (選ぶ画面を出せなかったので、黒い画面で聞きます: {0})" -f $_.Exception.Message) -ForegroundColor DarkGray
+    }
 }
 if (-not $Ymd) {
     if ($colYmd -gt 0 -and $nFull -eq $persons.Count) {
